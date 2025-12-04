@@ -60,8 +60,10 @@ class MATLABService {
             console.log("解析后的结果:", result);
 
             if (result.success) {
+              console.log("执行resolve，返回结果");
               resolve(result);
             } else {
+              console.log("执行reject，错误信息:", result.error);
               reject(new Error(result.error || "MATLAB调用失败"));
             }
           } catch (parseError) {

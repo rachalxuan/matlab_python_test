@@ -10,8 +10,6 @@ import {
   Divider,
   Spin,
   message,
-  Tabs,
-  Collapse,
   Typography,
   Select,
 } from "antd";
@@ -20,12 +18,10 @@ import {
   ReloadOutlined,
   DownloadOutlined,
   SettingOutlined,
-  LineChartOutlined,
   InfoCircleOutlined,
 } from "@ant-design/icons";
+import "./index.scss"; // 引入SCSS文件
 
-const { TabPane } = Tabs;
-const { Panel } = Collapse;
 const { Title, Text } = Typography;
 const { Option } = Select;
 
@@ -63,16 +59,14 @@ const MatlabFFT = () => {
 
   // 生成FFT图像
   const generateFFTImages = async (values) => {
+    console.log("参数:", values);
     setIsLoading(true);
     try {
-      // 这里调用你的Electron API
       const result = await window.electronAPI.generateFFTImages(values);
       if (result.success) {
         message.success("FFT分析完成！");
-        // 注意：新的API返回的结构是 result.data.images，不是 result.images
         setImages(result.data.images || {});
 
-        // 如果有计算参数，可以记录
         if (result.data.parameters) {
           console.log("MATLAB返回的参数:", result.data.parameters);
         }
@@ -86,6 +80,7 @@ const MatlabFFT = () => {
       setIsLoading(false);
     }
   };
+
   // 下载图像
   const downloadImage = (imageKey) => {
     if (images[imageKey]) {
@@ -130,49 +125,20 @@ const MatlabFFT = () => {
   };
 
   return (
-    <div
-      style={{
-        padding: "24px",
-        background: "#f5f7fa",
-        minHeight: "80vh",
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial',
-        // boxSizing: "border-box",
-        // margin: "0 auto",
-      }}
-    >
+    <div className="matlab-fft-container">
       {/* 页面标题区域 */}
-      <div
-        style={{
-          marginBottom: "24px",
-          padding: "16px 24px",
-          background: "white",
-          borderRadius: "8px",
-          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.06)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <div>
-            <Title level={3} style={{ margin: 0, color: "#1890ff" }}>
-              MATLAB FFT 频谱分析
-            </Title>
-            <Text type="secondary" style={{ fontSize: "14px" }}>
-              快速傅里叶变换频谱分析与可视化
-            </Text>
+      <div className="page-title">
+        <div className="title-content">
+          <div className="title-left">
+            <Title level={3}>MATLAB FFT 频谱分析</Title>
+            <Text className="subtitle">快速傅里叶变换频谱分析与可视化</Text>
           </div>
-          <div style={{ display: "flex", gap: "8px" }}>
+          <div className="preset-buttons">
             {["音频分析", "振动分析", "通信信号"].map((preset) => (
               <Button
                 key={preset}
                 size="small"
                 onClick={() => applyPreset(preset)}
-                style={{ fontSize: "12px" }}
               >
                 {preset}
               </Button>
@@ -181,82 +147,36 @@ const MatlabFFT = () => {
         </div>
       </div>
 
-      <Row gutter={24}>
-        {/* 左侧参数区域 - 调整高度与右侧对齐 */}
+      <Row gutter={24} className="main-content">
+        {/* 左侧参数区域 */}
         <Col span={10}>
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              height: "100%",
-              gap: "20px",
-            }}
-          >
-            {/* 参数配置卡片 */}
+          <div className="parameter-container">
             <Card
+              className="parameter-card"
+              bordered={false}
               title={
-                <div style={{ display: "flex", alignItems: "center" }}>
-                  <SettingOutlined
-                    style={{ marginRight: "8px", color: "#1890ff" }}
-                  />
-                  <span style={{ fontSize: "16px", fontWeight: "500" }}>
-                    参数配置
-                  </span>
+                <div className="card-header">
+                  <SettingOutlined />
+                  <span>参数配置</span>
                 </div>
               }
-              bordered={false}
-              style={{
-                flex: 1,
-                borderRadius: "8px",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                display: "flex",
-                flexDirection: "column",
-              }}
-              bodyStyle={{
-                flex: 1,
-                display: "flex",
-                flexDirection: "column",
-                padding: "24px",
-              }}
             >
               <Form
                 form={form}
                 layout="vertical"
                 onFinish={generateFFTImages}
                 initialValues={initialParams}
-                style={{ flex: 1, display: "flex", flexDirection: "column" }}
+                className="parameter-form"
               >
-                <div
-                  style={{
-                    display: "flex",
-                    marginBottom: "20px",
-                    borderBottom: "1px solid #f0f0f0",
-                  }}
-                >
+                <div className="tab-nav">
                   <div
-                    style={{
-                      padding: "8px 16px",
-                      cursor: "pointer",
-                      borderBottom:
-                        activeTab === "basic" ? "2px solid #1890ff" : "none",
-                      color: activeTab === "basic" ? "#1890ff" : "#666",
-                      fontWeight: activeTab === "basic" ? "500" : "400",
-                      fontSize: "14px",
-                    }}
+                    className={`tab-item ${activeTab === "basic" ? "active" : ""}`}
                     onClick={() => setActiveTab("basic")}
                   >
                     基本参数
                   </div>
                   <div
-                    style={{
-                      padding: "8px 16px",
-                      cursor: "pointer",
-                      borderBottom:
-                        activeTab === "advanced" ? "2px solid #1890ff" : "none",
-                      color: activeTab === "advanced" ? "#1890ff" : "#666",
-                      fontWeight: activeTab === "advanced" ? "500" : "400",
-                      fontSize: "14px",
-                    }}
+                    className={`tab-item ${activeTab === "advanced" ? "active" : ""}`}
                     onClick={() => setActiveTab("advanced")}
                   >
                     高级设置
@@ -264,94 +184,47 @@ const MatlabFFT = () => {
                 </div>
 
                 {activeTab === "basic" ? (
-                  <div style={{ flex: 1, marginBottom: "24px" }}>
-                    <Row gutter={16}>
+                  <div className="form-content">
+                    <Row gutter={16} className="form-row">
                       <Col span={12}>
                         <Form.Item
                           label={
-                            <span
-                              style={{ fontSize: "13px", fontWeight: "500" }}
-                            >
+                            <span>
                               采样频率 (Hz)
-                              <InfoCircleOutlined
-                                style={{
-                                  marginLeft: "4px",
-                                  fontSize: "12px",
-                                  color: "#bfbfbf",
-                                }}
-                              />
+                              <InfoCircleOutlined />
                             </span>
                           }
                           name="fs"
                           rules={[{ required: true }]}
                         >
-                          <InputNumber
-                            style={{ width: "100%" }}
-                            size="large"
-                            placeholder="1000"
-                          />
+                          <InputNumber size="large" placeholder="1000" />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
                         <Form.Item
                           label={
-                            <span
-                              style={{ fontSize: "13px", fontWeight: "500" }}
-                            >
+                            <span>
                               数据点数
-                              <InfoCircleOutlined
-                                style={{
-                                  marginLeft: "4px",
-                                  fontSize: "12px",
-                                  color: "#bfbfbf",
-                                }}
-                              />
+                              <InfoCircleOutlined />
                             </span>
                           }
                           name="n"
                           rules={[{ required: true }]}
                         >
-                          <InputNumber
-                            style={{ width: "100%" }}
-                            size="large"
-                            placeholder="1024"
-                          />
+                          <InputNumber size="large" placeholder="1024" />
                         </Form.Item>
                       </Col>
                     </Row>
 
-                    <Row gutter={16}>
+                    <Row gutter={16} className="form-row">
                       <Col span={12}>
-                        <Form.Item
-                          label={
-                            <span
-                              style={{ fontSize: "13px", fontWeight: "500" }}
-                            >
-                              频率1 (Hz)
-                            </span>
-                          }
-                          name="freq1"
-                        >
-                          <InputNumber
-                            style={{ width: "100%" }}
-                            size="large"
-                            placeholder="50"
-                          />
+                        <Form.Item label="频率1 (Hz)" name="freq1">
+                          <InputNumber size="large" placeholder="50" />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
-                        <Form.Item
-                          label={
-                            <span
-                              style={{ fontSize: "13px", fontWeight: "500" }}
-                            >
-                              振幅1
-                            </span>
-                          }
-                          name="amp1"
-                        >
+                        <Form.Item label="振幅1" name="amp1">
                           <InputNumber
-                            style={{ width: "100%" }}
                             size="large"
                             placeholder="1.0"
                             step={0.1}
@@ -360,38 +233,15 @@ const MatlabFFT = () => {
                       </Col>
                     </Row>
 
-                    <Row gutter={16}>
+                    <Row gutter={16} className="form-row">
                       <Col span={12}>
-                        <Form.Item
-                          label={
-                            <span
-                              style={{ fontSize: "13px", fontWeight: "500" }}
-                            >
-                              频率2 (Hz)
-                            </span>
-                          }
-                          name="freq2"
-                        >
-                          <InputNumber
-                            style={{ width: "100%" }}
-                            size="large"
-                            placeholder="120"
-                          />
+                        <Form.Item label="频率2 (Hz)" name="freq2">
+                          <InputNumber size="large" placeholder="120" />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
-                        <Form.Item
-                          label={
-                            <span
-                              style={{ fontSize: "13px", fontWeight: "500" }}
-                            >
-                              振幅2
-                            </span>
-                          }
-                          name="amp2"
-                        >
+                        <Form.Item label="振幅2" name="amp2">
                           <InputNumber
-                            style={{ width: "100%" }}
                             size="large"
                             placeholder="0.5"
                             step={0.1}
@@ -401,15 +251,8 @@ const MatlabFFT = () => {
                     </Row>
                   </div>
                 ) : (
-                  <div style={{ flex: 1, marginBottom: "24px" }}>
-                    <Form.Item
-                      label={
-                        <span style={{ fontSize: "13px", fontWeight: "500" }}>
-                          窗函数类型
-                        </span>
-                      }
-                      name="windowType"
-                    >
+                  <div className="form-content">
+                    <Form.Item label="窗函数类型" name="windowType">
                       <Select size="large" defaultValue="hamming">
                         <Option value="hamming">汉明窗</Option>
                         <Option value="hann">汉宁窗</Option>
@@ -419,32 +262,16 @@ const MatlabFFT = () => {
                   </div>
                 )}
 
-                {/* 计算性能参数 */}
+                <Divider />
 
-                <Divider style={{ margin: "16px 0" }} />
-
-                {/* 操作按钮 */}
-                {/* 操作按钮 */}
-                <Space
-                  style={{
-                    width: "100%",
-                    justifyContent: "center",
-                    marginTop: "auto",
-                  }}
-                  size="large"
-                >
+                <Space className="action-buttons" size="large">
                   <Button
                     type="primary"
                     htmlType="submit"
                     icon={<PlayCircleOutlined />}
                     loading={isLoading}
                     size="large"
-                    style={{
-                      minWidth: "140px",
-                      height: "44px",
-                      borderRadius: "6px",
-                      fontSize: "16px",
-                    }}
+                    className="primary-btn"
                   >
                     {isLoading ? "分析中..." : "开始分析"}
                   </Button>
@@ -452,16 +279,10 @@ const MatlabFFT = () => {
                     icon={<ReloadOutlined />}
                     onClick={() => form.resetFields()}
                     size="large"
-                    style={{
-                      minWidth: "100px",
-                      height: "44px",
-                      borderRadius: "6px",
-                      fontSize: "16px",
-                    }}
+                    className="secondary-btn"
                   >
                     重置
                   </Button>
-                  {/* 添加测试连接按钮 */}
                   <Button
                     onClick={async () => {
                       try {
@@ -478,69 +299,28 @@ const MatlabFFT = () => {
                       }
                     }}
                     size="large"
-                    style={{
-                      minWidth: "120px",
-                      height: "44px",
-                      borderRadius: "6px",
-                      fontSize: "16px",
-                    }}
+                    className="test-btn"
                   >
                     测试连接
                   </Button>
                 </Space>
               </Form>
             </Card>
-
-            {/* 更多操作卡片 */}
           </div>
         </Col>
 
         {/* 右侧图像显示区域 */}
         <Col span={14}>
           <Spin spinning={isLoading} tip="正在生成FFT图像...">
-            <div
-              style={{
-                height: "100%",
-                display: "flex",
-                flexDirection: "column",
-                gap: "24px",
-              }}
-            >
+            <div className="image-display-area">
               <Row gutter={24}>
                 {/* 全频谱分析 */}
                 <Col span={12}>
-                  <Card
-                    bordered={false}
-                    style={{
-                      height: "420px",
-                      borderRadius: "8px",
-                      boxShadow: "0 2px 8px rgba(0, 0, 0, 0.06)",
-                      display: "flex",
-                      flexDirection: "column",
-                    }}
-                    bodyStyle={{
-                      flex: 1,
-                      display: "flex",
-                      flexDirection: "column",
-                      padding: "24px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        marginBottom: "20px",
-                      }}
-                    >
+                  <Card className="image-card" bordered={false}>
+                    <div className="card-header">
                       <div>
-                        <Title
-                          level={5}
-                          style={{ margin: 0, color: "#1f2937" }}
-                        >
-                          全频谱分析
-                        </Title>
-                        <Text type="secondary" style={{ fontSize: "12px" }}>
+                        <Title level={5}>全频谱分析</Title>
+                        <Text className="subtitle">
                           0 - fs/2 频率范围，线性坐标
                         </Text>
                       </div>
@@ -550,95 +330,30 @@ const MatlabFFT = () => {
                         icon={<DownloadOutlined />}
                         onClick={() => downloadImage("fig1")}
                         disabled={!images.fig1}
-                        style={{ fontSize: "12px" }}
+                        className="download-btn"
                       >
                         下载
                       </Button>
                     </div>
 
                     <div
-                      style={{
-                        flex: 1,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: "#fafafa",
-                        borderRadius: "8px",
-                        border: "1px dashed #d9d9d9",
-                        padding: "20px",
-                      }}
+                      className={`image-container ${images.fig1 ? "filled" : "empty"}`}
                     >
                       {images.fig1 ? (
-                        <div
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            textAlign: "center",
-                          }}
-                        >
-                          <img
-                            src={`data:image/png;base64,${images.fig1}`}
-                            alt="全频谱分析"
-                            style={{
-                              maxWidth: "100%",
-                              maxHeight: "100%",
-                              objectFit: "contain",
-                            }}
-                          />
-                        </div>
+                        <img
+                          src={`data:image/png;base64,${images.fig1}`}
+                          alt="全频谱分析"
+                        />
                       ) : (
-                        <div
-                          style={{
-                            textAlign: "center",
-                            color: "#8c8c8c",
-                            width: "100%",
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: "64px",
-                              height: "64px",
-                              borderRadius: "50%",
-                              background: "#f0f0f0",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              margin: "0 auto 16px",
-                              color: "#bfbfbf",
-                              fontSize: "20px",
-                            }}
-                          >
-                            📊
-                          </div>
-                          <div
-                            style={{
-                              fontSize: "16px",
-                              fontWeight: "500",
-                              marginBottom: "8px",
-                            }}
-                          >
-                            等待生成图像
-                          </div>
-                          <div
-                            style={{
-                              fontSize: "13px",
-                              color: "#999",
-                              lineHeight: "1.5",
-                            }}
-                          >
+                        <>
+                          <div className="placeholder-icon">📊</div>
+                          <div className="placeholder-title">等待生成图像</div>
+                          <div className="placeholder-description">
                             设置参数并点击
-                            <span
-                              style={{
-                                color: "#1890ff",
-                                fontWeight: "500",
-                                margin: "0 4px",
-                              }}
-                            >
-                              "开始分析"
-                            </span>
+                            <span className="highlight">"开始分析"</span>
                             生成频谱图
                           </div>
-                        </div>
+                        </>
                       )}
                     </div>
                   </Card>
@@ -646,38 +361,11 @@ const MatlabFFT = () => {
 
                 {/* Nyquist频率分析 */}
                 <Col span={12}>
-                  <Card
-                    bordered={false}
-                    style={{
-                      height: "420px",
-                      borderRadius: "8px",
-                      boxShadow: "0 2px 8px rgba(0, 0, 0, 0.06)",
-                      display: "flex",
-                      flexDirection: "column",
-                    }}
-                    bodyStyle={{
-                      flex: 1,
-                      display: "flex",
-                      flexDirection: "column",
-                      padding: "24px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        marginBottom: "20px",
-                      }}
-                    >
+                  <Card className="image-card" bordered={false}>
+                    <div className="card-header">
                       <div>
-                        <Title
-                          level={5}
-                          style={{ margin: 0, color: "#1f2937" }}
-                        >
-                          Nyquist频率分析
-                        </Title>
-                        <Text type="secondary" style={{ fontSize: "12px" }}>
+                        <Title level={5}>Nyquist频率分析</Title>
+                        <Text className="subtitle">
                           0 - fs/2 频率范围，对数坐标
                         </Text>
                       </div>
@@ -687,95 +375,30 @@ const MatlabFFT = () => {
                         icon={<DownloadOutlined />}
                         onClick={() => downloadImage("fig2")}
                         disabled={!images.fig2}
-                        style={{ fontSize: "12px" }}
+                        className="download-btn"
                       >
                         下载
                       </Button>
                     </div>
 
                     <div
-                      style={{
-                        flex: 1,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: "#fafafa",
-                        borderRadius: "8px",
-                        border: "1px dashed #d9d9d9",
-                        padding: "20px",
-                      }}
+                      className={`image-container ${images.fig2 ? "filled" : "empty"}`}
                     >
                       {images.fig2 ? (
-                        <div
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            textAlign: "center",
-                          }}
-                        >
-                          <img
-                            src={`data:image/png;base64,${images.fig2}`}
-                            alt="Nyquist频率分析"
-                            style={{
-                              maxWidth: "100%",
-                              maxHeight: "100%",
-                              objectFit: "contain",
-                            }}
-                          />
-                        </div>
+                        <img
+                          src={`data:image/png;base64,${images.fig2}`}
+                          alt="Nyquist频率分析"
+                        />
                       ) : (
-                        <div
-                          style={{
-                            textAlign: "center",
-                            color: "#8c8c8c",
-                            width: "100%",
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: "64px",
-                              height: "64px",
-                              borderRadius: "50%",
-                              background: "#f0f0f0",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              margin: "0 auto 16px",
-                              color: "#bfbfbf",
-                              fontSize: "20px",
-                            }}
-                          >
-                            📈
-                          </div>
-                          <div
-                            style={{
-                              fontSize: "16px",
-                              fontWeight: "500",
-                              marginBottom: "8px",
-                            }}
-                          >
-                            等待生成图像
-                          </div>
-                          <div
-                            style={{
-                              fontSize: "13px",
-                              color: "#999",
-                              lineHeight: "1.5",
-                            }}
-                          >
+                        <>
+                          <div className="placeholder-icon">📈</div>
+                          <div className="placeholder-title">等待生成图像</div>
+                          <div className="placeholder-description">
                             设置参数并点击
-                            <span
-                              style={{
-                                color: "#1890ff",
-                                fontWeight: "500",
-                                margin: "0 4px",
-                              }}
-                            >
-                              "开始分析"
-                            </span>
+                            <span className="highlight">"开始分析"</span>
                             生成频谱图
                           </div>
-                        </div>
+                        </>
                       )}
                     </div>
                   </Card>
@@ -787,21 +410,8 @@ const MatlabFFT = () => {
       </Row>
 
       {/* 底部提示信息 */}
-      <div
-        style={{
-          marginTop: "24px",
-          padding: "16px 24px",
-          background: "white",
-          borderRadius: "8px",
-          fontSize: "13px",
-          color: "#666",
-          textAlign: "center",
-          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.06)",
-        }}
-      >
-        <InfoCircleOutlined
-          style={{ marginRight: "8px", fontSize: "14px", color: "#1890ff" }}
-        />
+      <div className="bottom-hint">
+        <InfoCircleOutlined />
         MATLAB
         FFT分析基于您的参数设置生成频谱图像，确保参数设置合理以获得最佳分析结果。
       </div>
