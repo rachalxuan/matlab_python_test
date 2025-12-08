@@ -1,496 +1,198 @@
-// MatlabFFT.scss - 完整修复版
+// src/pages/MatlabFFT/index.scss
+$primary-color: #1677ff;
+$bg-color: #f0f2f5;
+$card-radius: 12px;
+$transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
 
-// 变量定义 - 确保在最顶部定义所有变量
-$primary-color: #1890ff;
-$secondary-color: #8c8c8c;
-$border-color: #d9d9d9;
-$background-color: #f5f5f5;
-$card-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-$font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-
-// 容器样式
 .matlab-fft-container {
     padding: 24px;
-    background: $background-color;
-    min-height: 80vh;
-    font-family: $font-family;
-}
+    background-color: $bg-color;
+    min-height: 100vh;
 
-// 页面标题区域
-.page-title {
-    margin-bottom: 24px;
-    padding: 16px 24px;
-    background: white;
-    border-radius: 8px;
-    box-shadow: $card-shadow;
-
-    .title-content {
+    // 顶部标题栏
+    .page-header {
+        background: #fff;
+        padding: 20px 32px;
+        border-radius: $card-radius;
+        box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+        margin-bottom: 24px;
         display: flex;
-        align-items: center;
         justify-content: space-between;
+        align-items: center;
+
+        .header-title {
+            h2 {
+                margin: 0;
+                font-size: 24px;
+                font-weight: 600;
+                color: #1f1f1f;
+            }
+
+            span {
+                color: #8c8c8c;
+                font-size: 14px;
+                margin-top: 4px;
+                display: block;
+            }
+        }
     }
 
-    .title-left {
-        h3 {
-            margin: 0;
-            color: $primary-color;
-        }
-
-        .subtitle {
-            color: $secondary-color;
-            font-size: 14px;
-        }
-    }
-
-    .preset-buttons {
+    // 主布局
+    .main-layout {
         display: flex;
-        gap: 8px;
+        gap: 24px;
+        align-items: flex-start;
+    }
 
-        button {
-            font-size: 12px;
+    // 左侧控制面板 (固定定位)
+    .control-panel {
+        width: 360px;
+        flex-shrink: 0;
+        position: sticky;
+        top: 24px;
+
+        .ant-card {
+            border-radius: $card-radius;
+            box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.08);
+            border: none;
+
+            .ant-card-head {
+                border-bottom: 1px solid #f0f0f0;
+                min-height: 56px;
+            }
+        }
+
+        .form-section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #1f1f1f;
+            margin: 20px 0 12px;
+            padding-left: 8px;
+            border-left: 3px solid $primary-color;
+            line-height: 1;
+
+            &:first-child {
+                margin-top: 0;
+            }
+        }
+
+        .submit-btn {
+            height: 40px;
+            font-size: 16px;
+            border-radius: 6px;
+            box-shadow: 0 4px 10px rgba(22, 119, 255, 0.2);
         }
     }
-}
 
-// 主内容区域
-.main-content {
-    .row-gutter {
-        gap: 24px;
-    }
-}
-
-// 参数配置卡片
-.parameter-card {
-    flex: 1;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-
-    .ant-card-body {
+    // 右侧结果区域
+    .results-panel {
         flex: 1;
+        min-width: 0; // 防止flex子项溢出
         display: flex;
         flex-direction: column;
-        padding: 24px;
-    }
+        gap: 24px;
 
-    .card-header {
-        display: flex;
-        align-items: center;
-        margin-bottom: 16px;
-
-        .anticon {
-            margin-right: 8px;
-            color: $primary-color;
-        }
-
-        span {
-            font-size: 16px;
-            font-weight: 500;
-        }
-    }
-
-    // 标签页样式
-    .tab-nav {
-        display: flex;
-        margin-bottom: 20px;
-        border-bottom: 1px solid #f0f0f0;
-
-        .tab-item {
-            padding: 8px 16px;
-            cursor: pointer;
-            font-size: 14px;
-            color: #666;
-            font-weight: 400;
-
-            &.active {
-                color: $primary-color;
-                font-weight: 500;
-                border-bottom: 2px solid $primary-color;
-            }
+        .result-card {
+            background: #fff;
+            border-radius: $card-radius;
+            padding: 24px;
+            box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.08);
+            transition: $transition;
+            border: 1px solid transparent;
 
             &:hover {
-                color: $primary-color;
-            }
-        }
-    }
-
-    // 表单样式
-    .parameter-form {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-
-        .form-row {
-            margin-bottom: 16px;
-
-            .ant-form-item-label {
-                label {
-                    font-size: 13px;
-                    font-weight: 500;
-
-                    .anticon {
-                        margin-left: 4px;
-                        font-size: 12px;
-                        color: #bfbfbf;
-                    }
-                }
+                box-shadow: 0 9px 28px -8px rgba(0, 0, 0, 0.12);
             }
 
-            .ant-input-number {
-                width: 100%;
-            }
-        }
-    }
-
-    // 操作按钮区域
-    .action-buttons {
-        width: 100%;
-        display: flex;
-        justify-content: center;
-        margin-top: auto;
-        gap: 16px;
-
-        .ant-btn {
-            border-radius: 6px;
-            font-size: 16px;
-            height: 44px;
-
-            &.primary-btn {
-                min-width: 140px;
-            }
-
-            &.secondary-btn {
-                min-width: 100px;
-            }
-
-            &.test-btn {
-                min-width: 120px;
-            }
-        }
-    }
-}
-
-// 图像显示区域
-.image-display-area {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-}
-
-// 图像卡片
-.image-card {
-    height: 420px;
-    border-radius: 8px;
-    box-shadow: $card-shadow;
-    display: flex;
-    flex-direction: column;
-
-    .ant-card-body {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        padding: 24px;
-    }
-
-    .card-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 20px;
-
-        h5 {
-            margin: 0;
-            color: #1f2937;
-        }
-
-        .subtitle {
-            color: $secondary-color;
-            font-size: 12px;
-        }
-
-        .download-btn {
-            font-size: 12px;
-
-            &.ant-btn[disabled] {
-                color: rgba(0, 0, 0, 0.25);
-            }
-        }
-    }
-
-    .image-container {
-        flex: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #fafafa;
-        border-radius: 8px;
-        border: 1px dashed $border-color;
-        padding: 20px;
-
-        &.empty {
-            text-align: center;
-            color: #8c8c8c;
-            width: 100%;
-
-            .placeholder-icon {
-                width: 64px;
-                height: 64px;
-                border-radius: 50%;
-                background: #f0f0f0;
+            .card-title {
                 display: flex;
+                justify-content: space-between;
                 align-items: center;
-                justify-content: center;
-                margin: 0 auto 16px;
-                color: #bfbfbf;
-                font-size: 20px;
-            }
+                margin-bottom: 20px;
 
-            .placeholder-title {
-                font-size: 16px;
-                font-weight: 500;
-                margin-bottom: 8px;
-            }
-
-            .placeholder-description {
-                font-size: 13px;
-                color: #999;
-                line-height: 1.5;
-
-                .highlight {
-                    color: $primary-color;
-                    font-weight: 500;
-                    margin: 0 4px;
+                h4 {
+                    margin: 0;
+                    font-size: 18px;
+                    color: #1f1f1f;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
                 }
             }
         }
+    }
 
-        &.filled {
-            width: 100%;
-            height: 100%;
+    // 图像容器优化
+    .image-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+
+        @media (max-width: 1400px) {
+            grid-template-columns: 1fr;
+        }
+
+        .image-box {
+            background: #fafafa;
+            border-radius: 8px;
+            border: 1px solid #f0f0f0;
+            padding: 16px;
             text-align: center;
+            min-height: 300px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
 
             img {
                 max-width: 100%;
-                max-height: 100%;
+                max-height: 350px;
                 object-fit: contain;
+                transition: transform 0.3s;
+
+                &:hover {
+                    transform: scale(1.02);
+                }
             }
-        }
-    }
-}
 
-// 底部提示信息
-.bottom-hint {
-    margin-top: 24px;
-    padding: 16px 24px;
-    background: white;
-    border-radius: 8px;
-    font-size: 13px;
-    color: #666;
-    text-align: center;
-    box-shadow: $card-shadow;
+            .empty-state {
+                color: #bfbfbf;
 
-    .anticon {
-        margin-right: 8px;
-        font-size: 14px;
-        color: $primary-color;
-    }
-}
-
-// ============ 新增样式部分 ============
-
-// 数据展示卡片
-.data-display-card {
-    margin-top: 24px;
-    border-radius: 8px;
-    box-shadow: $card-shadow;
-
-    .ant-card-head {
-        border-bottom: 1px solid $border-color;
-    }
-
-    .card-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        width: 100%;
-
-        .anticon {
-            margin-right: 8px;
-            color: $primary-color;
-        }
-
-        span {
-            font-size: 16px;
-            font-weight: 500;
-            flex: 1;
-        }
-
-        .data-view-controls {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-    }
-
-    .ant-card-body {
-        padding: 24px;
-    }
-}
-
-// 图表容器
-.data-chart {
-    .chart-placeholder {
-        text-align: center;
-        padding: 40px 20px;
-        background: #fafafa;
-        border-radius: 6px;
-        margin-top: 16px;
-        border: 1px dashed $border-color;
-
-        p {
-            margin: 16px 0 8px;
-            font-weight: 500;
-            color: #333;
-        }
-
-        small {
-            color: $secondary-color;
-        }
-    }
-}
-
-// 数据表格
-.data-table {
-    .ant-table {
-        font-size: 12px;
-    }
-}
-
-// 统计信息
-.data-stats {
-    .ant-statistic {
-        text-align: center;
-
-        .ant-statistic-title {
-            color: $secondary-color;
-            font-size: 12px;
-        }
-
-        .ant-statistic-content {
-            font-size: 24px;
-        }
-    }
-}
-
-// 卡片操作区域
-.card-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-// 处理状态样式
-.status-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 12px;
-    margin-left: 8px;
-
-    &.success {
-        background: #f6ffed;
-        border: 1px solid #b7eb8f;
-        color: #52c41a;
-    }
-
-    &.processing {
-        background: #e6f7ff;
-        border: 1px solid #91d5ff;
-        color: $primary-color;
-    }
-
-    &.error {
-        background: #fff2f0;
-        border: 1px solid #ffccc7;
-        color: #ff4d4f;
-    }
-}
-
-// 参数验证提示
-.parameter-hint {
-    font-size: 11px;
-    color: $secondary-color;
-    margin-top: 2px;
-}
-
-// 响应式调整
-@media (max-width: 1200px) {
-    .matlab-fft-container {
-        padding: 16px;
-    }
-
-    .page-title {
-        margin-bottom: 16px;
-        padding: 12px 16px;
-
-        .title-content {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 12px;
-        }
-
-        .preset-buttons {
-            width: 100%;
-            justify-content: flex-start;
-        }
-    }
-
-    .parameter-card {
-        .action-buttons {
-            flex-direction: column;
-
-            .ant-btn {
-                width: 100%;
-                margin-bottom: 8px;
-
-                &:last-child {
-                    margin-bottom: 0;
+                .anticon {
+                    font-size: 32px;
+                    margin-bottom: 8px;
                 }
             }
         }
     }
 
-    .image-card {
-        height: auto;
-        min-height: 300px;
+    // ECharts 容器
+    .chart-wrapper {
+        background: #fff;
+        min-height: 450px;
+        position: relative;
     }
 
-    .data-display-card {
-        .card-header {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 12px;
+    // 统计数据样式
+    .stat-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-bottom: 24px;
+        background: #fafafa;
+        padding: 20px;
+        border-radius: 8px;
 
-            .data-view-controls {
-                width: 100%;
-                justify-content: flex-start;
-                flex-wrap: wrap;
-            }
+        .ant-statistic-title {
+            font-size: 13px;
+            margin-bottom: 8px;
         }
-    }
-}
 
-@media (max-width: 768px) {
-    .main-content {
-        flex-direction: column;
-
-        .ant-col {
-            width: 100%;
-            max-width: 100%;
+        .ant-statistic-content-value {
+            font-size: 24px;
+            font-weight: 600;
         }
     }
 }

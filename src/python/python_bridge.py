@@ -1,107 +1,122 @@
-# python_bridge_json.py
 import matlab.engine
 import os
-import time
 import sys
 import json
 import base64
 
+# 辅助打印函数，信息会出现在 Electron 控制台
+
+
+def log(msg):
+    print(f"[Python Bridge] {msg}", file=sys.stderr)
+
 
 def generate_fft_images(params):
-    """生成FFT图像 - 使用MATLAB返回JSON的方式"""
     try:
-        # 从参数字典中提取参数
         fs = float(params['fs'])
-        n = int(params['n'])  # 确保是整数
+        n = int(params['n'])
         freq1 = float(params['freq1'])
         freq2 = float(params['freq2'])
         amp1 = float(params['amp1'])
         amp2 = float(params['amp2'])
 
-        print(f"调用MATLAB JSON函数: fs={fs}, n={n}, freq1={freq1}, freq2={freq2}, amp1={amp1}, amp2={amp2}",
-              file=sys.stderr)
-
-        # 调用MATLAB函数，返回JSON字符串
+        log("正在调用 MATLAB 函数...")
+        # 调用 MATLAB
         json_str = eng.FFT_function(fs, n, freq1, freq2, amp1, amp2, nargout=1)
 
-        # 直接将MATLAB返回的JSON字符串解析为Python字典
-        result = json.loads(json_str)
+        # 解析结果
+        try:
+            result = json.loads(json_str)
+        except json.JSONDecodeError:
+            log(f"MATLAB 返回了无效的 JSON: {json_str}")
+            return {"success": False, "error": "MATLAB JSON解析失败"}
 
-        # 检查是否成功
         if not result.get('success', False):
-            return result  # 直接返回错误结果
+            log(f"MATLAB 执行报错: {result.get('error')}")
+            return result
 
-        # 等待文件保存完成
-        time.sleep(1)
+        # === 关键：获取 MATLAB 实际保存图片的路径 ===
+        save_dir = result.get('save_dir')
+        log(f"MATLAB 返回图片目录: {save_dir}")
 
-        # 读取图像并转换为Base64
-        image_dir = r"E:\web_code\react\fft_project\react-fft\temp\fft_images"
+        if not save_dir or not os.path.exists(save_dir):
+            log(f"错误: 目录不存在 - {save_dir}")
+            # 尝试回退到脚本所在目录的相对路径
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.abspath(
+                os.path.join(current_dir, '..', '..'))
+            save_dir = os.path.join(project_root, 'temp', 'fft_images')
+            log(f"尝试备用路径: {save_dir}")
+
         image_files = ["fig1.png", "fig2.png"]
-
         images_base64 = {}
-        for i, filename in enumerate(image_files):
-            img_path = os.path.join(image_dir, filename)
-            if os.path.exists(img_path):
-                with open(img_path, "rb") as img_file:
-                    img_data = img_file.read()
-                    img_base64 = base64.b64encode(img_data).decode('utf-8')
-                    images_base64[f'fig{i + 1}'] = img_base64
-            else:
-                return {
-                    "success": False,
-                    "error": f"图像文件未生成：{img_path}",
-                    "images": None,
-                    "fft_data": None
-                }
 
-        # 将图像数据添加到结果中
+        for filename in image_files:
+            img_path = os.path.join(save_dir, filename)
+            log(f"正在读取图片: {img_path}")
+
+            if os.path.exists(img_path):
+                # 检查文件大小，避免读取空文件
+                if os.path.getsize(img_path) > 0:
+                    with open(img_path, "rb") as img_file:
+                        b64_str = base64.b64encode(
+                            img_file.read()).decode('utf-8')
+                        # 写入 keys: fig1, fig2
+                        key_name = os.path.splitext(filename)[0]
+                        images_base64[key_name] = b64_str
+                    log(f"读取成功: {filename}")
+                else:
+                    log(f"警告: 文件为空 - {img_path}")
+            else:
+                log(f"错误: 文件未找到 - {img_path}")
+
         result['images'] = images_base64
+
+        # 检查是否真的读取到了图片
+        if not images_base64:
+            log("警告: 没有读取到任何图片！")
+            result['warning'] = "No images found on disk"
 
         return result
 
     except Exception as e:
         import traceback
-        error_msg = f"Python端错误: {str(e)}\n{traceback.format_exc()}"
-        print(error_msg, file=sys.stderr)
-        return {
-            "success": False,
-            "error": str(e),
-            "images": None,
-            "fft_data": None
-        }
+        log(f"Python 异常: {str(e)}")
+        log(traceback.format_exc())
+        return {"success": False, "error": str(e)}
 
 
 if __name__ == "__main__":
     try:
-        # 1. 启动MATLAB引擎
-        eng = matlab.engine.start_matlab()
-
-        # 2. 添加MATLAB函数路径
-        eng.addpath(r"E:\web_code\react\fft_project\react-fft\src\python")
-        print("MATLAB引擎启动成功", file=sys.stderr)
-
-        # 3. 从命令行接收参数
         input_json = sys.argv[1]
+        output_file_path = sys.argv[2]
         params = json.loads(input_json)
 
-        # 4. 执行生成图像的逻辑
+        log("启动 MATLAB 引擎...")
+        eng = matlab.engine.start_matlab()
+
+        # 添加路径
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        eng.addpath(current_dir)
+        log(f"MATLAB 路径已添加: {current_dir}")
+
         result = generate_fft_images(params)
 
-        # 5. 输出JSON结果给Electron
-        print(json.dumps(result))
+        log(f"正在写入结果文件: {output_file_path}")
+        with open(output_file_path, 'w', encoding='utf-8') as f:
+            json.dump(result, f)
+
+        print("SUCCESS")
 
     except Exception as e:
-        import traceback
-
-        error_msg = f"脚本执行错误：{str(e)}\n{traceback.format_exc()}"
-        print(error_msg, file=sys.stderr)
-        print(json.dumps({
-            "success": False,
-            "error": str(e),
-            "images": None,
-            "fft_data": None
-        }))
+        log(f"主程序崩溃: {str(e)}")
+        # 即使崩溃也尝试写入错误信息，让前端看到
+        try:
+            with open(output_file_path, 'w', encoding='utf-8') as f:
+                json.dump(
+                    {"success": False, "error": f"Python Script Error: {str(e)}"}, f)
+        except:
+            pass
     finally:
-        # 确保MATLAB引擎关闭
         if 'eng' in locals():
             eng.quit()

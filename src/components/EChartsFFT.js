@@ -4,351 +4,145 @@ import * as echarts from "echarts";
 import "./EChartsFFT.scss";
 
 const EChartsFFT = ({ fftData, loading = false }) => {
-  const timeChartRef = useRef(null);
+  // 只需要一个 ref 来显示主图表（频谱）
   const freqChartRef = useRef(null);
-  const combinedChartRef = useRef(null);
 
   useEffect(() => {
-    if (!fftData) return;
-
-    // 1. 时域图
-    if (timeChartRef.current && fftData.timeDomain) {
-      const timeChart = echarts.init(timeChartRef.current);
-
-      const timeOption = {
-        title: {
-          text: "时域信号",
-          left: "center",
-          textStyle: {
-            fontSize: 16,
-            fontWeight: "bold",
-          },
-        },
-        tooltip: {
-          trigger: "axis",
-          formatter: (params) => {
-            const [param] = params;
-            return `时间: ${param.data[0].toFixed(3)} s<br/>幅度: ${param.data[1].toFixed(4)}`;
-          },
-        },
-        grid: {
-          left: "3%",
-          right: "4%",
-          bottom: "3%",
-          containLabel: true,
-        },
-        xAxis: {
-          type: "value",
-          name: "时间 (s)",
-          nameLocation: "middle",
-          nameGap: 25,
-          axisLine: {
-            lineStyle: {
-              color: "#999",
-            },
-          },
-        },
-        yAxis: {
-          type: "value",
-          name: "幅度",
-          nameLocation: "middle",
-          nameGap: 30,
-          axisLine: {
-            lineStyle: {
-              color: "#999",
-            },
-          },
-        },
-        series: [
-          {
-            data: fftData.timeDomain.time.map((t, i) => [
-              t,
-              fftData.timeDomain.signal[i],
-            ]),
-            type: "line",
-            smooth: true,
-            lineStyle: {
-              width: 2,
-              color: "#1890ff",
-            },
-            itemStyle: {
-              opacity: 0,
-            },
-            areaStyle: {
-              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                { offset: 0, color: "rgba(24, 144, 255, 0.6)" },
-                { offset: 1, color: "rgba(24, 144, 255, 0.1)" },
-              ]),
-            },
-            symbol: "circle",
-            symbolSize: 4,
-          },
-        ],
-      };
-
-      timeChart.setOption(timeOption);
-
-      // 响应式
-      const handleResize = () => timeChart.resize();
-      window.addEventListener("resize", handleResize);
-
-      return () => {
-        window.removeEventListener("resize", handleResize);
-        timeChart.dispose();
-      };
+    // 检查是否具备绘制频谱图的必要数据
+    if (
+      !fftData ||
+      !fftData.frequencyDomain ||
+      !fftData.frequencyDomain.frequencies
+    ) {
+      // 清理旧图表实例
+      if (freqChartRef.current) {
+        const chartInstance = echarts.getInstanceByDom(freqChartRef.current);
+        if (chartInstance) chartInstance.dispose();
+      }
+      return;
     }
 
-    // 2. 频域图
-    if (freqChartRef.current && fftData.frequencyDomain) {
-      const freqChart = echarts.init(freqChartRef.current);
+    const { frequencies, amplitudes } = fftData.frequencyDomain;
+    const sampleRate = fftData.statistics?.sample_rate;
 
-      // 标记峰值
-      const peaks = fftData.peaks || [];
-      const peakMarkPoints = peaks.map((peak) => ({
-        coord: [peak.freq, peak.amplitude],
+    // 初始化/获取 ECharts 实例
+    let freqChart = echarts.getInstanceByDom(freqChartRef.current);
+    if (!freqChart) {
+      freqChart = echarts.init(freqChartRef.current);
+    }
+
+    // 查找最大振幅和对应频率，用于标记峰值
+    const maxAmp = Math.max(...amplitudes);
+    const peakIndex = amplitudes.indexOf(maxAmp);
+    const peakFreq = frequencies[peakIndex];
+
+    const peakMarkPoints = [];
+    if (peakFreq) {
+      peakMarkPoints.push({
+        coord: [peakFreq, maxAmp],
         symbol: "pin",
         symbolSize: 30,
         label: {
           show: true,
-          formatter: `${peak.freq.toFixed(1)} Hz`,
+          formatter: `${peakFreq.toFixed(1)} Hz`,
           position: "top",
         },
         itemStyle: {
           color: "#ff4d4f",
         },
-      }));
-
-      const freqOption = {
-        title: {
-          text: "频域信号 (FFT)",
-          left: "center",
-          textStyle: {
-            fontSize: 16,
-            fontWeight: "bold",
-          },
-        },
-        tooltip: {
-          trigger: "axis",
-          formatter: (params) => {
-            const [param] = params;
-            return `频率: ${param.data[0].toFixed(2)} Hz<br/>幅度: ${param.data[1].toFixed(4)}`;
-          },
-        },
-        grid: {
-          left: "3%",
-          right: "4%",
-          bottom: "3%",
-          containLabel: true,
-        },
-        xAxis: {
-          type: "value",
-          name: "频率 (Hz)",
-          nameLocation: "middle",
-          nameGap: 25,
-          min: 0,
-          max: fftData.statistics?.sample_rate
-            ? fftData.statistics.sample_rate / 2
-            : null,
-          axisLine: {
-            lineStyle: {
-              color: "#999",
-            },
-          },
-        },
-        yAxis: {
-          type: "value",
-          name: "幅度",
-          nameLocation: "middle",
-          nameGap: 30,
-          axisLine: {
-            lineStyle: {
-              color: "#999",
-            },
-          },
-        },
-        series: [
-          {
-            data: fftData.frequencyDomain.frequencies.map((f, i) => [
-              f,
-              fftData.frequencyDomain.amplitudes[i],
-            ]),
-            type: "line",
-            smooth: false,
-            lineStyle: {
-              width: 2,
-              color: "#52c41a",
-            },
-            itemStyle: {
-              opacity: 0,
-            },
-            markPoint: {
-              data: peakMarkPoints,
-              symbol: "circle",
-              symbolSize: 8,
-              label: {
-                show: true,
-                position: "top",
-                color: "#ff4d4f",
-                fontWeight: "bold",
-              },
-            },
-            areaStyle: {
-              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                { offset: 0, color: "rgba(82, 196, 26, 0.6)" },
-                { offset: 1, color: "rgba(82, 196, 26, 0.1)" },
-              ]),
-            },
-          },
-        ],
-      };
-
-      freqChart.setOption(freqOption);
-
-      const handleResize = () => freqChart.resize();
-      window.addEventListener("resize", handleResize);
-
-      return () => {
-        window.removeEventListener("resize", handleResize);
-        freqChart.dispose();
-      };
+      });
     }
 
-    // 3. 组合图（时域+频域）
-    if (
-      combinedChartRef.current &&
-      fftData.timeDomain &&
-      fftData.frequencyDomain
-    ) {
-      const combinedChart = echarts.init(combinedChartRef.current);
-
-      const combinedOption = {
-        title: {
-          text: "信号综合分析",
-          left: "center",
-          textStyle: {
-            fontSize: 16,
-            fontWeight: "bold",
+    const freqOption = {
+      title: {
+        text: "FFT 频谱分析 (Nyquist 前)",
+        subtext: `采样率: ${sampleRate} Hz | 数据点: ${frequencies.length} | 最大振幅: ${maxAmp.toFixed(4)}`,
+        left: "center",
+        textStyle: {
+          fontSize: 16,
+          fontWeight: "bold",
+        },
+      },
+      tooltip: {
+        trigger: "axis",
+        // 优化 tooltip 格式，显示更准确的数字
+        formatter: (params) => {
+          const [param] = params;
+          return `频率: ${param.data[0].toFixed(2)} Hz<br/>幅度: ${param.data[1].toFixed(6)}`;
+        },
+      },
+      grid: {
+        left: "5%",
+        right: "5%",
+        top: "20%",
+        bottom: "10%",
+        containLabel: true,
+      },
+      xAxis: {
+        type: "value",
+        name: "频率 (Hz)",
+        nameLocation: "middle",
+        nameGap: 25,
+        min: 0,
+        // 最大频率限制在 Nyquist 频率 (fs/2)
+        max: sampleRate ? sampleRate / 2 : null,
+        axisLine: {
+          lineStyle: {
+            color: "#999",
           },
         },
-        tooltip: {
-          trigger: "axis",
-          axisPointer: {
-            type: "cross",
+      },
+      yAxis: {
+        type: "value",
+        name: "振幅",
+        nameLocation: "middle",
+        nameGap: 35,
+        axisLine: {
+          lineStyle: {
+            color: "#999",
           },
         },
-        legend: {
-          data: ["时域信号", "频域信号"],
-          top: "7%",
-        },
-        grid: [
-          {
-            left: "7%",
-            right: "3%",
-            top: "20%",
-            bottom: "55%",
-          },
-          {
-            left: "7%",
-            right: "3%",
-            top: "60%",
-            bottom: "5%",
-          },
-        ],
-        xAxis: [
-          {
-            type: "value",
-            gridIndex: 0,
-            name: "时间 (s)",
-            axisLine: {
-              lineStyle: {
-                color: "#999",
-              },
-            },
-          },
-          {
-            type: "value",
-            gridIndex: 1,
-            name: "频率 (Hz)",
-            min: 0,
-            max: fftData.statistics?.sample_rate
-              ? fftData.statistics.sample_rate / 2
-              : null,
-            axisLine: {
-              lineStyle: {
-                color: "#999",
-              },
-            },
-          },
-        ],
-        yAxis: [
-          {
-            type: "value",
-            gridIndex: 0,
-            name: "幅度",
-            axisLine: {
-              lineStyle: {
-                color: "#999",
-              },
-            },
-          },
-          {
-            type: "value",
-            gridIndex: 1,
-            name: "幅度",
-            axisLine: {
-              lineStyle: {
-                color: "#999",
-              },
-            },
-          },
-        ],
-        series: [
-          {
-            name: "时域信号",
-            type: "line",
-            xAxisIndex: 0,
-            yAxisIndex: 0,
-            data: fftData.timeDomain.time.map((t, i) => [
-              t,
-              fftData.timeDomain.signal[i],
+      },
+      series: [
+        {
+          // 关键修改：使用柱状图 (Bar) 更适合频谱显示
+          data: frequencies.map((f, i) => [f, amplitudes[i]]),
+          type: "bar",
+          barWidth: "95%",
+          itemStyle: {
+            // 添加渐变色，增强视觉效果
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: "#1890ff" },
+              { offset: 1, color: "#1677ff" },
             ]),
-            smooth: true,
-            lineStyle: {
-              width: 2,
-              color: "#1890ff",
-            },
-            showSymbol: false,
+            borderRadius: 4,
           },
-          {
-            name: "频域信号",
-            type: "line",
-            xAxisIndex: 1,
-            yAxisIndex: 1,
-            data: fftData.frequencyDomain.frequencies.map((f, i) => [
-              f,
-              fftData.frequencyDomain.amplitudes[i],
-            ]),
-            smooth: false,
-            lineStyle: {
-              width: 2,
-              color: "#52c41a",
+          markPoint: {
+            data: peakMarkPoints,
+            symbol: "circle",
+            symbolSize: 8,
+            label: {
+              show: true,
+              position: "top",
+              color: "#ff4d4f",
+              fontWeight: "bold",
             },
-            showSymbol: false,
           },
-        ],
-      };
+        },
+      ],
+    };
 
-      combinedChart.setOption(combinedOption);
+    freqChart.setOption(freqOption);
 
-      const handleResize = () => combinedChart.resize();
-      window.addEventListener("resize", handleResize);
+    // 响应式
+    const handleResize = () => freqChart.resize();
+    window.addEventListener("resize", handleResize);
 
-      return () => {
-        window.removeEventListener("resize", handleResize);
-        combinedChart.dispose();
-      };
-    }
-  }, [fftData]);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      freqChart.dispose();
+    };
+  }, [fftData, loading]);
 
   if (loading) {
     return (
@@ -359,6 +153,7 @@ const EChartsFFT = ({ fftData, loading = false }) => {
     );
   }
 
+  // 只有在没有数据时才显示空状态
   if (!fftData) {
     return (
       <div className="echarts-empty">
@@ -371,30 +166,15 @@ const EChartsFFT = ({ fftData, loading = false }) => {
     );
   }
 
+  // 渲染单个图表容器
   return (
     <div className="echarts-container">
       <div className="chart-row">
-        <div className="chart-container">
-          <div
-            ref={timeChartRef}
-            className="chart"
-            style={{ height: "300px" }}
-          />
-        </div>
-        <div className="chart-container">
+        <div className="chart-container full-width">
           <div
             ref={freqChartRef}
             className="chart"
-            style={{ height: "300px" }}
-          />
-        </div>
-      </div>
-      <div className="chart-row">
-        <div className="chart-container full-width">
-          <div
-            ref={combinedChartRef}
-            className="chart"
-            style={{ height: "400px" }}
+            style={{ height: "450px" }} // 调整高度以适应单个大图表
           />
         </div>
       </div>
