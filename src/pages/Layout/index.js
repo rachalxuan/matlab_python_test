@@ -15,21 +15,21 @@ import { clearUserInfo, fetchUserInfo } from "@/store/modules/user";
 const { Header, Sider } = Layout;
 
 const items = [
-  {
-    label: "首页",
-    key: "/",
-    icon: <HomeOutlined />,
-  },
-  {
-    label: "文章管理",
-    key: "/article",
-    icon: <DiffOutlined />,
-  },
-  {
-    label: "创建文章",
-    key: "/publish",
-    icon: <EditOutlined />,
-  },
+  //   {
+  //     label: "首页",
+  //     key: "/",
+  //     icon: <HomeOutlined />,
+  //   },
+  //   {
+  //     label: "文章管理",
+  //     key: "/article",
+  //     icon: <DiffOutlined />,
+  //   },
+  //   {
+  //     label: "创建文章",
+  //     key: "/publish",
+  //     icon: <EditOutlined />,
+  //   },
   {
     label: "FFT",
     key: "/matlab",

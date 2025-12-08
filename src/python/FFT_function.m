@@ -1,34 +1,62 @@
-function FFT_function(fs, N, freq1, freq2, amp1, amp2)
+% FFT_function.m
+function json_str = FFT_function(fs, N, freq1, freq2, amp1, amp2)
+% 修改MATLAB函数，直接返回JSON字符串
 
-% fs=100;N=128;   %采样频率和数据点数
-n=0:N-1;t=n/fs;   %时间序列
-x=amp1*sin(2*pi*freq1*t)+amp2*sin(2*pi*freq2*t); %信号
-y=fft(x,N);    %对信号进行快速Fourier变换
-mag=abs(y);     %求得Fourier变换后的振幅
-f=n*fs/N;    %频率序列
+% 确保所有输入参数都是double类型
+fs = double(fs);
+N = double(N);
+freq1 = double(freq1);
+freq2 = double(freq2);
+amp1 = double(amp1);
+amp2 = double(amp2);
 
-% figure(1)
-% 创建第一个子图并保存
+try
+    % 原有的计算代码
+    n = 0:N-1;
+    t = n/fs;
+    x = amp1*sin(2*pi*freq1*t)+amp2*sin(2*pi*freq2*t);
+    y = fft(x, N);
+    mag = abs(y)*2/N;
+    f = n*fs/N;
+    
+    % 生成图像
     fig1 = figure('Visible', 'off');
     plot(f, mag);
-    xlabel('频率/Hz');
-    ylabel('振幅'); 
-    title(['N=' num2str(N) ', 全频谱']); 
-    grid on;
-%     fig1_path = fullfile(save_dir, 'fig1_N128_full.png');
-    saveas(fig1, "E:\Python_project\Matlab_Py\fig1.png");
+    xlabel('频率/Hz'); ylabel('振幅'); 
+    title(['N=' num2str(N) ', 全频谱']); grid on;
+    saveas(fig1, "E:\web_code\react\fft_project\react-fft\temp\fft_images\fig1.png");
     close(fig1);
- 
- % 创建第二个子图并保存
+    
     fig2 = figure('Visible', 'off');
     plot(f(1:N/2), mag(1:N/2));
-    xlabel('频率/Hz');
-    ylabel('振幅'); 
-    title(['N=' num2str(N) ', Nyquist前']); 
-    grid on;
-%     fig2_path = fullfile(save_dir, 'fig2_N128_nyquist.png');
-    saveas(fig2, "E:\Python_project\Matlab_Py\fig2.png");
+    xlabel('频率/Hz'); ylabel('振幅'); 
+    title(['N=' num2str(N) ', Nyquist前']); grid on;
+    saveas(fig2, "E:\web_code\react\fft_project\react-fft\temp\fft_images\fig2.png");
     close(fig2);
-% 返回图像路径
-%     fig_paths = {fig1_path, fig2_path};
+    
+    % 准备JSON数据
+    result = struct();
+    result.success = true;
+    result.error = '';
+    result.fft_data = struct(...
+        'f1', f(1:N/2)', ...
+        'mag1', mag(1:N/2)', ...
+        'f2', f', ...
+        'mag2', mag');
+    result.parameters = struct(...
+        'fs', fs, 'n', N, 'freq1', freq1, 'freq2', freq2, ...
+        'amp1', amp1, 'amp2', amp2);
+    
+    % 转换为JSON字符串
+    json_str = jsonencode(result);
+    
+catch ME
+    % 错误处理
+    error_result = struct();
+    error_result.success = false;
+    error_result.error = ME.message;
+    error_result.fft_data = struct();
+    json_str = jsonencode(error_result);
+end
+
 end

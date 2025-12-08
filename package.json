@@ -2,8 +2,8 @@
   "name": "react-jike",
   "version": "0.1.0",
   "private": true,
-   "main": "main.js",
-   "homepage":".",
+  "main": "main.js",
+  "homepage": ".",
   "dependencies": {
     "@reduxjs/toolkit": "^2.10.1",
     "@testing-library/dom": "^10.4.1",
@@ -29,7 +29,7 @@
     "test": "craco test",
     "eject": "react-scripts eject",
     "analyze": "source-map-explorer build/static/js/*.js",
-     "electron-start": "chcp 65001 &&electron ."
+    "electron-start": "chcp 65001 &&electron ."
   },
   "eslintConfig": {
     "extends": [
