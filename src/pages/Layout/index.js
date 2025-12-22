@@ -3,14 +3,12 @@ import {
   HomeOutlined,
   DiffOutlined,
   EditOutlined,
-  LogoutOutlined,
   FundOutlined,
 } from "@ant-design/icons";
 import "./index.scss";
 import { useNavigate, Outlet, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { clearUserInfo, fetchUserInfo } from "@/store/modules/user";
 
 const { Header, Sider } = Layout;
 
@@ -31,7 +29,7 @@ const items = [
   //     icon: <EditOutlined />,
   //   },
   {
-    label: "FFT",
+    label: "信号调制",
     key: "/matlab",
     icon: <FundOutlined />,
   },
@@ -50,39 +48,14 @@ const GeekLayout = () => {
   const location = useLocation();
   const selectedkey = location.pathname;
 
-  const dispatch = useDispatch();
-  useEffect(() => {
-    dispatch(fetchUserInfo());
-  }, [dispatch]);
-
-  const name = useSelector((state) => state.user.userInfo.name);
-
-  //退出登录
-  const onConfirm = () => {
-    //清空信息
-    dispatch(clearUserInfo());
-    navigate("/login");
-  };
   return (
     <Layout>
       <Header className="header">
         <div className="logo" />
-        <div className="user-info">
-          <span className="user-name">{name}</span>
-          <span className="user-logout">
-            <Popconfirm
-              title="是否确认退出？"
-              okText="退出"
-              cancelText="取消"
-              onConfirm={onConfirm}
-            >
-              <LogoutOutlined /> 退出
-            </Popconfirm>
-          </span>
-        </div>
+        <div className="user-info"></div>
       </Header>
       <Layout>
-        <Sider width={200} className="site-layout-background">
+        <Sider width={150} className="site-layout-background">
           <Menu
             mode="inline"
             theme="dark"
@@ -92,7 +65,7 @@ const GeekLayout = () => {
             style={{ height: "100%", borderRight: 0 }}
           ></Menu>
         </Sider>
-        <Layout className="layout-content" style={{ padding: 20 }}>
+        <Layout className="layout-content" style={{ padding: 0 }}>
           <Outlet />
         </Layout>
       </Layout>

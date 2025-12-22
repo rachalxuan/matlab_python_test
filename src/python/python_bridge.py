@@ -1,122 +1,40 @@
 import matlab.engine
+import json
 import os
 import sys
-import json
-import base64
 
-# 辅助打印函数，信息会出现在 Electron 控制台
-
-
-def log(msg):
-    print(f"[Python Bridge] {msg}", file=sys.stderr)
+# 启动 MATLAB 引擎 (保持单例模式)
+# 注意：如果你的启动逻辑不一样，请保留你原来的启动代码，只修改 run_ccsds_tm 函数
+eng = matlab.engine.start_matlab()
 
 
-def generate_fft_images(params):
+def run_ccsds_tm(params):
+    """
+    接收前端传来的字典对象 params，
+    将其转换为 JSON 字符串，传递给 MATLAB 函数。
+    """
     try:
-        fs = float(params['fs'])
-        n = int(params['n'])
-        freq1 = float(params['freq1'])
-        freq2 = float(params['freq2'])
-        amp1 = float(params['amp1'])
-        amp2 = float(params['amp2'])
-
-        log("正在调用 MATLAB 函数...")
-        # 调用 MATLAB
-        json_str = eng.FFT_function(fs, n, freq1, freq2, amp1, amp2, nargout=1)
-
-        # 解析结果
-        try:
-            result = json.loads(json_str)
-        except json.JSONDecodeError:
-            log(f"MATLAB 返回了无效的 JSON: {json_str}")
-            return {"success": False, "error": "MATLAB JSON解析失败"}
-
-        if not result.get('success', False):
-            log(f"MATLAB 执行报错: {result.get('error')}")
-            return result
-
-        # === 关键：获取 MATLAB 实际保存图片的路径 ===
-        save_dir = result.get('save_dir')
-        log(f"MATLAB 返回图片目录: {save_dir}")
-
-        if not save_dir or not os.path.exists(save_dir):
-            log(f"错误: 目录不存在 - {save_dir}")
-            # 尝试回退到脚本所在目录的相对路径
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.abspath(
-                os.path.join(current_dir, '..', '..'))
-            save_dir = os.path.join(project_root, 'temp', 'fft_images')
-            log(f"尝试备用路径: {save_dir}")
-
-        image_files = ["fig1.png", "fig2.png"]
-        images_base64 = {}
-
-        for filename in image_files:
-            img_path = os.path.join(save_dir, filename)
-            log(f"正在读取图片: {img_path}")
-
-            if os.path.exists(img_path):
-                # 检查文件大小，避免读取空文件
-                if os.path.getsize(img_path) > 0:
-                    with open(img_path, "rb") as img_file:
-                        b64_str = base64.b64encode(
-                            img_file.read()).decode('utf-8')
-                        # 写入 keys: fig1, fig2
-                        key_name = os.path.splitext(filename)[0]
-                        images_base64[key_name] = b64_str
-                    log(f"读取成功: {filename}")
-                else:
-                    log(f"警告: 文件为空 - {img_path}")
-            else:
-                log(f"错误: 文件未找到 - {img_path}")
-
-        result['images'] = images_base64
-
-        # 检查是否真的读取到了图片
-        if not images_base64:
-            log("警告: 没有读取到任何图片！")
-            result['warning'] = "No images found on disk"
-
-        return result
-
-    except Exception as e:
-        import traceback
-        log(f"Python 异常: {str(e)}")
-        log(traceback.format_exc())
-        return {"success": False, "error": str(e)}
-
-
-if __name__ == "__main__":
-    try:
-        input_json = sys.argv[1]
-        output_file_path = sys.argv[2]
-        params = json.loads(input_json)
-
-        log("启动 MATLAB 引擎...")
-        eng = matlab.engine.start_matlab()
-
-        # 添加路径
+        # 1. 确保 MATLAB 能找到我们的 .m 文件
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        eng.addpath(current_dir)
-        log(f"MATLAB 路径已添加: {current_dir}")
+        eng.addpath(current_dir, nargout=0)
 
-        result = generate_fft_images(params)
+        # 2. 将 Python 字典序列化为 JSON 字符串
+        # MATLAB 处理 JSON 字符串比处理 Python 字典要灵活得多
+        params_json = json.dumps(params)
 
-        log(f"正在写入结果文件: {output_file_path}")
-        with open(output_file_path, 'w', encoding='utf-8') as f:
-            json.dump(result, f)
+        # 3. 调用 MATLAB 函数
+        # 注意：函数名必须与文件名一致
+        print(f"Calling MATLAB with: {params_json}")  # 调试日志
+        result_json = eng.run_ccsds_FACM_modulation(params_json, nargout=1)
 
-        print("SUCCESS")
+        # 4. 将 MATLAB 返回的 JSON 字符串转回 Python 字典返回给 Node.js
+        return json.loads(result_json)
 
     except Exception as e:
-        log(f"主程序崩溃: {str(e)}")
-        # 即使崩溃也尝试写入错误信息，让前端看到
-        try:
-            with open(output_file_path, 'w', encoding='utf-8') as f:
-                json.dump(
-                    {"success": False, "error": f"Python Script Error: {str(e)}"}, f)
-        except:
-            pass
-    finally:
-        if 'eng' in locals():
-            eng.quit()
+        return {
+            "success": False,
+            "error": str(e),
+            "stack": "Python Bridge Error"
+        }
+
+# ... (用于测试的 main 函数可以保留或删除)

@@ -1,49 +1,47 @@
-import axios from "axios"
-import { getToken } from "@/utils/token"
-import { removeToken } from "@/utils/token"
-import router from "@/router"
+import axios from "axios";
+
+import router from "@/router";
 //axios的封装处理
 
+// src/utils/request.js
 
+// 1. 定义基础路径 (指向你的 Python 后台)
+const BASE_URL = "http://127.0.0.1:5000";
 
-//1、根域名配置
-//2、超时时间
-//3、请求拦截器/响应拦截器
+/**
+ * 封装后的 fetch 请求工具
+ * @param {string} url - 接口地址 (例如 '/simulate')
+ * @param {object} options - fetch 配置项
+ */
+const request = async (url, options = {}) => {
+  // 自动拼接完整地址
+  const fullUrl = `${BASE_URL}${url}`;
 
-const request = axios.create({
-  baseURL: "http://geek.itheima.net/v1_0",
-  timeout: 5000
-})
-// 添加请求拦截器 
-//在请求发送以前拦截 插入一些自定义配置 [参数的处理]
-request.interceptors.request.use((config) => {
-  //操作这个config 插入token数据
-  //1. 获取到token
-  //2. 按照后端的格式要求做token拼接
-  const token = getToken()
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+  // 默认配置 (自动带上 JSON 头)
+  const defaultOptions = {
+    headers: {
+      "Content-Type": "application/json",
+    },
+    ...options, // 允许外部覆盖
+  };
+
+  try {
+    // 开发环境下打印请求日志，方便调试
+    console.log(`📡 [API] 发起请求: ${fullUrl}`);
+
+    const response = await fetch(fullUrl, defaultOptions);
+
+    // 统一处理 HTTP 错误状态码
+    if (!response.ok) {
+      throw new Error(`HTTP Error: ${response.status}`);
+    }
+
+    // 解析 JSON
+    return await response.json();
+  } catch (error) {
+    console.error("❌ [API] 请求失败:", error);
+    throw error; // 继续把错误抛出去给页面处理
   }
-  return config
-}, (error) => {
-  return Promise.reject(error)
-})
+};
 
-// 添加响应拦截器
-//在响应返回到客户端之前进行拦截 对返回的数据进行处理
-request.interceptors.response.use((response) => {
-  // 2xx 范围内的状态码都会触发该函数。
-  // 对响应数据做点什么
-  return response.data
-}, (error) => {
-  // 超出 2xx 范围的状态码都会触发该函数。
-  // 对响应错误做点什么
-  if (error.response.status === 401) {
-    removeToken()
-    router.navigate('/login')
-    window.location.reload()
-  }
-  return Promise.reject(error)
-})
-
-export { request } 
+export { request };
