@@ -49,7 +49,7 @@ const GeekLayout = () => {
   const selectedkey = location.pathname;
 
   return (
-    <Layout>
+    <Layout className="root-layout">
       <Header className="header">
         <div className="logo" />
         <div className="user-info"></div>

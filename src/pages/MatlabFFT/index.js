@@ -30,6 +30,7 @@ import "./index.scss";
 const { Option } = Select;
 
 const CCSDSPlatform = () => {
+  //创建Form实例， 用于管理所有数据状态
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [simResult, setSimResult] = useState(null);
@@ -45,6 +46,7 @@ const CCSDSPlatform = () => {
   // 码率常量
   const TURBO_RATES = ["1/2", "1/3", "1/4", "1/6"];
   const LDPC_RATES = ["1/2", "2/3", "4/5", "7/8"];
+  const CONVOLUTIONAL_RATES = ["1/2", "2/3", "3/4", "5/6", "7/8"];
 
   useEffect(() => {
     setIsElectron(window && window.matlabAPI !== undefined);
@@ -70,11 +72,10 @@ const CCSDSPlatform = () => {
       if (res && res.success) {
         message.success("仿真成功！");
         setSimResult(res);
-        // 更新图表数据
-        // 注意：现在 res 结构是 Python 直接返回的，可能不需要 res.data
-        // 如果你的 server.py 返回的是 jsonify(json.loads(result_json))
-        // 那么 res 直接就是那个大对象
         renderCharts(res);
+
+        //  保存到 localStorage
+        localStorage.setItem("latestSimResult", JSON.stringify(res));
 
         if (res.stats) {
           console.log(`后端计算耗时: ${res.stats.ElapsedTime}s`);
@@ -132,6 +133,40 @@ const CCSDSPlatform = () => {
     });
     return chart;
   };
+  // === 新增算法：计算宽带信号的中心频率 ===
+  const calculateCenterFreq = (freqs, powers) => {
+    // 1. 找到峰值及其索引
+    const maxPower = Math.max(...powers);
+
+    // 2. 设定阈值：选择峰值向下 X dB 的范围
+    // 建议设为 10dB ~ 20dB。
+    // 为什么要这么深？因为对于 QPSK/GMSK，频谱的“裙边”（斜坡）是非常陡峭且对称的。
+    // 包含斜坡数据能极大地“锁住”中心位置，防止在平顶上漂移。
+    const threshold = maxPower - 15;
+
+    let sumFreqTimesEnergy = 0;
+    let sumEnergy = 0;
+
+    powers.forEach((p_db, i) => {
+      // 只计算有效信号范围内的点
+      if (p_db > threshold) {
+        // === 关键步骤 ===
+        // 将 dB (对数) 还原为 线性能量 (Linear Power)
+        // 公式：Energy = 10 ^ (dB / 10)
+        // 这样高峰值的点权重极大，底噪权重大幅降低，重心非常稳
+        const energy = Math.pow(10, p_db / 10);
+
+        sumFreqTimesEnergy += freqs[i] * energy;
+        sumEnergy += energy;
+      }
+    });
+
+    // 防止全黑洞异常
+    if (sumEnergy === 0) return freqs[powers.indexOf(maxPower)];
+
+    // 重心公式：Σ(f * E) / ΣE
+    return sumFreqTimesEnergy / sumEnergy;
+  };
   const renderCharts = (data) => {
     // 1. 画修复前的图
     if (data.constellation_raw) {
@@ -150,50 +185,136 @@ const CCSDSPlatform = () => {
         data.constellation_synced
       );
     }
-    // 3. 频谱图
+    // 3. 频谱图（增强版：添加峰值标记线）
     if (spectrumRef.current) {
       const domSpe = spectrumRef.current;
-      //检查是否有实例了
       let instance = echarts.getInstanceByDom(domSpe);
-      if (instance) {
-        // 如果有，先销毁，防止内存泄漏和报错
-        instance.dispose();
-      }
+      if (instance) instance.dispose();
 
       const chart = echarts.init(domSpe);
       if (chartInstances.current) {
         chartInstances.current.spectrum = chart;
       }
 
+      const { f, p_rx, p_tx } = data.spectrum;
+
+      // === 关键修改：使用新算法计算中心频率 ===
+      // 注意：MATLAB传来的 f 是 Hz，p 是 dB
+      const rxCenterFreqHz = calculateCenterFreq(f, p_rx);
+      const txCenterFreqHz = calculateCenterFreq(f, p_tx);
+
+      // 转单位
+      const rxFreqMHz = rxCenterFreqHz / 1e6;
+      const txFreqMHz = txCenterFreqHz / 1e6;
+
+      // 计算频偏 (kHz)
+      const freqOffset = (rxCenterFreqHz - txCenterFreqHz) / 1e3;
+
       chart.setOption({
         backgroundColor: "#fff",
-        title: { text: "功率谱密度 (PSD)", left: "center", top: 10 },
-        tooltip: { trigger: "axis" },
-        grid: { top: 50, bottom: 30, left: 40, right: 20, containLabel: true },
+        title: {
+          text: "功率谱密度 (PSD)",
+          // 标题里也显示一下计算结果
+          subtext: `{label|智能估算频偏}  {value|${Math.abs(freqOffset).toFixed(2)} kHz}  {arrow|${
+            freqOffset > 0 ? "⮕ (右偏)" : freqOffset < 0 ? "⬅ (左偏)" : "✔"
+          }}`,
+          subtextStyle: {
+            rich: {
+              label: { color: "#999", fontSize: 12 },
+              value: {
+                color: "#333",
+                fontSize: 14,
+                fontWeight: "bold",
+                padding: [0, 5],
+              },
+              arrow: {
+                color: Math.abs(freqOffset) > 1 ? "#ff4d4f" : "#52c41a",
+                fontWeight: "bold",
+              },
+            },
+          },
+          left: "center",
+          top: 10,
+        },
+        tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
+        grid: { top: 80, bottom: 80, left: 60, right: 40, containLabel: true },
+        dataZoom: [
+          {
+            type: "slider",
+            show: true,
+            bottom: 20,
+            height: 20,
+            borderColor: "transparent",
+          },
+          { type: "inside" },
+        ],
         xAxis: {
           type: "category",
-          data: data.spectrum.f.map((v) => (v / 1e6).toFixed(2)),
+          data: f.map((v) => (v / 1e6).toFixed(3)),
           name: "Freq (MHz)",
           nameLocation: "middle",
-          nameGap: 25,
+          nameGap: 30,
         },
         yAxis: { name: "Power (dB)", type: "value", scale: true },
         series: [
           {
+            name: "Rx 接收信号",
             type: "line",
-            data: data.spectrum.p_rx,
+            data: p_rx,
             showSymbol: false,
+            smooth: true,
             lineStyle: { width: 2, color: "#ff4d4f" },
             areaStyle: { opacity: 0.1, color: "#ff4d4f" },
+            markLine: {
+              symbol: ["none", "none"],
+              silent: true,
+              label: {
+                formatter: `Rx中心\n{c} MHz`,
+                position: "insideEndTop",
+                distance: [0, 10],
+                backgroundColor: "rgba(255, 77, 79, 0.9)",
+                color: "#fff",
+                padding: [4, 8],
+                borderRadius: 4,
+                shadowBlur: 4,
+                shadowColor: "rgba(0,0,0,0.2)",
+              },
+              lineStyle: { type: "solid", color: "#ff4d4f", width: 2 },
+              data: [
+                // 注意：这里xAxis必须对应 xAxis data 里的字符串值，或者用 coord 坐标
+                // 为了保险，我们找一下最接近的 index
+                { xAxis: f.findIndex((val) => val === rxCenterFreqHz) },
+              ],
+            },
           },
           {
+            name: "Tx 参考信号",
             type: "line",
-            data: data.spectrum.p_tx,
+            data: p_tx,
             showSymbol: false,
-            lineStyle: { width: 2, color: "#52c41a" },
-            areaStyle: { opacity: 0.1, color: "#52c41a" },
+            smooth: true,
+            lineStyle: { width: 2, color: "#52c41a", type: "dashed" },
+            areaStyle: { opacity: 0.05, color: "#52c41a" },
+            markLine: {
+              symbol: ["none", "none"],
+              silent: true,
+              label: {
+                formatter: `Tx中心\n{c} MHz`,
+                position: "insideStartTop",
+                distance: [0, 10],
+                backgroundColor: "rgba(82, 196, 26, 0.9)",
+                color: "#fff",
+                padding: [4, 8],
+                borderRadius: 4,
+                shadowBlur: 4,
+                shadowColor: "rgba(0,0,0,0.2)",
+              },
+              lineStyle: { type: "solid", color: "#52c41a", width: 2 },
+              data: [{ xAxis: f.findIndex((val) => val === txCenterFreqHz) }],
+            },
           },
         ],
+        legend: { data: ["Rx 接收信号", "Tx 参考信号"], top: 45, right: 30 },
       });
     }
   };
@@ -413,7 +534,26 @@ const CCSDSPlatform = () => {
             <Row gutter={16} align="bottom">
               <Col span={5}>
                 <Form.Item name="channelCoding" label="信道编码">
-                  <Select>
+                  <Select
+                    onChange={(value) => {
+                      // 当编码类型改变时，重置 CodeRate 字段
+                      if (value === "Turbo") {
+                        form.setFieldsValue({ CodeRate: "1/2" });
+                      } else if (value === "LDPC") {
+                        form.setFieldsValue({ CodeRate: "7/8" });
+                      } else {
+                        form.setFieldsValue({ CodeRate: "N/A" });
+                      }
+
+                      // 重置卷积码率
+                      if (
+                        value === "convolutional" ||
+                        value === "concatenated"
+                      ) {
+                        form.setFieldsValue({ ConvolutionalCodeRate: "1/2" });
+                      }
+                    }}
+                  >
                     <Option value="convolutional">Convolutional</Option>
                     {/* <Option value="concatenated">concatenated</Option> */}
                     <Option value="RS">RS码</Option>
@@ -449,39 +589,45 @@ const CCSDSPlatform = () => {
                   const showConvRate =
                     coding === "convolutional" || coding === "concatenated";
                   const showRS = coding === "RS" || coding === "concatenated";
-
-                  // 3. --- 新增：CodeRate 统一处理 (禁用/动态默认值) ---
                   const isApplicable = coding === "Turbo" || coding === "LDPC";
 
-                  let rateOptions = ["N/A"]; // 默认显示 N/A 选项
-                  let defaultRate = "N/A";
+                  // 分别计算各自的默认值和选项
+                  let convDefaultRate = "1/2";
+                  let convRateOptions = CONVOLUTIONAL_RATES;
+
+                  let turboLdpcDefaultRate = "N/A";
+                  let turboLdpcRateOptions = ["N/A"];
 
                   if (coding === "Turbo") {
-                    rateOptions = TURBO_RATES;
-                    defaultRate = "1/2"; // Turbo 默认值
+                    turboLdpcRateOptions = TURBO_RATES;
+                    turboLdpcDefaultRate = "1/2";
                   } else if (coding === "LDPC") {
-                    rateOptions = LDPC_RATES;
-                    defaultRate = "7/8"; // LDPC 默认值
+                    turboLdpcRateOptions = LDPC_RATES;
+                    turboLdpcDefaultRate = "7/8";
                   }
 
                   return (
                     <>
-                      {/* A. 卷积码率 (保留隐藏/显示逻辑，避免UI混乱) */}
+                      {/* A. 卷积码率 */}
                       {showConvRate && (
                         <Col span={4}>
                           <Form.Item
                             name="ConvolutionalCodeRate"
                             label="卷积码率"
-                            initialValue="1/2"
+                            initialValue={convDefaultRate}
                           >
                             <Select>
-                              <Option value="1/2">1/2</Option>
-                              {/* ... 其他码率 ... */}
+                              {convRateOptions.map((rate) => (
+                                <Option key={rate} value={rate}>
+                                  {rate}
+                                </Option>
+                              ))}
                             </Select>
                           </Form.Item>
                         </Col>
                       )}
-                      {/* B. RS 交织深度 (保留隐藏/显示逻辑) */}
+
+                      {/* B. RS 交织深度 */}
                       {showRS && (
                         <Col span={4}>
                           <Form.Item
@@ -498,19 +644,16 @@ const CCSDSPlatform = () => {
                         </Col>
                       )}
 
-                      {/* C. CodeRate 字段：始终渲染，但启用禁用 */}
+                      {/* C. Turbo/LDPC 码率 */}
                       <Col span={4}>
                         <Form.Item
                           name="CodeRate"
                           label="Turbo/LDPC 码率"
-                          // 关键：利用 key 强制重置字段状态和默认值
                           key={coding}
-                          initialValue={defaultRate}
+                          initialValue={turboLdpcDefaultRate}
                         >
-                          <Select
-                            disabled={!isApplicable} // 关键：禁用逻辑
-                          >
-                            {rateOptions.map((rate) => (
+                          <Select disabled={!isApplicable}>
+                            {turboLdpcRateOptions.map((rate) => (
                               <Option key={rate} value={rate}>
                                 {rate}
                               </Option>
@@ -641,6 +784,31 @@ const CCSDSPlatform = () => {
                       value={simResult.stats.Fs / 1e6}
                       precision={2}
                       suffix="MHz"
+                      style={{ display: "inline-block", margin: "0 30px" }}
+                    />
+                    <Divider type="vertical" />
+                    <Statistic
+                      title="误码率 (BER)"
+                      value={simResult.ber} // 后端返回的字段
+                      precision={2}
+                      valueStyle={{
+                        // 智能配色：0误码显绿，有误码显红，未计算显灰
+                        color:
+                          simResult.ber === 0
+                            ? "#52c41a" // 绿色 (完美)
+                            : simResult.ber > 0
+                              ? "#ff4d4f" // 红色 (有误码)
+                              : "#999", // 灰色 (无效状态)
+                        fontWeight: "bold",
+                      }}
+                      formatter={(val) => {
+                        // 处理 MATLAB 返回的特殊状态码
+                        if (val === -1) return "未计算 (N/A)";
+                        if (val === -2) return "计算错误";
+                        if (val === 0) return "0 (Perfect)";
+                        // 科学计数法显示 (例如 1.25e-4)
+                        return Number(val).toExponential(2);
+                      }}
                       style={{ display: "inline-block", margin: "0 30px" }}
                     />
                     <Divider type="vertical" />

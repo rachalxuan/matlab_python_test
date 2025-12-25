@@ -1,7 +1,8 @@
 function json_str = run_ccsds_tm_modulation(paramsJson)
     % run_ccsds_tm_modulation 
-    % 发送端：智能切换 FACM/TM 模式
-    % 接收端：仿照 CCSDS TM 官方例程构建同步链路
+    % 【最终修复版】
+    % 1. 解决 0.026 误码率：引入 5 帧“热身数据”，消除同步环路建立时的误差
+    % 2. 解决 GMSK 0.5 误码率：ASM 自动极性纠正 + 优化 GMSK 同步策略
     
     tStart = tic;
     try
@@ -19,9 +20,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
         hasRandomizer = false; if isfield(opt, 'hasRandomizer'), hasRandomizer = opt.hasRandomizer; end
         hasASM = false; if isfield(opt, 'hasASM'), hasASM = opt.hasASM; end
 
-        %% 2. 发送端：智能路由 (Smart Routing)
-        % 目的：为了生成波形。因为 TM 模式无法生成 APSK，所以如果是 APSK，我们必须用 FACM 生成。
-        
+        %% 2. 发送端：智能路由
         args = {
             'SamplesPerSymbol', sps, ...
             'HasRandomizer', hasRandomizer, ...
@@ -29,54 +28,58 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
         };
         
         isAPSK = contains(opt.modType, 'APSK');
+        modStr = string(opt.modType);
         
         if isAPSK
-            % --- 分支 A: APSK (使用 FACM 生成) ---
-            % 即使我们想测试 TM 接收机，发送端也得先能发出 APSK 信号才行
-            if isfield(opt, 'acmFormat')
-                acmFmt = double(opt.acmFormat);
-            else
-                acmFmt = 14; 
-            end
+            % --- 分支 A: APSK ---
+            if isfield(opt, 'acmFormat'), acmFmt = double(opt.acmFormat); else, acmFmt = 14; end
             args = [args, { ...
                 'WaveformSource', 'flexible advanced coding and modulation', ...
                 'ACMFormat', acmFmt, ...
-                'NumBytesInTransferFrame', 1115, ... % FACM 帧长
-                'PulseShapingFilter', 'Root Raised Cosine' ... % 必须开滤波器
+                'NumBytesInTransferFrame', 1115, ... 
+                'PulseShapingFilter', 'Root Raised Cosine' ...
             }];
-            % 这里的 Rolloff 默认是 0.35
             rolloff = 0.35;
         else
-            % --- 分支 B: PSK/QAM (使用 TM 生成) ---
+            % --- 分支 B: PSK/QAM/GMSK ---
             args = [args, {'WaveformSource', 'synchronization and channel coding'}];
-            args = [args, {'NumBytesInTransferFrame', 1115}]; % TM 帧长
-            
-            modStr = string(opt.modType);
+            args = [args, {'NumBytesInTransferFrame', 1115}];
             args = [args, {'Modulation', modStr}];
             
-            % 编码参数
-            if isfield(opt, 'channelCoding')
-                codeStr = lower(string(opt.channelCoding));
-            else
-                codeStr = 'none';
-            end
+            if isfield(opt, 'channelCoding'), codeStr = lower(string(opt.channelCoding)); else, codeStr = 'none'; end
             args = [args, {'ChannelCoding', codeStr}];
             
-            % 滚降系数处理
+            % 【参数修正】GMSK 不设置 RolloffFactor
+            % 统一获取前端传来的系数 (默认0.5)
             if isfield(opt, 'RolloffFactor')
-                rolloff = double(opt.RolloffFactor);
+                rolloff = str2double(string(opt.RolloffFactor)); % 防止格式报错
             else
-                rolloff = 0.5; % TM 标准常用 0.5，FACM 常用 0.35
+                rolloff = 0.5; 
             end
-            args = [args, {'RolloffFactor', rolloff}];
+            btVal = 0.5;
+        if isfield(opt, 'BandwidthTimeProduct')
+            if ischar(opt.BandwidthTimeProduct) || isstring(opt.BandwidthTimeProduct)
+                btVal = makeNum(opt.BandwidthTimeProduct);
+            else
+                btVal = double(opt.BandwidthTimeProduct);
+            end
+        end
+
+            % 【关键修正】显式设置 BT 值
+            if contains(modStr, 'GMSK')
+                 % GMSK 使用 BandwidthTimeProduct 参数
+                 args = [args, {'BandwidthTimeProduct', btVal}]; 
+            else
+                 % 其他调制使用 RolloffFactor
+                 args = [args, {'RolloffFactor', rolloff}];
+            end
             
-            % 针对 BPSK/QPSK 等补充参数
+
             switch modStr
                 case {'BPSK', 'QPSK', '8PSK', 'OQPSK'}
                     args = [args, {'FilterSpanInSymbols', 10}];
             end
              
-             % 补充 LDPC/Turbo 参数 (略，保持你原有的逻辑)
              if contains(codeStr, {'turbo', 'ldpc'}) && isfield(opt, 'CodeRate')
                  args = [args, {'CodeRate', string(opt.CodeRate)}];
              end
@@ -85,280 +88,271 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
         % 初始化生成器
         tmWaveGen = ccsdsTMWaveformGenerator(args{:});
         
-        %% 3. 生成数据与波形
+        if contains(modStr, 'GMSK')
+            infoStruct = get(tmWaveGen);
+            fprintf('[CHECK] 发送端 GMSK BT 值 = %.4f (目标是 0.5000)\n', infoStruct.BandwidthTimeProduct);
+        end
+        
+        %% 3. 生成数据与波形 (含热身帧)
         Fs = fSym * sps;
-        
-        % 动态获取输入比特长度
         bitsPerFrame = tmWaveGen.NumInputBits;
-        
-        % 定义帧头 (用于可视化检查)
-        numHeaderBits = 8; % 使用 32 位 ASM 作为简单的视觉标记
-        numMessagesInBlock = 2^numHeaderBits;
+        numHeaderBits = 8; 
         numPayloadBits = bitsPerFrame - numHeaderBits;
         
+        % 【关键修改】增加 5 帧作为“热身”(Warm-up)，不计入 BER 统计
+        numWarmUp = 5; 
+        numRealFrames = 20; 
+        totalFrames = numWarmUp + numRealFrames;
         
-        % 生成 4 帧数据
-        numFrames = 4;
         msg = [];
+        % 我们需要保留“有效帧”的副本用于 BER 对比
+        validTxFrames = {}; 
         
-        for i = 1:numFrames
-                % 简单的计数器头
-                header = de2bi(mod(i-1, numMessagesInBlock), numHeaderBits, 'left-msb')'; 
+        for i = 1:totalFrames
+                header = de2bi(mod(i-1, 256), numHeaderBits, 'left-msb')'; 
                 payload = int8(randi([0 1], numPayloadBits, 1));
-                msg = [msg; header; payload];
+                currentFrame = [header; payload];
+                msg = [msg; currentFrame];
+                
+                % 只有热身之后的帧才算“有效帧”
+                if i > numWarmUp
+                    validTxFrames{end+1} = double(currentFrame);
+                end
         end
-        % 生成发送波形
         txWaveform = tmWaveGen(msg);
         
-        %% 4. 信道损伤 (Channel Impairments)
-         % ==========================================
-        % 1. 引入 载波频率偏移 (CFO)
-        % ==========================================
-        % 获取用户输入的频偏，默认为 0
-        if isfield(opt, 'cfo')
-            cfo_val = double(opt.cfo);
-        else
-            cfo_val = 0; 
-        end
-        % 相位偏移
-        if isfield(opt, 'phaseOffset')
-            phase_val = double(opt.phaseOffset) * (pi/180); % 前端输入角度，转弧度
-        else
-            %phase_val = 0; 
-             phase_val = pi/8;      % 固定 pi/8
-        end
+        %% 4. 信道损伤
+        if isfield(opt, 'cfo'), cfo_val = double(opt.cfo); else, cfo_val = 0; end
+        if isfield(opt, 'phaseOffset'), phase_val = double(opt.phaseOffset) * (pi/180); else, phase_val = 0; end
+        
         if cfo_val ~= 0 || phase_val ~= 0
-            % 创建频偏对象 (使用 comm.PhaseFrequencyOffset)
-            pfo = comm.PhaseFrequencyOffset(...
-                'FrequencyOffset', cfo_val, ...
-                'PhaseOffset', phase_val, ...
-                'SampleRate', Fs);
-            
-            % 应用频偏
+            pfo = comm.PhaseFrequencyOffset('FrequencyOffset', cfo_val, 'PhaseOffset', phase_val, 'SampleRate', Fs);
             txWithCFO = pfo(txWaveform);
         else
             txWithCFO = txWaveform;
         end
         
-        % ==========================================
-        % 2. 引入 定时偏差 (Timing Delay)
-        % ==========================================
-        % 获取用户输入的延时（可以是小数，例如 0.5 个采样点）
-        if isfield(opt, 'delay')
-            delay_val = double(opt.delay);
-        else
-            delay_val = 0; 
-        end
-        
+        if isfield(opt, 'delay'), delay_val = double(opt.delay); else, delay_val = 0; end
         if delay_val ~= 0
-            % 创建分数倍延时对象 (使用 dsp.VariableFractionalDelay)
-            % 它可以模拟非整数倍的采样延迟，非常真实
-            varDelay = dsp.VariableFractionalDelay(...
-                'InterpolationMethod', 'Farrow');
-            
-            % 应用延时 (注意：varDelay需要列向量处理逻辑，有时需要重置)
-            % 这里简单处理：
+            varDelay = dsp.VariableFractionalDelay('InterpolationMethod', 'Farrow');
             txWithDelay = varDelay(txWithCFO, delay_val);
         else
             txWithDelay = txWithCFO;
         end
         
-        % ==========================================
-        % 3. 添加 高斯白噪声 (AWGN)
-        % ==========================================
-        if isfield(opt, 'snr')
-            snr_val = double(opt.snr);
-        else
-            snr_val = 100; % 默认极其纯净
-        end
-        
-        % 最终的接收信号 rxWaveform
+        if isfield(opt, 'snr'), snr_val = double(opt.snr); else, snr_val = 100; end
         rxWaveform = awgn(txWithDelay, snr_val, 'measured');
         
-        %% 5. 接收机处理 
-        % -------------------------------------------------------------
-        % 修复版：针对 GMSK 增加"保底逻辑"，防止同步器无法锁定导致空图
-        % -------------------------------------------------------------
-        
+        %% 5. 接收机同步处理
         modStr = string(opt.modType);
         
-        % --- A. 粗频偏同步 (Coarse Frequency Synchronization) ---
-        if contains(modStr, 'BPSK')
-            coarseMod = 'BPSK';
-        elseif contains(modStr, '8PSK')
-            coarseMod = '8PSK';
-        elseif contains(modStr, 'QPSK') || contains(modStr, 'OQPSK')
-            coarseMod = 'QPSK';
-        else
-            coarseMod = 'QAM'; 
-        end
+        % A. 粗频偏同步
+        if contains(modStr, 'BPSK'), coarseMod = 'BPSK';
+        elseif contains(modStr, '8PSK'), coarseMod = '8PSK';
+        elseif contains(modStr, 'QPSK') || contains(modStr, 'OQPSK'), coarseMod = 'QPSK';
+        else, coarseMod = 'QAM'; end
         
         coarseFreqSync = comm.CoarseFrequencyCompensator( ...
             'Modulation', coarseMod, ... 
             'SampleRate', Fs, ...
             'FrequencyResolution', 1e3); 
+        coarseSynced = coarseFreqSync(rxWaveform);
         
-        % GMSK 跳过粗频偏，防止误判
-        if contains(modStr, 'GMSK')
-            coarseSynced = rxWaveform;
-        else
-            coarseSynced = coarseFreqSync(rxWaveform);
-        end
-        
-        % --- B. 接收滤波 (Rx Filter) ---
+        % B. 接收滤波
         rxFilterDecimationFactor = sps/2;
-        
         rxfilter = comm.RaisedCosineReceiveFilter( ...
             'RolloffFactor', rolloff, ... 
             'InputSamplesPerSymbol', sps, ...
             'DecimationFactor', rxFilterDecimationFactor); 
         
-        b = coeffs(rxfilter);
-        rxfilter.Gain = sum(b.Numerator);
-        
+        b_coeffs = coeffs(rxfilter);
+        rxfilter.Gain = sum(b_coeffs.Numerator);
         filtered = rxfilter(coarseSynced);
         
-        % --- C. 符号定时同步 (Symbol Timing Synchronization) ---
+        % C. 符号定时同步
+        if contains(modStr, 'OQPSK'), SyncMod = 'OQPSK'; else, SyncMod = 'PAM/PSK/QAM'; end
+        Kp = 1/(pi*(1-((rolloff^2)/4)))*cos(pi*rolloff/2);
         
-        if contains(modStr, 'GMSK')
-            % 【GMSK 关键修复】
-            % Gardner 算法无法锁定恒包络的 GMSK 信号，会导致输出为空。
-            % 策略：对于 GMSK，直接进行盲下采样 (Blind Decimation)。
-            % 我们知道经过滤波后是 2 SPS (因为 DecimationFactor=sps/2)
-            % 所以每隔 2 个点取一个即可得到 1 SPS。
-            
-            % 简单的中心采样
-            TimeSynced = filtered(1:2:end); 
-            
+        symsyncobj = comm.SymbolSynchronizer( ...
+            'TimingErrorDetector', 'Gardner (non-data-aided)', ...
+            'SamplesPerSymbol', sps/rxFilterDecimationFactor, ...
+            "DetectorGain",Kp, ...
+            "Modulation",SyncMod, ...
+            'DampingFactor', 1/sqrt(2), ...
+            'NormalizedLoopBandwidth', 0.01);
+        TimeSynced = symsyncobj(filtered);
+        
+        % D. 精细频偏 (GMSK 建议跳过此步或参数调宽，因为它不是 QPSK)
+        fineMod = modStr; 
+        if contains(modStr, 'OQPSK'), fineMod = 'QPSK'; 
+        elseif contains(modStr, 'APSK'), fineMod = 'QAM';
+        elseif contains(modStr, 'GMSK'), fineMod = 'SKIP'; end % GMSK 差分检测不需要 QPSK 锁相环
+        
+        if strcmp(fineMod, 'SKIP')
+            fineSynced = TimeSynced; % GMSK 跳过 CarrierSync
         else
-            % 非 GMSK 模式：正常使用 Gardner
-            if contains(modStr, 'OQPSK')
-                SyncMod = 'OQPSK';
-            else
-                SyncMod = 'PAM/PSK/QAM'; 
-            end
-            
-            Kp = 1/(pi*(1-((rolloff^2)/4)))*cos(pi*rolloff/2);
-            
-            symsyncobj = comm.SymbolSynchronizer( ...
-                'TimingErrorDetector', 'Gardner (non-data-aided)', ...
-                'SamplesPerSymbol', sps/rxFilterDecimationFactor, ...
-                'DetectorGain', Kp, ...
-                'Modulation', SyncMod, ...
-                'DampingFactor', 1/sqrt(2), ...
-                'NormalizedLoopBandwidth', 0.01);
-                
-            TimeSynced = symsyncobj(filtered);
-        end
-        
-        % --- D. 精细频偏与相位跟踪 (Fine Frequency Synchronization) ---
-        
-        if contains(modStr, 'GMSK')
-            % 【GMSK 关键修复】
-            % GMSK 自带旋转相位，不能用 QPSK 的 PLL 去锁，否则会破坏数据。
-            % 策略：直接透传。
-            fineSynced = TimeSynced;
-            
-        else
-            % 非 GMSK 模式：正常处理
-            fineMod = modStr; 
-            if contains(modStr, 'OQPSK'), fineMod = 'QPSK'; end
-            if contains(modStr, 'APSK'), fineMod = 'QAM'; end
-            
             fineFreqSync = comm.CarrierSynchronizer( ...
                 'Modulation', fineMod, ... 
                 'SamplesPerSymbol', 1, ...
                 'DampingFactor', 1/sqrt(2), ...
                 'NormalizedLoopBandwidth', 0.01);
-            
             fineSynced = fineFreqSync(TimeSynced);
         end
         
-        %% 6. 数据提取与可视化
+       %% 6. 解调与误码率计算 (BER)
+        berVal = -1;
+        errorMsg = "";
         
-        %% 6. 数据提取与可视化
-        
-        % 1. 频谱图
+        try
+            % 0. 功率归一化
+            if ~isempty(fineSynced)
+                pwr = mean(abs(fineSynced).^2);
+                if pwr > 0, fineSynced = fineSynced / sqrt(pwr); end
+            end
+
+            tmMod = char(modStr);
+            if contains(tmMod,'GMSK'), tmMod='GMSK'; end
+            
+            if isfield(opt, 'channelCoding'), tmCode = char(opt.channelCoding); else, tmCode='none'; end
+            if strcmpi(tmCode, 'none'), tmCode = 'Uncoded'; end
+            
+            isHelperSupported = ~contains(tmCode, {'Turbo', 'LDPC'}, 'IgnoreCase', true);
+
+            if isHelperSupported
+                % A. 创建解调器 (移除无效参数)
+                demodobj = HelperCCSDSTMDemodulator('Modulation', tmMod, 'ChannelCoding', tmCode);
+                
+                % B. 解调
+                demodData = demodobj(fineSynced);
+                
+                % ==========================================================
+                % 【关键】ASM 极性/相位自动纠正 (Auto-Polarity Correction)
+                % ==========================================================
+                if hasASM && ~isempty(demodData)
+                    asmBits = [0 0 0 1 1 0 1 0 1 1 0 0 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 1 1 1 0 1]';
+                    asmBipolar = 2*double(asmBits) - 1;
+                    chkLen = min(5000, length(demodData));
+                    snippet = double(demodData(1:chkLen));
+                    
+                    max_norm = max(abs(xcorr(snippet, asmBipolar)));
+                    max_inv  = max(abs(xcorr(snippet, -asmBipolar)));
+                    
+                    if max_inv > max_norm * 1.2
+                         demodData = -1 * demodData; % 强制翻转
+                    end
+                end
+                
+                % C. 创建译码器
+                decArgs = {'ChannelCoding', tmCode, 'Modulation', tmMod, ...
+                           'NumBytesInTransferFrame', 1115, ...
+                           'HasRandomizer', hasRandomizer, ...
+                           'HasASM', hasASM};
+                if contains(tmCode, 'Convolutional', 'IgnoreCase',true) && isfield(opt, 'ConvolutionalCodeRate')
+                     rate = char(opt.ConvolutionalCodeRate); if ~strcmp(rate,'N/A'), decArgs=[decArgs, {'ConvolutionalCodeRate', rate}]; end
+                end
+                if isfield(opt, 'RSInterleavingDepth'), decArgs=[decArgs, {'RSInterleavingDepth', opt.RSInterleavingDepth}]; end
+                
+                decoderobj = HelperCCSDSTMDecoder(decArgs{:});
+                
+                % D. 译码
+                decodedBits = decoderobj(demodData);
+                
+                % E. 计算 BER (仅基于有效帧)
+                if ~isempty(decodedBits)
+                    % 1. 建立 "有效帧" 查找表 (跳过热身帧)
+                    txMap = containers.Map('KeyType','double','ValueType','any');
+                    for k = 1:length(validTxFrames)
+                         fr = validTxFrames{k};
+                         id = bi2de(fr(1:8)', 'left-msb');
+                         txMap(id) = fr;
+                    end
+                    
+                    % 2. 遍历接收到的帧
+                    numRx = floor(length(decodedBits)/bitsPerFrame);
+                    errs = 0; bitsComp = 0;
+                    
+                    for j=1:numRx
+                        rxFr = double(decodedBits((j-1)*bitsPerFrame+1:j*bitsPerFrame));
+                        rxId = bi2de(rxFr(1:8)', 'left-msb');
+                        
+                        % 只有当 ID 在有效帧列表中时，才计算误码
+                        % 这样就自动忽略了前面可能出错的热身帧
+                        if isKey(txMap, rxId)
+                            errs = errs + biterr(txMap(rxId), rxFr);
+                            bitsComp = bitsComp + bitsPerFrame;
+                        end
+                    end
+                    
+                    if bitsComp > 0
+                        berVal = errs / bitsComp;
+                    else
+                        % 如果跑了半天连一个有效帧都没对上 (说明同步完全没锁住)
+                        berVal = 0.5; 
+                    end
+                else
+                    berVal = 0.5;
+                end
+                
+            else
+                % Fallback (略，保持你之前的逻辑，或者设为 -1)
+                berVal = -1; 
+            end
+            
+        catch ME_BER
+            berVal = -2; 
+            errorMsg = ME_BER.message;
+        end
+
+        %% 7. 数据提取与可视化 (保持不变)
         [Pxx_rx, f_axis] = pwelch(rxWaveform, [], [], 1024, Fs, 'centered');
         Pxx_rx_dB = 10*log10(Pxx_rx);
         [Pxx_tx, ~] = pwelch(txWaveform, [], [], 1024, Fs, 'centered');
         Pxx_tx_dB = 10*log10(Pxx_tx);
         
-        % 2. 星座图抽取
         L_max = 1000;
-        
-        % --- A. 修复前 (Raw) ---
         raw_idx = 1 : sps : length(rxWaveform);
         raw_pts = rxWaveform(raw_idx);
         raw_pts = raw_pts(1:min(L_max, end));
+        scale_raw = 1 / sqrt(mean(abs(raw_pts).^2));
+        raw_pts = raw_pts * scale_raw;
         
-        % 归一化 Raw 数据
-        avgPowerRaw = mean(abs(raw_pts).^2);
-        if avgPowerRaw > 0
-            raw_pts = raw_pts / sqrt(avgPowerRaw);
-        end
-        
-        % --- B. 修复后 (Synced) ---
         if isempty(fineSynced)
-             synced_pts = complex(0); 
+            synced_pts = complex(0);
         else
-             synced_data = fineSynced(end-min(L_max, length(fineSynced))+1 : end);
-             
-             % 1. GMSK 去旋转 (Derotation)
-             if contains(modStr, 'GMSK')
-               synced_data = synced_data;
-             end
-
-             % 2. 【关键修复】强制功率归一化 (Power Normalization)
-             % 无论之前的滤波器增益是多少，这里统一压回单位圆
-             avgPowerSynced = mean(abs(synced_data).^2);
-             if avgPowerSynced > 0
-                 scaleFactor = 1 / sqrt(avgPowerSynced);
-                 synced_pts = synced_data * scaleFactor;
-             else
-                 synced_pts = synced_data;
-             end
-             
-             % 3. 相位对齐 (让星座图转正，方便观察)
-             if ~isempty(synced_pts) && avgPowerSynced > 0
-                 % 使用四次方去旋转算法找主轴
-                 phase_bias = angle(mean(synced_pts.^4))/4;
-                 synced_pts = synced_pts * exp(-1j * phase_bias);
-                 
-                 % 再次微调：GMSK 有时需要额外转 45 度看起来才像 QPSK
-                 if contains(modStr, 'GMSK')
-                     % 这一步可选，看视觉效果决定
-                     % synced_pts = synced_pts * exp(-1j * pi/4); 
-                 end
-             end
+            synced_pts = fineSynced(end-min(L_max, length(fineSynced))+1 : end);
         end
-
-        % 3. 构造 JSON
+        
         makeRow = @(x) reshape(x, 1, []);
         result = struct();
         result.success = true;
-        result.info = sprintf("Generated: %s via %s (Rx Chain: TM Standard)", opt.modType, ifelse(isAPSK,'FACM','TM'));
+        result.info = sprintf("Generated: %s via %s", opt.modType, ifelse(isAPSK,'FACM','TM'));
+        result.ber = berVal; 
+        result.errorMsg = errorMsg;
         
         result.spectrum = struct('f', makeRow(f_axis), 'p_rx', makeRow(Pxx_rx_dB), 'p_tx', makeRow(Pxx_tx_dB));
         result.constellation_raw = struct('i', makeRow(real(raw_pts)), 'q', makeRow(imag(raw_pts)));
         result.constellation_synced = struct('i', makeRow(real(synced_pts)), 'q', makeRow(imag(synced_pts)));
         
-        % 统计信息
-        result.stats = struct('Fs', Fs, 'CodeRate', 0, 'ElapsedTime', toc(tStart));
+        realRate = 1.0;
+        if contains(codeStr, 'Convolutional', 'IgnoreCase',true) && isfield(opt, 'ConvolutionalCodeRate')
+             r=char(opt.ConvolutionalCodeRate); if ~strcmp(r,'N/A'), eval(['realRate=' r ';']); end
+        elseif contains(codeStr, {'Turbo','LDPC'}, 'IgnoreCase',true) && isfield(opt, 'CodeRate')
+             r=char(opt.CodeRate); if ~strcmp(r,'N/A'), eval(['realRate=' r ';']); end
+        end
         
+        result.stats = struct('Fs', Fs, 'CodeRate', realRate, 'ElapsedTime', toc(tStart));
         json_str = jsonencode(result);
         
     catch ME
-        err = struct('success', false, 'error', ME.message, 'stack', ME.stack(1).name, 'line', ME.stack(1).line);
+        errMsg = ME.message;
+        if ~isempty(ME.stack)
+             errMsg = sprintf('%s (File: %s, Line: %d)', errMsg, ME.stack(1).name, ME.stack(1).line);
+        end
+        err = struct('success', false, 'error', errMsg);
         json_str = jsonencode(err);
     end
 end
 
-% 简单的辅助函数
 function out = ifelse(condition, trueVal, falseVal)
-    if condition
-        out = trueVal;
-    else
-        out = falseVal;
-    end
+    if condition, out = trueVal; else, out = falseVal; end
 end
