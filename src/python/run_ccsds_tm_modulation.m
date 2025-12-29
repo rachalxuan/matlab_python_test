@@ -5,6 +5,19 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
     % 2. 解决 GMSK 0.5 误码率：ASM 自动极性纠正 + 优化 GMSK 同步策略
     
     tStart = tic;
+    debugLog = ""; % 初始化日志缓冲区
+
+    % --- 内部日志函数 ---
+    function log(fmt, varargin)
+        try
+            msg = sprintf(fmt, varargin{:});
+            debugLog = debugLog + msg; % 拼接到日志
+        catch
+            debugLog = debugLog + "Log Error";
+        end
+    end
+    % -------------------
+
     try
         %% 1. 解析参数
         if nargin < 1 || isempty(paramsJson)
@@ -19,6 +32,9 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
         
         hasRandomizer = false; if isfield(opt, 'hasRandomizer'), hasRandomizer = opt.hasRandomizer; end
         hasASM = false; if isfield(opt, 'hasASM'), hasASM = opt.hasASM; end
+
+        log("======================================================\n");
+        log("[DEBUG] Start Sim: Mod=%s, SPS=%d\n", opt.modType, sps);
 
         %% 2. 发送端：智能路由
         args = {
@@ -90,7 +106,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
         
         if contains(modStr, 'GMSK')
             infoStruct = get(tmWaveGen);
-            fprintf('[CHECK] 发送端 GMSK BT 值 = %.4f (目标是 0.5000)\n', infoStruct.BandwidthTimeProduct);
+            log('[CHECK] 发送端 GMSK BT 值 = %.4f (目标是 0.5000)\n', infoStruct.BandwidthTimeProduct);
         end
         
         %% 3. 生成数据与波形 (含热身帧)
@@ -157,7 +173,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
                 'FrequencyResolution', 1);        % 1Hz 高精度
             
             [rxSynced, estCFO] = coarseSync(rxWaveform);
-            fprintf('  [同步] GMSK 估算频偏: %.2f Hz\n', estCFO);
+            log('  [同步] GMSK 估算频偏: %.2f Hz\n', estCFO);
             
             % 2. 接收滤波 (高斯滤波)
             % -------------------------------------------------------------
@@ -190,7 +206,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
                 'NormalizedLoopBandwidth', 0.01); 
             
             [fineSynced, ~] = carrierSync(fineSynced_Time);
-            fprintf('  [相位] 载波环路已介入...\n');
+            log('  [相位] 载波环路已介入...\n');
         else
             % ============================
             % 策略 B: QPSK/PSK 专用 (相干，标准流程)
@@ -207,7 +223,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
             
             coarseFreqSync = comm.CoarseFrequencyCompensator('Modulation', coarseMod, 'SampleRate', Fs, 'FrequencyResolution', FrequencyResolution); 
             [coarseSynced, estCFO] = coarseFreqSync(rxWaveform);
-            fprintf('  [同步] 估算频偏: %.2f Hz\n', estCFO);
+            log('  [同步] 估算频偏: %.2f Hz\n', estCFO);
 
             % 2. 接收滤波
     
@@ -330,7 +346,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
                 if contains(tmMod, 'GMSK') && length(decodedBits) > 100
                     check_slice = decodedBits(40:140); % 跳过开头可能的延迟
                     if sum(check_slice) / length(check_slice) > 0.9
-                        fprintf('  ⚠️ [兜底] 检测到输出反相，执行翻转...\n');
+                        log('  ⚠️ [兜底] 检测到输出反相，执行翻转...\n');
                         decodedBits = ~decodedBits;
                     end
                 end
@@ -372,8 +388,8 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
                                     foundLock = true;
                                     lockedHeaderID = rxId;
                 
-                                    fprintf('  -> ������ 在偏移 %d 处锁定帧头 (ID=%d)\n', shift, rxId);
-                                    fprintf('foundLock = %d\n', foundLock)
+                                    log('  -> ������ 在偏移 %d 处锁定帧头 (ID=%d)\n', shift, rxId);
+                                    log('foundLock = %d\n', foundLock)
                                     
                                     % Lock acquired! Now calculate BER for all subsequent frames
                                     numRx = floor((length(currBitsSeq)-shift)/bitsPerFrame);
@@ -438,6 +454,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
         end
 
         %% 7. 数据提取与可视化 (保持不变)
+        log("[Result] Final BER: %.6f\n", berVal);
         [Pxx_rx, f_axis] = pwelch(rxWaveform, [], [], 1024, Fs, 'centered');
         Pxx_rx_dB = 10*log10(Pxx_rx);
         [Pxx_tx, ~] = pwelch(txWaveform, [], [], 1024, Fs, 'centered');
@@ -475,6 +492,9 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
         end
         
         result.stats = struct('Fs', Fs, 'CodeRate', realRate, 'ElapsedTime', toc(tStart));
+
+        result.debugLog = debugLog;
+        
         json_str = jsonencode(result);
         
     catch ME
