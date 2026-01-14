@@ -4,12 +4,13 @@
 
 .header {
   padding: 0;
+  background-color: #001529 !important;
 }
 
 .logo {
-  width: 200px;
+  width: 360px;
   height: 60px;
-  background: url('~@/assets/logo.png') no-repeat center / 160px auto;
+  background: url('~@/assets/image.png') no-repeat center / 350px auto;
 }
 
 .layout-content {

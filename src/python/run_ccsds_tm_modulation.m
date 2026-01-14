@@ -1,9 +1,6 @@
 function json_str = run_ccsds_tm_modulation(paramsJson)
-    % run_ccsds_tm_modulation 
-    % 【最终修复版】
-    % 1. 解决 0.026 误码率：引入 5 帧“热身数据”，消除同步环路建立时的误差
-    % 2. 解决 GMSK 0.5 误码率：ASM 自动极性纠正 + 优化 GMSK 同步策略
-    
+
+   
     tStart = tic;
     debugLog = ""; % 初始化日志缓冲区
 
@@ -115,13 +112,13 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
         numHeaderBits = 8; 
         numPayloadBits = bitsPerFrame - numHeaderBits;
         
-        % 【关键修改】增加 5 帧作为“热身”(Warm-up)，不计入 BER 统计
+        % 增加 5 帧作为“热身”(Warm-up)，不计入 BER 统计
         numWarmUp = 5; 
         numRealFrames = 20; 
         totalFrames = numWarmUp + numRealFrames;
         
         msg = [];
-        % 我们需要保留“有效帧”的副本用于 BER 对比
+        % 保留“有效帧”的副本用于 BER 对比
         validTxFrames = {}; 
         
         for i = 1:totalFrames
@@ -164,9 +161,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
         
         if contains(modStr, 'GMSK')
             
-            % 1. 频偏消除 (替换为 FFT 算法)
-            % -------------------------------------------------------------
-            % 旧的 median 算法在高信噪比下会失效。改用 CoarseFrequencyCompensator。
+            % 频偏消除 
             coarseSync = comm.CoarseFrequencyCompensator(...
                 'Modulation', 'OQPSK', ...        % GMSK 近似于 OQPSK
                 'SampleRate', Fs, ...             
@@ -175,8 +170,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
             [rxSynced, estCFO] = coarseSync(rxWaveform);
             log('  [同步] GMSK 估算频偏: %.2f Hz\n', estCFO);
             
-            % 2. 接收滤波 (高斯滤波)
-            % -------------------------------------------------------------
+            % 接收滤波 (高斯滤波)
             rxFilterDecimationFactor = sps/2;
             hGauss = gaussdesign(0.5, 4, sps); 
             rxfilter = dsp.FIRDecimator(...
@@ -184,8 +178,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
                     'Numerator', hGauss);
             filtered = rxfilter(rxSynced);
             
-            % 3. 符号同步 (Early-Late)
-            % -------------------------------------------------------------
+            %  符号同步 (Early-Late)
             gmskTimingObj = comm.SymbolSynchronizer(...
                 'TimingErrorDetector', 'Early-Late (non-data-aided)', ...
                 'SamplesPerSymbol', 2, ...
@@ -196,11 +189,9 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
             
             fineSynced_Time = gmskTimingObj(filtered);
             
-            % 4. 载波相位同步 (新增 PLL !!)
-            % -------------------------------------------------------------
-            % 消除残余频偏，防止星座图旋转，这是消除最后 2.6% 误码的关键
+            % 载波相位同步
             carrierSync = comm.CarrierSynchronizer(...
-                'Modulation', 'QPSK', ...       % 针对 1 SPS 数据用 QPSK 模式锁相
+                'Modulation', 'QPSK', ...       
                 'SamplesPerSymbol', 1, ...      
                 'DampingFactor', 0.707, ...     
                 'NormalizedLoopBandwidth', 0.01); 
@@ -209,7 +200,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
             log('  [相位] 载波环路已介入...\n');
         else
             % ============================
-            % 策略 B: QPSK/PSK 专用 (相干，标准流程)
+            % QPSK/PSK 专用 (标准流程)
             % ============================
             % 1. 粗频偏
             if contains(modStr, 'BPSK'), coarseMod = 'BPSK';
@@ -244,12 +235,11 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
            end
             
             % 3. 符号同步 (Gardner)
-            % --- 3. 分支符号同步 (Timing) ---
             % 经过滤波器后，SPS 变了，需要重新计算
             sps_after_filter = sps / rxFilterDecimationFactor; 
             
             if contains(modStr, 'GMSK')
-                % GMSK 推荐 Early-Late
+                % GMSK ： Early-Late
                 timingObj = comm.SymbolSynchronizer(...
                     'TimingErrorDetector', 'Early-Late (non-data-aided)', ...
                     'SamplesPerSymbol', sps_after_filter, ...
@@ -257,7 +247,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
                     'Modulation', 'PAM/PSK/QAM', ...
                     'NormalizedLoopBandwidth', 0.01);
             else
-                % PSK 推荐 Gardner
+                % PSK ： Gardner
                 if contains(modStr, 'OQPSK'), SyncMod = 'OQPSK'; else, SyncMod = 'PAM/PSK/QAM'; end
                 Kp = 1/(pi*(1-((rolloff^2)/4)))*cos(pi*rolloff/2); % Gardner 增益公式
                 timingObj = comm.SymbolSynchronizer(...
@@ -278,7 +268,6 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
         end
         
        %% 6. 解调与误码率计算 (BER)
-        %% 6. Demodulation and BER Calculation
         berVal = -1;
         errorMsg = "";
         
@@ -308,15 +297,14 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
                 % ------------------------------------------------
                 demodData = demodobj(fineSynced);
                 
-                % 【关键修改】GMSK 极性处理
-                % 删除之前所有的 "ASM Polarity Auto-Correction" 手动代码！
+                % GMSK 极性处理
                 % 直接把实部取出来作为软信息喂给译码器。
                 if contains(tmMod, 'GMSK')
                      demodData = real(demodData); 
                 end
                 
-                % C. Create Decoder (保持不变，确保参数传递正确)
-                % ------------------------------------------------
+
+                % 译码
                 decArgs = {'ChannelCoding', tmCode, 'Modulation', tmMod, ...
                            'NumBytesInTransferFrame', 1115, ...
                            'HasRandomizer', hasRandomizer, ...
@@ -328,7 +316,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
                         rate = char(opt.ConvolutionalCodeRate); 
                         if ~strcmp(rate,'N/A'), decArgs=[decArgs, {'ConvolutionalCodeRate', rate}]; end
                      else
-                        % 如果前端没传，默认给 1/2，防止报错
+                        % 默认给 1/2
                         decArgs=[decArgs, {'ConvolutionalCodeRate', '1/2'}];
                      end
                 end
@@ -340,13 +328,11 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
                 % ------------------------------------------------
                 decodedBits = decoderobj(demodData);
                 
-                % 【新增】智能极性兜底 (Smart Polarity Flip)
-                % ------------------------------------------------
                 % 防止译码器输出反相 (Rx全1)
                 if contains(tmMod, 'GMSK') && length(decodedBits) > 100
                     check_slice = decodedBits(40:140); % 跳过开头可能的延迟
                     if sum(check_slice) / length(check_slice) > 0.9
-                        log('  ⚠️ [兜底] 检测到输出反相，执行翻转...\n');
+                        log('  ！！！！检测到输出反相，执行翻转...\n');
                         decodedBits = ~decodedBits;
                     end
                 end
@@ -388,7 +374,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
                                     foundLock = true;
                                     lockedHeaderID = rxId;
                 
-                                    log('  -> ������ 在偏移 %d 处锁定帧头 (ID=%d)\n', shift, rxId);
+                                    log('   在偏移 %d 处锁定帧头 (ID=%d)\n', shift, rxId);
                                     log('foundLock = %d\n', foundLock)
                                     
                                     % Lock acquired! Now calculate BER for all subsequent frames
@@ -401,7 +387,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
                                         rxFr = double(currBitsSeq(startIdx:endIdx));
                                         thisId = bi2de(rxFr(1:8)', 'left-msb');
                                         
-                                        if isKey(txMap, thisId) && thisId >0
+                                        if isKey(txMap, thisId) && thisId >numWarmUp
                                             totalErrs = totalErrs + biterr(txMap(thisId), rxFr);
                                             totalBits = totalBits + bitsPerFrame;
                                         end

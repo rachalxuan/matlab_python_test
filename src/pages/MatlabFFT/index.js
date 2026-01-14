@@ -215,9 +215,9 @@ const CCSDSPlatform = () => {
         title: {
           text: "功率谱密度 (PSD)",
           // 标题里也显示一下计算结果
-          subtext: `{label|智能估算频偏}  {value|${Math.abs(freqOffset).toFixed(2)} kHz}  {arrow|${
-            freqOffset > 0 ? "⮕ (右偏)" : freqOffset < 0 ? "⬅ (左偏)" : "✔"
-          }}`,
+          //   subtext: `{label|智能估算频偏}  {value|${Math.abs(freqOffset).toFixed(2)} kHz}  {arrow|${
+          //     freqOffset > 0 ? "⮕ (右偏)" : freqOffset < 0 ? "⬅ (左偏)" : "✔"
+          //   }}`,
           subtextStyle: {
             rich: {
               label: { color: "#999", fontSize: 12 },
