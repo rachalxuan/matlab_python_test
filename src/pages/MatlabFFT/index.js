@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
-import { runMatlabSimulation } from "../../apis/simulation";
+import {
+  runMatlabSimulation,
+  saveSimulationRecord,
+  getHistoryList,
+  getRecordDetail,
+} from "../../apis/simulation";
+
 import {
   Card,
   Form,
@@ -14,6 +20,12 @@ import {
   Statistic,
   Divider,
   Checkbox,
+  Drawer,
+  List,
+  Space,
+  Tooltip,
+  Descriptions,
+  Alert,
 } from "antd";
 import {
   RocketOutlined,
@@ -23,11 +35,64 @@ import {
   SyncOutlined,
   BarChartOutlined,
   RadarChartOutlined,
+  SaveOutlined,
+  HistoryOutlined,
+  ClockCircleOutlined,
 } from "@ant-design/icons";
 import * as echarts from "echarts";
 import "./index.scss";
 
 const { Option } = Select;
+const isFiniteNumber = (value) =>
+  typeof value === "number" && Number.isFinite(value);
+
+const formatMetricValue = (value, digits = 2) => {
+  if (!isFiniteNumber(value) || value < 0) return "N/A";
+  if (value === 0) return "0";
+  if (Math.abs(value) >= 1000 || Math.abs(value) < 0.01) {
+    return value.toExponential(digits);
+  }
+  return value.toFixed(digits);
+};
+
+const formatLockStatus = (locked) => {
+  if (locked === true) return "Locked";
+  if (locked === false) return "Unlocked";
+  return "Unknown";
+};
+
+const getEvmDisplay = (stats) => {
+  if (!stats || !isFiniteNumber(stats.EVMPercent) || stats.EVMPercent < 0) {
+    return "未启用";
+  }
+  return `${formatMetricValue(stats.EVMPercent)}%`;
+};
+
+const getMetricTone = (value, thresholds = {}) => {
+  if (!isFiniteNumber(value) || value < 0) return "default";
+  const { good = 0.01, warn = 0.05 } = thresholds;
+  if (value <= good) return "success";
+  if (value <= warn) return "warning";
+  return "error";
+};
+
+const getBerSummary = (ber) => {
+  if (!isFiniteNumber(ber) || ber < 0) return "当前场景下未得到有效 BER。";
+  if (ber === 0) return "当前链路误码表现很好，接收端已基本稳定。";
+  if (ber < 1e-4) return "链路质量较好，误码已经很低。";
+  if (ber < 1e-2) return "链路可用，但已经能看到明显损伤影响。";
+  return "链路误码偏高，建议优先检查同步或信道损伤设置。";
+};
+
+const getEvmSummary = (evmPercent) => {
+  if (!isFiniteNumber(evmPercent) || evmPercent < 0) {
+    return "当前调制方式下没有可靠的 EVM 结果。";
+  }
+  if (evmPercent < 5) return "星座点聚集得比较紧，调制质量很好。";
+  if (evmPercent < 12) return "星座有一定扩散，但接收机通常还能稳定工作。";
+  if (evmPercent < 20) return "调制质量已经明显下降，误码可能快速上升。";
+  return "星座偏离较大，当前损伤已经比较重。";
+};
 
 const CCSDSPlatform = () => {
   //创建Form实例， 用于管理所有数据状态
@@ -35,6 +100,8 @@ const CCSDSPlatform = () => {
   const [loading, setLoading] = useState(false);
   const [simResult, setSimResult] = useState(null);
   const [isElectron, setIsElectron] = useState(false);
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [historyList, setHistoryList] = useState([]);
 
   // 图表 Refs
   const rawConstellationRef = useRef(null);
@@ -88,6 +155,85 @@ const CCSDSPlatform = () => {
       message.error("请求失败，请检查 Python 服务是否启动");
     } finally {
       setLoading(false);
+    }
+  };
+  // === 新增功能 A: 点击保存按钮 ===
+  const handleSave = async () => {
+    // 防御性编程：如果没有结果，就不让存
+    if (!simResult) {
+      message.warning("当前没有仿真结果可保存，请先运行仿真！");
+      return;
+    }
+
+    try {
+      // 1. 获取当前表单里填的所有参数
+      const currentConfig = form.getFieldsValue();
+
+      // 2. 调用 API 发送给 Python
+      const res = await saveSimulationRecord({
+        config: currentConfig,
+        result: simResult,
+      });
+
+      if (res && res.success) {
+        message.success("✅ 保存成功！");
+      }
+    } catch (error) {
+      console.error(error);
+      message.error("保存失败，请检查后端连接");
+    }
+  };
+
+  // === 新增功能 B: 打开历史记录列表 ===
+  const openHistory = async () => {
+    setHistoryVisible(true); // 打开抽屉
+    try {
+      // 获取列表
+      const res = await getHistoryList();
+      // 这里要注意：如果你的 request 封装直接返回 data，就直接用 res
+      // 如果返回的是 axios 对象，可能需要 res.data
+      // 假设你的 request 封装比较标准：
+      if (Array.isArray(res)) {
+        setHistoryList(res);
+      } else {
+        // 防止后端报错导致前端崩溃
+        setHistoryList([]);
+      }
+    } catch (error) {
+      message.error("获取历史记录失败");
+    }
+  };
+
+  // === 新增功能 C: 点击某条历史记录进行回放 ===
+  const loadHistoryItem = async (id) => {
+    const hide = message.loading("正在加载历史数据...", 0);
+    try {
+      // 1. 请求完整数据
+      const res = await getRecordDetail(id);
+
+      if (res && res.success && res.data) {
+        const { config, result } = res.data;
+
+        // 2. 核心操作：把存的数据“填”回去
+
+        // 2.1 填表单
+        form.setFieldsValue(config);
+
+        // 2.2 恢复 React 状态（这会让界面上的数字变化）
+        setSimResult(result);
+
+        // 2.3 这一步最关键：重新根据数据画图
+        // React 的 state 更新是异步的，为了保险，直接把 result 传给画图函数
+        renderCharts(result);
+
+        message.success("已加载历史记录");
+        setHistoryVisible(false); // 关掉抽屉
+      }
+    } catch (error) {
+      console.error(error);
+      message.error("加载失败");
+    } finally {
+      hide();
     }
   };
   const drawConstellation = (domRef, title, data) => {
@@ -328,15 +474,34 @@ const CCSDSPlatform = () => {
           <span className="title">CCSDS 遥测仿真控制台</span>
         </div>
         <div className="status-area">
-          {isElectron ? (
-            <Tag color="success" icon={<CheckCircleOutlined />}>
-              MATLAB Ready
-            </Tag>
-          ) : (
-            <Tag color="orange" icon={<SyncOutlined spin={loading} />}>
-              Demo Mode
-            </Tag>
-          )}
+          <Space size="middle">
+            {/* 只有当有结果时，保存按钮才亮起 */}
+            <Tooltip title="将当前参数和结果存入数据库">
+              <Button
+                icon={<SaveOutlined />}
+                onClick={handleSave}
+                disabled={!simResult}
+              >
+                保存结果
+              </Button>
+            </Tooltip>
+
+            <Button icon={<HistoryOutlined />} onClick={openHistory}>
+              历史记录
+            </Button>
+
+            <Divider type="vertical" />
+
+            {isElectron ? (
+              <Tag color="success" icon={<CheckCircleOutlined />}>
+                MATLAB Ready
+              </Tag>
+            ) : (
+              <Tag color="orange" icon={<SyncOutlined spin={loading} />}>
+                Demo Mode
+              </Tag>
+            )}
+          </Space>
         </div>
       </div>
 
@@ -773,59 +938,204 @@ const CCSDSPlatform = () => {
                   <div ref={spectrumRef} className="chart-box" />
                 </div>
 
-                {/* 统计信息放在频谱图下面 */}
                 {simResult && simResult.stats && (
-                  <div
-                    className="stats-bar"
-                    style={{ marginTop: 20, textAlign: "center" }}
-                  >
-                    <Statistic
-                      title="采样率"
-                      value={simResult.stats.Fs / 1e6}
-                      precision={2}
-                      suffix="MHz"
-                      style={{ display: "inline-block", margin: "0 30px" }}
-                    />
-                    <Divider type="vertical" />
-                    <Statistic
-                      title="误码率 (BER)"
-                      value={simResult.ber} // 后端返回的字段
-                      precision={2}
-                      valueStyle={{
-                        // 智能配色：0误码显绿，有误码显红，未计算显灰
-                        color:
-                          simResult.ber === 0
-                            ? "#52c41a" // 绿色 (完美)
-                            : simResult.ber > 0
-                              ? "#ff4d4f" // 红色 (有误码)
-                              : "#999", // 灰色 (无效状态)
-                        fontWeight: "bold",
-                      }}
-                      formatter={(val) => {
-                        // 处理 MATLAB 返回的特殊状态码
-                        if (val === -1) return "未计算 (N/A)";
-                        if (val === -2) return "计算错误";
-                        if (val === 0) return "0 (Perfect)";
-                        // 科学计数法显示 (例如 1.25e-4)
-                        return Number(val).toExponential(2);
-                      }}
-                      style={{ display: "inline-block", margin: "0 30px" }}
-                    />
-                    <Divider type="vertical" />
-                    <Statistic
-                      title="实际码率"
-                      value={simResult.stats.CodeRate}
-                      precision={3}
-                      style={{ display: "inline-block", margin: "0 30px" }}
-                    />
-                    <Divider type="vertical" />
-                    <Statistic
-                      title="MATLAB耗时"
-                      value={simResult.stats.ElapsedTime}
-                      precision={3}
-                      suffix="s"
-                      style={{ display: "inline-block", margin: "0 30px" }}
-                    />
+                  <div className="result-insights">
+                    <div className="kpi-grid">
+                      <Card className="kpi-card" bordered={false}>
+                        <Statistic
+                          title="BER"
+                          value={simResult.ber}
+                          valueStyle={{
+                            color:
+                              simResult.ber === 0
+                                ? "#389e0d"
+                                : simResult.ber > 0
+                                  ? "#cf1322"
+                                  : "#8c8c8c",
+                          }}
+                          formatter={(val) => {
+                            if (val === -1) return "N/A";
+                            if (val === -2) return "Error";
+                            if (val === 0) return "0";
+                            return Number(val).toExponential(2);
+                          }}
+                        />
+                      </Card>
+                      <Card className="kpi-card" bordered={false}>
+                        <Statistic
+                          title="FER"
+                          value={formatMetricValue(simResult.stats.FER)}
+                        />
+                      </Card>
+                      <Card className="kpi-card" bordered={false}>
+                        <Statistic
+                          title="EVM"
+                          value={getEvmDisplay(simResult.stats)}
+                        />
+                      </Card>
+                      <Card className="kpi-card" bordered={false}>
+                        <Statistic
+                          title="同步状态"
+                          value={formatLockStatus(simResult.stats.LockStatus)}
+                          valueStyle={{
+                            color: simResult.stats.LockStatus
+                              ? "#389e0d"
+                              : "#cf1322",
+                            fontSize: 24,
+                          }}
+                        />
+                      </Card>
+                      <Card className="kpi-card" bordered={false}>
+                        <Statistic
+                          title="估计频偏"
+                          value={formatMetricValue(simResult.stats.EstimatedCFO)}
+                          suffix="Hz"
+                        />
+                      </Card>
+                      <Card className="kpi-card" bordered={false}>
+                        <Statistic
+                          title="采样率"
+                          value={simResult.stats.Fs / 1e6}
+                          precision={2}
+                          suffix="MHz"
+                        />
+                      </Card>
+                    </div>
+
+                    <Card
+                      className="evaluation-panel"
+                      bordered={false}
+                      title="链路评估"
+                    >
+                      <Row gutter={[16, 16]}>
+                        <Col xs={24} xl={10}>
+                          <Descriptions
+                            title="链路质量"
+                            size="small"
+                            column={1}
+                            bordered
+                          >
+                            <Descriptions.Item label="BER">
+                              <Tag
+                                color={getMetricTone(simResult.ber, {
+                                  good: 1e-5,
+                                  warn: 1e-3,
+                                })}
+                              >
+                                {simResult.ber >= 0
+                                  ? formatMetricValue(simResult.ber)
+                                  : "N/A"}
+                              </Tag>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="FER">
+                              <Tag
+                                color={getMetricTone(simResult.stats.FER, {
+                                  good: 0.01,
+                                  warn: 0.1,
+                                })}
+                              >
+                                {formatMetricValue(simResult.stats.FER)}
+                              </Tag>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="EVM">
+                              {isFiniteNumber(simResult.stats.EVMPercent) &&
+                              simResult.stats.EVMPercent >= 0 ? (
+                                <Tag
+                                  color={getMetricTone(
+                                    simResult.stats.EVMPercent,
+                                    { good: 5, warn: 12 }
+                                  )}
+                                >
+                                  {formatMetricValue(simResult.stats.EVMPercent)}%
+                                </Tag>
+                              ) : (
+                                <Tag>未启用</Tag>
+                              )}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="实际码率">
+                              {simResult.stats.CodeRate}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="MATLAB耗时">
+                              {formatMetricValue(
+                                simResult.stats.ElapsedTime,
+                                3
+                              )}{" "}
+                              s
+                            </Descriptions.Item>
+                          </Descriptions>
+                        </Col>
+
+                        <Col xs={24} xl={7}>
+                          <Descriptions
+                            title="同步状态"
+                            size="small"
+                            column={1}
+                            bordered
+                          >
+                            <Descriptions.Item label="锁定状态">
+                              <Tag
+                                color={
+                                  simResult.stats.LockStatus
+                                    ? "success"
+                                    : "error"
+                                }
+                              >
+                                {formatLockStatus(simResult.stats.LockStatus)}
+                              </Tag>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="估计频偏">
+                              {formatMetricValue(
+                                simResult.stats.EstimatedCFO
+                              )}{" "}
+                              Hz
+                            </Descriptions.Item>
+                            <Descriptions.Item label="建议观察">
+                              {simResult.stats.LockStatus
+                                ? "优先结合 EVM 与 BER 看损伤强度"
+                                : "优先检查 CFO、延时和 SNR 是否过重"}
+                            </Descriptions.Item>
+                          </Descriptions>
+                        </Col>
+
+                        <Col xs={24} xl={7}>
+                          <Descriptions
+                            title="帧统计"
+                            size="small"
+                            column={1}
+                            bordered
+                          >
+                            <Descriptions.Item label="对比帧数">
+                              {simResult.stats.ComparedFrames ?? 0}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="出错帧数">
+                              {simResult.stats.FrameErrors ?? 0}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="结论">
+                              {simResult.stats.ComparedFrames > 0
+                                ? "已有足够样本可用于链路对比"
+                                : "当前没有有效帧，指标参考意义有限"}
+                            </Descriptions.Item>
+                          </Descriptions>
+                        </Col>
+                      </Row>
+
+                      <Alert
+                        className="evaluation-alert"
+                        type={
+                          simResult.stats.LockStatus &&
+                          isFiniteNumber(simResult.ber) &&
+                          simResult.ber >= 0 &&
+                          simResult.ber < 1e-3
+                            ? "success"
+                            : "warning"
+                        }
+                        showIcon
+                        message="评估解读"
+                        description={`${getBerSummary(
+                          simResult.ber
+                        )} ${getEvmSummary(simResult.stats.EVMPercent)}`}
+                      />
+                    </Card>
                   </div>
                 )}
               </Card>
@@ -839,6 +1149,54 @@ const CCSDSPlatform = () => {
           </div>
         )}
       </div>
+      <Drawer
+        title="📚 仿真历史档案"
+        placement="right"
+        onClose={() => setHistoryVisible(false)}
+        open={historyVisible}
+        width={420}
+      >
+        <List
+          itemLayout="vertical"
+          dataSource={historyList}
+          renderItem={(item) => (
+            <List.Item
+              key={item.id}
+              actions={[
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => loadHistoryItem(item.id)}
+                >
+                  📥 加载此配置并回放
+                </Button>,
+              ]}
+              style={{ padding: "12px 0", borderBottom: "1px solid #f0f0f0" }}
+            >
+              <List.Item.Meta
+                title={
+                  <Space>
+                    <span style={{ fontWeight: "bold", color: "#1890ff" }}>
+                      {item.summary.modType}
+                    </span>
+                    <Tag>SNR: {item.summary.snr}dB</Tag>
+                  </Space>
+                }
+                description={
+                  <div style={{ fontSize: "12px", color: "#999" }}>
+                    <p style={{ margin: 0 }}>
+                      <ClockCircleOutlined /> {item.timestamp}
+                    </p>
+                    <p style={{ margin: 0 }}>
+                      Symbol Rate: {item.summary.symbolRate}
+                    </p>
+                  </div>
+                }
+              />
+            </List.Item>
+          )}
+        />
+      </Drawer>
     </div>
   );
 };

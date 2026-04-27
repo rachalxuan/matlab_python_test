@@ -13,16 +13,38 @@ const BASE_URL = "http://127.0.0.1:5000";
  * @param {string} url - 接口地址 (例如 '/simulate')
  * @param {object} options - fetch 配置项
  */
-const request = async (url, options = {}) => {
+const request = async (urlOrConfig, options = {}) => {
+  let url;
+  let config;
+
+  // === 智能识别参数 ===
+  if (typeof urlOrConfig === "string") {
+    // 情况 A: 传入的是字符串 (旧写法)
+    url = urlOrConfig;
+    config = options;
+  } else {
+    // 情况 B: 传入的是对象 (新写法)
+    url = urlOrConfig.url;
+    config = { ...urlOrConfig };
+  }
+
+  // === 自动处理 data 字段 ===
+  // 如果你习惯用 data (axios风格)，这里自动帮你转成 fetch 需要的 body
+  if (config.data) {
+    config.body = JSON.stringify(config.data);
+    delete config.data; // 清理掉多余字段
+  }
+
   // 自动拼接完整地址
   const fullUrl = `${BASE_URL}${url}`;
 
   // 默认配置 (自动带上 JSON 头)
   const defaultOptions = {
+    method: "GET", // 默认为 GET
     headers: {
       "Content-Type": "application/json",
     },
-    ...options, // 允许外部覆盖
+    ...config, // 允许外部覆盖
   };
 
   try {

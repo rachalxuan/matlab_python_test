@@ -7,11 +7,32 @@ import { request } from "../utils/request";
  * @returns {Promise} - 返回后端的计算结果
  */
 export const runMatlabSimulation = (data) => {
-  return request("/simulate", {
+  return request({
+    url: "/simulate",
     method: "POST",
     body: JSON.stringify(data), // fetch 需要手动把对象转成字符串
   });
 };
-
-// 如果以后有“测试连接”的接口，也可以写在这里
-// export const testConnection = () => request('/test', { method: 'GET' });
+// 保存仿真记录
+export const saveSimulationRecord = (data) => {
+  return request({
+    url: "/save_record",
+    method: "POST",
+    data, // fetch 需要手动把对象转成字符串
+  });
+};
+// 获取仿真记录列表
+export const getHistoryList = () => {
+  return request({
+    url: "/get_history_list",
+    method: "GET",
+  });
+};
+// 获取仿真记录详情
+export const getRecordDetail = (id) => {
+  return request({
+    url: "/get_record_detail",
+    method: "POST",
+    data: { id },
+  });
+};
