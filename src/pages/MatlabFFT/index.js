@@ -246,6 +246,7 @@ const CCSDSPlatform = () => {
   // 码率常量
   const TURBO_RATES = ["1/2", "1/3", "1/4", "1/6"];
   const LDPC_RATES = ["1/2", "2/3", "4/5", "7/8"];
+  const LDPC_INFO_BLOCKS = [1024, 4096, 16384, 7136];
   const CONVOLUTIONAL_RATES = ["1/2", "2/3", "3/4", "5/6", "7/8"];
 
   useEffect(() => {
@@ -275,6 +276,14 @@ const CCSDSPlatform = () => {
         payload.channelCoding === "concatenated"
       ) {
         payload.ConvolutionalCodeRate = payload.ConvolutionalCodeRate || "5/6";
+      }
+
+      if (payload.channelCoding === "LDPC") {
+        const k = Number(payload.NumBitsInInformationBlock ?? 1024);
+        payload.NumBitsInInformationBlock = k;
+        payload.CodeRate = k === 7136 ? "7/8" : payload.CodeRate || "1/2";
+        payload.IsLDPCOnSMTF = Boolean(payload.IsLDPCOnSMTF);
+        payload.LDPCCodeblockSize = Number(payload.LDPCCodeblockSize ?? 1);
       }
 
       if (
@@ -851,6 +860,10 @@ const CCSDSPlatform = () => {
               modType: "QPSK",
               channelCoding: "convolutional",
               ConvolutionalCodeRate: "5/6",
+              CodeRate: "N/A",
+              NumBitsInInformationBlock: 1024,
+              IsLDPCOnSMTF: false,
+              LDPCCodeblockSize: 1,
               NumBytesInTransferFrame: 1151,
               symbolRate: 5000000,
               RolloffFactor: 0.35,
@@ -1049,7 +1062,12 @@ const CCSDSPlatform = () => {
                       if (value === "Turbo") {
                         form.setFieldsValue({ CodeRate: "1/2" });
                       } else if (value === "LDPC") {
-                        form.setFieldsValue({ CodeRate: "7/8" });
+                        form.setFieldsValue({
+                          CodeRate: "1/2",
+                          NumBitsInInformationBlock: 1024,
+                          IsLDPCOnSMTF: false,
+                          LDPCCodeblockSize: 1,
+                        });
                       } else {
                         form.setFieldsValue({ CodeRate: "N/A" });
                       }
@@ -1097,13 +1115,22 @@ const CCSDSPlatform = () => {
                 </Form.Item>
               </Col>
 
-              <Form.Item noStyle dependencies={["channelCoding"]}>
+              <Form.Item
+                noStyle
+                dependencies={[
+                  "channelCoding",
+                  "NumBitsInInformationBlock",
+                  "CodeRate",
+                ]}
+              >
                 {({ getFieldValue }) => {
                   const coding = getFieldValue("channelCoding");
+                  const ldpcK = Number(
+                    getFieldValue("NumBitsInInformationBlock") ?? 1024,
+                  );
                   const showConvRate =
                     coding === "convolutional" || coding === "concatenated";
                   const showRS = coding === "RS" || coding === "concatenated";
-                  const showFrameLength = showConvRate && !showRS;
                   const isApplicable = coding === "Turbo" || coding === "LDPC";
 
                   // 分别计算各自的默认值和选项
@@ -1117,8 +1144,9 @@ const CCSDSPlatform = () => {
                     turboLdpcRateOptions = TURBO_RATES;
                     turboLdpcDefaultRate = "1/2";
                   } else if (coding === "LDPC") {
-                    turboLdpcRateOptions = LDPC_RATES;
-                    turboLdpcDefaultRate = "7/8";
+                    turboLdpcRateOptions =
+                      ldpcK === 7136 ? ["7/8"] : LDPC_RATES;
+                    turboLdpcDefaultRate = ldpcK === 7136 ? "7/8" : "1/2";
                   }
 
                   return (
@@ -1213,6 +1241,30 @@ const CCSDSPlatform = () => {
                       )}
 
                       {/* C. Turbo/LDPC 码率 */}
+
+                      {coding === "LDPC" && (
+                        <Col span={4}>
+                          <Form.Item
+                            name="NumBitsInInformationBlock"
+                            label="LDPC k"
+                            initialValue={1024}
+                          >
+                            <Select
+                              onChange={(k) => {
+                                form.setFieldsValue({
+                                  CodeRate: Number(k) === 7136 ? "7/8" : "1/2",
+                                });
+                              }}
+                            >
+                              {LDPC_INFO_BLOCKS.map((k) => (
+                                <Option key={k} value={k}>
+                                  {k} bits
+                                </Option>
+                              ))}
+                            </Select>
+                          </Form.Item>
+                        </Col>
+                      )}
 
                       <Col span={4}>
                         <Form.Item

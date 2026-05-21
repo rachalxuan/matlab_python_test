@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="title"/><w:jc w:val="left"/></w:pPr><w:r><w:t>End-to-End CCSDS Telemetry Synchronization and Channel Coding Simulation with RF Impairments and Corrections</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>This example shows how to measure the bit error rate (BER) of the end-to-end chain of the Consultative Committee for Space Data Systems (CCSDS) telemetry (TM) system. The simulation chain follows the coding and modulation schemes that are specified by these two standards:</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="1"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>TM Synchronization and Channel Coding - CCSDS 131.0-B-3 for channel coding schemes </w:t></w:r><w:hyperlink w:anchor="internal:D42AF302"><w:r><w:t>[1]</w:t></w:r></w:hyperlink></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="1"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Radio Frequency and Modulation Systems -  part 1  Earth Stations and Spacecraft - CCSDS 401.0-B-30 for modulation schemes </w:t></w:r><w:hyperlink w:anchor="internal:0601FC08"><w:r><w:t>[2]</w:t></w:r></w:hyperlink></w:p><w:p><w:pPr><w:pStyle w:val="heading"/><w:jc w:val="left"/></w:pPr><w:bookmarkStart w:name="MW_H_73E46523" w:id="H_73E46523"/><w:r><w:t>Introduction</w:t></w:r><w:bookmarkEnd w:id="H_73E46523"/></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Data from various instruments is generated on board the satellite. This data collectively is called </w:t></w:r><w:r><w:rPr><w:i/></w:rPr><w:t>TM data</w:t></w:r><w:r><w:t>. CCSDS specifies the coding and modulation schemes for the transmission of TM data from the satellite to an Earth station. This example shows the end-to-end simulation of the satellite to the Earth station communication link. The example shows how to generate a complex baseband CCSDS TM waveform from the randomly generated transfer frames (TFs), introduce radio frequency (RF) impairments to the baseband signal, and add additive white Gaussian noise (AWGN) to the impaired signal. Then, the example shows the synchronization, demodulation, and decoding of this impaired noisy signal to get the final bits in the form of TFs. The example also shows how to measure the BER with respect to the signal-to-noise ratio (SNR) for one configuration of the CCSDS TM signal. This figure shows the end-to-end simulation chain.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:customXml w:element="image"><w:customXmlPr><w:attr w:name="height" w:val="125"/><w:attr w:name="width" w:val="763"/><w:attr w:name="verticalAlign" w:val="baseline"/><w:attr w:name="altText" w:val=""/><w:attr w:name="relationshipId" w:val="rId1"/></w:customXmlPr></w:customXml></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>This example models these RF impairments:</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="1"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Carrier frequency offset (CFO)</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="1"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Carrier phase offset (CPO)</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="1"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Symbol timing offset (STO)</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>This figure shows the receiver side operations.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:bookmarkStart w:name="MW_D9DFDAC8" w:id="D9DFDAC8"/><w:customXml w:element="image"><w:customXmlPr><w:attr w:name="height" w:val="283"/><w:attr w:name="width" w:val="1117"/><w:attr w:name="verticalAlign" w:val="baseline"/><w:attr w:name="altText" w:val=""/><w:attr w:name="relationshipId" w:val="rId2"/></w:customXmlPr></w:customXml><w:bookmarkEnd w:id="D9DFDAC8"/></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>The frame synchronization and channel decoding processing step performs these three tasks.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Perform phase ambiguity resolution</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Correctly synchronize the frame to the starting of the attached sync marker (ASM)</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Perform channel decoding of the synchronized frame to get the recovered TF</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>This figure shows these three tasks. To start, form a bank of ASM sequences. Each sequence corresponds to the original ASM value in which phase ambiguity is introduced. Correlate each of these sequences with the demodulated symbols. Choose the phase ambiguity value that has the highest correlation peak. Perform the frame synchronization with this correlation process. The process to perform correlation is illustrated in section 9.3.7 in </w:t></w:r><w:hyperlink w:anchor="internal:1B013A27"><w:r><w:t>[3]</w:t></w:r></w:hyperlink><w:r><w:t>. This example adopts the simplified Massey algorithm for frame synchronization. Resolve the phase ambiguity on the complete set of demodulated symbols after the frame synchronization process is complete. Finally, perform channel decoding on these symbols to obtain the recovered TFs.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:customXml w:element="image"><w:customXmlPr><w:attr w:name="height" w:val="336"/><w:attr w:name="width" w:val="1149"/><w:attr w:name="verticalAlign" w:val="baseline"/><w:attr w:name="altText" w:val=""/><w:attr w:name="relationshipId" w:val="rId3"/></w:customXmlPr></w:customXml></w:p><w:p><w:pPr><w:pStyle w:val="heading"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Simulation Parameters</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>This example uses a quadrature phase shift keying (QPSK) modulation scheme for signal generation and reception and a rate-1/2 convolutional coding scheme for channel coding. The end-to-end chain this example shows can also be used for the channel coding schemes that are specified in </w:t></w:r><w:hyperlink w:anchor="internal:D42AF302"><w:r><w:t>[1]</w:t></w:r></w:hyperlink><w:r><w:t>: Reed-Solomon (RS) codes and concatenated codes. For convolutional and concatenated codes, this example supports rates of 1/2 and 2/3 along with pulse code modulation (PCM)-format of non-return to zero-line (NRZ-L). The supported modulation schemes in this example are binary phase shift keying (BPSK) and QPSK.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[seeConstellation = true;         % Flag to toggle the visualization of constellation
+channelCoding = "convolutional"; % Channel coding scheme
+transferFrameLength = 1115;      % In bytes corresponding to 223*5
+modScheme = "QPSK";              % Modulation scheme
+alpha = 0.35;                    % Root raised cosine filter roll-off factor
+sps = 8;                         % Samples per symbol]]></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Set the frequencies that are used for signal generation and the RF impairment values.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[fSym = 2e6; % Symbol rate or Baud rate in Hz
+cfo = 2e5;  % In Hz]]></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Initialize the energy per bit to noise power ratio (Eb/N0), which is used to calculate the SNR using system parameters.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[EbN0 = 10; % To see a proper BER result, run the simulation for 3.2:0.2:5]]></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Initialize the parameters to terminate the simulation. The parameters are set to small values in this example to get quick results. Increase these parameters value to get a smoother BER curve.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[maxNumErrors = 1e2;  % Simulation stops after maxNumErrors bit errors
+maxNumBits = 1e5;    % Simulation stops after processing maxNumBits
+                     % Set maxNumBits = 1e8 for a smoother BER curve
+maxFramesLost = 1e2; % Simulation stops after maxFramesLost frames are lost]]></w:t></w:r></w:p><w:p><mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><mc:Choice Requires="R2018b"><w:pPr><w:pStyle w:val="heading2"/><w:jc w:val="left"/></w:pPr></mc:Choice><mc:Fallback><w:pPr><w:pStyle w:val="heading"/><w:jc w:val="left"/></w:pPr></mc:Fallback></mc:AlternateContent><w:r><w:t>System Parameters</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Initialize all of the objects that are required for the proper functioning of the end-to-end chain.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Create a CCSDS TM waveform generator with these parameters by using the </w:t></w:r><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>ccsdsTMWaveformGenerator</w:t></w:r><w:r><w:t> System object™. Display the properties of the object.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[tmWaveGen = ccsdsTMWaveformGenerator("ChannelCoding",channelCoding, ...
+    "NumBytesInTransferFrame",transferFrameLength, ...
+    "Modulation",modScheme, ...
+    "RolloffFactor",alpha, ...
+    "SamplesPerSymbol",sps);
+disp(tmWaveGen)]]></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Calculate the SNR from the Eb/N0 and initialize the parameters related to the calculation of BER.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[rate = tmWaveGen.info.ActualCodeRate;
+M = tmWaveGen.info.NumBitsPerSymbol;
+numBitsInTF = tmWaveGen.NumInputBits;
+snr = EbN0 + 10*log10(rate) + ...
+    10*log10(M) - 10*log10(sps);      % As signal power is scaled to one while introducing noise, 
+                                      % snr value should be reduced by a factor of SPS
+numSNR = length(snr);
+ber = zeros(numSNR,1);                % Initialize the BER parameter
+bercalc = comm.ErrorRate; ]]></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Create a receive filter object by using the </w:t></w:r><w:hyperlink w:docLocation="https://www.mathworks.com/help/comm/ref/comm.raisedcosinereceivefilter-system-object.html"><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>comm.RaisedCosineReceiveFilter</w:t></w:r></w:hyperlink><w:r><w:t> System object.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[b = rcosdesign(alpha,tmWaveGen.FilterSpanInSymbols,sps);
+% |H(f)| = 1  for |f| < fN(1-alpha) - Annex 1 in Section 2.4.17A in [2]
+Gain =  sum(b);
+rxFilterDecimationFactor = sps/2;
+rxfilter = comm.RaisedCosineReceiveFilter( ...
+    "DecimationFactor",rxFilterDecimationFactor, ...
+    "InputSamplesPerSymbol",sps, ...
+    "RolloffFactor",alpha, ...
+    "Gain",Gain);]]></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Model frequency and phase offsets by using the </w:t></w:r><w:hyperlink w:docLocation="https://www.mathworks.com/help/comm/ref/comm.phasefrequencyoffset-system-object.html"><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>comm.PhaseFrequencyOffset</w:t></w:r></w:hyperlink><w:r><w:t> System object. Compensate for frequency and phase offset at the receiver in two steps.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Compensate for the coarse frequency offset by using the </w:t></w:r><w:hyperlink w:docLocation="https://www.mathworks.com/help/comm/ref/comm.coarsefrequencycompensator-system-object.html"><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>comm.CoarseFrequencyCompensator</w:t></w:r></w:hyperlink><w:r><w:t> System object.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Compensate for the fine frequency offset and the phase offset by using the </w:t></w:r><w:hyperlink w:docLocation="https://www.mathworks.com/help/comm/ref/comm.carriersynchronizer-system-object.html"><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>comm.CarrierSynchronizer</w:t></w:r></w:hyperlink><w:r><w:t> System object.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[phaseOffset = pi/8;
+fqyoffsetobj = comm.PhaseFrequencyOffset( ...
+    "FrequencyOffset",cfo, ...
+    "PhaseOffset",phaseOffset, ...
+    "SampleRate",sps*fSym);
+coarseFreqSync = comm.CoarseFrequencyCompensator( ...
+    "Modulation",modScheme, ...
+    "FrequencyResolution",100, ...
+    "SampleRate",sps*fSym);
+fineFreqSync = comm.CarrierSynchronizer("DampingFactor",1/sqrt(2), ...
+    "NormalizedLoopBandwidth",0.0007, ...
+    "SamplesPerSymbol",1, ...
+    "Modulation",modScheme);]]></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Create a variable fractional delay object by using the </w:t></w:r><w:hyperlink w:docLocation="https://www.mathworks.com/help/dsp/ref/dsp.variablefractionaldelay-system-object.html"><w:r><w:t>dsp.VariableFractionalDelay</w:t></w:r></w:hyperlink><w:r><w:t> System object, which introduces the fractional delay in the transmitted waveform. Create a symbol synchronization object by using the </w:t></w:r><w:hyperlink w:docLocation="https://www.mathworks.com/help/comm/ref/comm.symbolsynchronizer-system-object.html"><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>comm.SymbolSynchronizer</w:t></w:r></w:hyperlink><w:r><w:t> System object, which performs symbol timing synchronization.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[varDelay = dsp.VariableFractionalDelay("InterpolationMethod","Farrow");
+fixedDelayVal = 10.2;
+Kp = 1/(pi*(1-((alpha^2)/4)))*cos(pi*alpha/2);
+symsyncobj = comm.SymbolSynchronizer( ...
+    "DampingFactor",1/sqrt(2), ...
+    "DetectorGain",Kp, ...
+    "TimingErrorDetector","Gardner (non-data-aided)", ...
+    "Modulation","PAM/PSK/QAM", ...
+    "NormalizedLoopBandwidth",0.0001, ...
+    "SamplesPerSymbol",sps/rxFilterDecimationFactor);]]></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Demodulate and decode the received signal by using the </w:t></w:r><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>HelperCCSDSTMDemodulator</w:t></w:r><w:r><w:t> and </w:t></w:r><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>HelperCCSDSTMDecoder</w:t></w:r><w:r><w:t> helper files, respectively. Display the properties of the resulting objects.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[demodobj = HelperCCSDSTMDemodulator("Modulation",modScheme,"ChannelCoding",channelCoding)
+decoderobj = HelperCCSDSTMDecoder("ChannelCoding",channelCoding, ...
+    "NumBytesInTransferFrame",transferFrameLength, ...
+    "Modulation",modScheme)]]></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Initialize the constellation diagram object by using the </w:t></w:r><w:hyperlink w:docLocation="https://www.mathworks.com/help/comm/ref/comm.constellationdiagram-system-object.html"><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>comm.ConstellationDiagram</w:t></w:r></w:hyperlink><w:r><w:t> System object to visualize how the constellation evolves as the synchronizers converge.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[costellationobj = comm.ConstellationDiagram; % Default view is for QPSK
+if strcmp(modScheme,'BPSK')
+    costellationobj.ReferenceConstellation = [1, -1]
+end]]></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="heading"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Processing Chain</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>To simulate the end-to-end chain and measure the BER of the CCSDS TM system, follow these steps.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Generate random bits to form a TF.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Generate the TM waveform by passing the TF through the </w:t></w:r><w:hyperlink w:docLocation="https://www.mathworks.com/help/satcom/ref/ccsdstmwaveformgenerator-system-object.html"><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>ccsdsTMWaveformGenerator</w:t></w:r></w:hyperlink><w:r><w:t> System object.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Introduce RF impairments, such as CFO and symbol delay.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Add AWGN to the RF-impaired signal. This noisy signal is considered the received signal.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Pass the received signal through coarse frequency correction, which performs the initial coarse carrier frequency synchronization. Coarse frequency estimation is done using the "FFT-based" algorithm.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Use a matched filter (root raised cosine filter) with the same configuration that is applied at the transmitter end. Because the symbol timing synchronization module works at a sampling rate that is higher than the symbol rate, the complex baseband samples are not down sampled to the symbol rate after filtering. It is down sampled such that at least 2 samples per symbol exist.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Perform symbol timing synchronization by using the Gardner timing error detector (TED) to remove the timing offset that is present in the signal.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Perform carrier frequency and phase tracking by using the </w:t></w:r><w:hyperlink w:docLocation="https://www.mathworks.com/help/comm/ref/comm.carriersynchronizer-system-object.html"><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>comm.CarrierSynchronizer</w:t></w:r></w:hyperlink><w:r><w:t> System object, which has a type 2 phase locked loop (PLL). This System object can track a stationary carrier frequency offset. The System object also introduces phase ambiguity, which is then removed by the frame synchronization module.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Visualize the constellation after symbol timing and carrier frequency synchronization is complete. Observe how the constellation evolves over multiple iterations.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Demodulate the received signal and verify that the signal is at the symbol rate (that is, the samples per symbol is 1).</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="2"/></w:numPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Perform frame synchronization and channel decoding to resolve the phase ambiguity, synchronize the frame to the start of the ASM, and then decode the synchronized frame to recover the TF.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[numBitsForBER = 8; % For detecting which frame is synchronized
+numMessagesInBlock = 2^numBitsForBER;
+for isnr = 1:numSNR
+    rng default;                         % Reset to get repeatable results
+    reset(bercalc);
+    berinfo = bercalc(int8(1), int8(1)); % Initialize berinfo before BER is calculated
+    tfidx = 1;
+    numFramesLost = 0;
+    prevdectfidx = 0;
+    inputBuffer = zeros(numBitsInTF, 256,"int8");
+    while((berinfo(2) < maxNumErrors) && ...
+            (berinfo(3) < maxNumBits) && ...
+            (numFramesLost < maxFramesLost))
+        seed = randi([0 2^32-1],1,1);    % Generate seed for repeatable simulation
+
+        % Transmitter side processing
+        bits = int8(randi([0 1],numBitsInTF-numBitsForBER,1));
+        % The first 8 bits correspond to the TF index modulo 256. When
+        % synchronization modules are included, there can be a few frames
+        % where synchronization is lost temporarily and then locks again.
+        % In such cases, to calculate the BER, these 8 bits aid in
+        % identifying which TF is decoded. If an error in these 8 bits
+        % exists, then this error is detected by looking at the difference
+        % between consecutive decoded bits. If an error is detected, then
+        % that frame is considered lost. Even though the data link layer is
+        % out of scope of this example, the data link layer has a similar
+        % mechanism. In this example, only for calculating the BER, this
+        % mechanism is adopted. The mechanism that is adopted in this
+        % example is not as specified in the data link layer of the CCSDS
+        % standard. And this mechanism is not specified in the physical
+        % layer of the CCSDS standard.
+        msg = [de2bi(mod(tfidx-1,numMessagesInBlock),numBitsForBER,"left-msb").';bits];
+        inputBuffer(:,mod(tfidx-1,numMessagesInBlock)+1) = msg;
+        tx = tmWaveGen(msg);
+
+        % Introduce RF impairments
+        cfoInroduced = fqyoffsetobj(tx);                % Introduce CFO
+        delayed = varDelay(cfoInroduced,fixedDelayVal); % Introduce timing offset
+        rx = awgn(delayed, snr(isnr),'measured',seed);  % Add AWGN
+
+        % Receiver-side processing
+        coarseSynced = coarseFreqSync(rx);     % Apply coarse frequency synchronization
+        filtered = rxfilter(coarseSynced);     % Filter received samples through RRC filter
+        TimeSynced = symsyncobj(filtered);     % Apply symbol timing synchronization
+        fineSynced = fineFreqSync(TimeSynced); % Track frequency and phase
+        
+        % Visualize constellation
+        if seeConstellation
+            % Plot constellation of first 1000 symbols in a TF so
+            % that variable size of fineSynced does not impede the
+            % requirement of constant input size for the
+            % comm.ConstellationDiagram System object.
+            costellationobj(fineSynced(1:1000));
+        end
+
+        demodData = demodobj(fineSynced); % Demodulate
+        decoded = decoderobj(demodData);  % Perform phase ambiguity resolution,
+                                          % frame synchronization, and channel decoding
+
+        % Calculate BER and adjust all buffers accordingly
+        dectfidx = bi2de(double(decoded(1:8).'), ...
+            "left-msb")+1;                % See the value of first 8 bits
+        if tfidx > 30 % Consider to calculate BER only after 30 TFs are processed
+            % As the value of first 8 bits is increased by one in each
+            % iteration, if the difference between the current decoded
+            % decimal value of first 8 bits is not equal to the previously
+            % decoded one, then it indicates a frame loss.
+            if dectfidx - prevdectfidx ~= 1
+                numFramesLost = numFramesLost + 1;
+                disp(['Frame lost at tfidx: ' num2str(tfidx) ...
+                    '. Total frames lost: ' num2str(numFramesLost)]);
+            else
+                berinfo = bercalc(inputBuffer(:,dectfidx),decoded);
+                if nnz(inputBuffer(:,dectfidx)-decoded)
+                    disp(['Errors occurred at tfidx: ' num2str(tfidx) ...
+                        '. Num errors: ' num2str(nnz(inputBuffer(:,dectfidx) - decoded))])
+                end
+            end
+        end
+        prevdectfidx = dectfidx;
+        
+        % Update tfidx
+        tfidx = tfidx + 1;
+    end
+    fprintf("\n");
+    currentBer = berinfo(1);
+    ber(isnr) = currentBer;
+    disp(['Eb/N0: ' num2str(EbN0(isnr)) '. BER: ' num2str(currentBer) ...
+        '. Num frames lost: ' num2str(numFramesLost)]);
+    
+    % Reset objects
+    reset(tmWaveGen);
+    reset(fqyoffsetobj);
+    reset(varDelay);
+    reset(coarseFreqSync);
+    reset(rxfilter);
+    reset(symsyncobj);
+    reset(fineFreqSync);
+    reset(demodobj);
+    reset(decoderobj);
+end]]></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="heading"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Further Exploration</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>This example demonstrates BER simulation for convolutional codes with QPSK modulation in the presence of several RF impairments. To observe the end-to-end simulation chain for different scenarios, change the properties related to the channel coding and modulation schemes. The modulation schemes that are supported by the receiver in this example are BPSK and QPSK. The channel coding schemes that are supported by the receiver in this example are none (that is, no channel coding), RS, convolutional, and concatenated codes.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Run a full BER simulation by setting the Eb/N0 value to 3.2:0.2:5 and observe the BER by setting </w:t></w:r><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>maxNumBits</w:t></w:r><w:r><w:t> to 1e8. Uncomment this code to plot the BER results.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[% semilogy(EbN0,ber);
+% grid on;
+% xlabel('E_b/N_0 (dB)');
+% ylabel('BER');
+% title('BER plot');]]></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Always reserve the initial few TFs for the symbol timing and carrier frequency synchronizers to lock. This example discards the first 30 TFs. This number can vary based on the SNR at which the receiver is operating and the parameters of the synchronization loops, such as loop bandwidth and damping factor. If you operate the receiver at low SNR and observe large errors in the initial values of </w:t></w:r><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>tfidx</w:t></w:r><w:r><w:t>, then the synchronizers are not yet locked. For the given simulation parameters, discard the initial TFs as appropriate. The second output arguments of </w:t></w:r><w:hyperlink w:docLocation="https://www.mathworks.com/help/comm/ref/comm.coarsefrequencycompensator-system-object.html"><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>comm.CoarseFrequencyCompensator</w:t></w:r></w:hyperlink><w:r><w:t> and </w:t></w:r><w:hyperlink w:docLocation="https://www.mathworks.com/help/comm/ref/comm.carriersynchronizer-system-object.html"><w:r><w:rPr><w:rFonts w:cs="monospace"/></w:rPr><w:t>comm.CarrierSynchronizer</w:t></w:r></w:hyperlink><w:r><w:t> System objects contain the information related to the estimated CFO, which can be used to assess whether the synchronization loops are locked or not.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="heading"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Appendix</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t>The example uses the following helper files:</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="1"/></w:numPr><w:jc w:val="left"/></w:pPr><w:hyperlink w:docLocation="matlab:openExample('satcom/CCSDSTMBitErrorRateExample','supportingFile','HelperCCSDSTMDemodulator.m')"><w:r><w:t>HelperCCSDSTMDemodulator.m</w:t></w:r></w:hyperlink><w:r><w:t> - Performs the demodulation of signals that are specified in CCSDS TM </w:t></w:r><w:hyperlink w:anchor="internal:0601FC08"><w:r><w:t>[2]</w:t></w:r></w:hyperlink></w:p><w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:numId w:val="1"/></w:numPr><w:jc w:val="left"/></w:pPr><w:hyperlink w:docLocation="matlab:openExample('satcom/CCSDSTMBitErrorRateExample','supportingFile','HelperCCSDSTMDecoder.m')"><w:r><w:t>HelperCCSDSTMDecoder.m</w:t></w:r></w:hyperlink><w:r><w:t> - Performs, phase ambiguity resolution, frame synchronization and channel decoding of the codes specified in </w:t></w:r><w:hyperlink w:anchor="internal:D42AF302"><w:r><w:t>[1]</w:t></w:r></w:hyperlink></w:p><w:p><w:pPr><w:pStyle w:val="heading"/><w:jc w:val="left"/></w:pPr><w:r><w:t>References</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:bookmarkStart w:name="MW_D42AF302" w:id="D42AF302"/><w:r><w:t>[1] TM Synchronization and Channel Coding. Recommendation for Space Data System Standards, CCSDS 131.0-B-3. Blue Book. Issue 3. Washington, D.C.: CCSDS, September 2017.</w:t></w:r><w:bookmarkEnd w:id="D42AF302"/></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:bookmarkStart w:name="MW_0601FC08" w:id="0601FC08"/><w:r><w:t>[2] Radio Frequency and Modulation Systems--Part 1: Earth Stations and Spacecraft. Recommendation for Space Data System Standards, CCSDS 401.0-B-30. Blue Book. Issue 30. Washington, D.C.: CCSDS, February 2020.</w:t></w:r><w:bookmarkEnd w:id="0601FC08"/></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:bookmarkStart w:name="MW_1B013A27" w:id="1B013A27"/><w:r><w:t>[3] TM Synchronization and Channel Coding - Summary of Concept and Rationale. Report Concerning Space Data System Standards, CCSDS 130.1-G-3. Green Book. Issue 3. Washington, D.C.: CCSDS, June 2020.</w:t></w:r><w:bookmarkEnd w:id="1B013A27"/></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:i/></w:rPr><w:t>Copyright 2020-2021 The MathWorks, Inc.</w:t></w:r></w:p></w:body></w:document>

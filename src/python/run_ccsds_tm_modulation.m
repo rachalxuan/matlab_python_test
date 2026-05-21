@@ -56,10 +56,17 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
         else
             % --- 分支 B: PSK/QAM/GMSK ---
             args = [args, {'WaveformSource', 'synchronization and channel coding'}];
-            args = [args, {'NumBytesInTransferFrame', 1115}];
             args = [args, {'Modulation', modStr}];
             
             if isfield(opt, 'channelCoding'), codeStr = lower(string(opt.channelCoding)); else, codeStr = 'none'; end
+            isLDPCOnSMTF = contains(codeStr,'ldpc') && isfield(opt,'IsLDPCOnSMTF') && logical(opt.IsLDPCOnSMTF);
+            if ~contains(codeStr,'ldpc') || isLDPCOnSMTF
+                if isfield(opt, 'NumBytesInTransferFrame')
+                    args = [args, {'NumBytesInTransferFrame', double(opt.NumBytesInTransferFrame)}];
+                else
+                    args = [args, {'NumBytesInTransferFrame', 1115}];
+                end
+            end
             args = [args, {'ChannelCoding', codeStr}];
             
             % 【参数修正】GMSK 不设置 RolloffFactor
@@ -95,6 +102,15 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
              
              if contains(codeStr, {'turbo', 'ldpc'}) && isfield(opt, 'CodeRate')
                  args = [args, {'CodeRate', string(opt.CodeRate)}];
+             end
+             if contains(codeStr, {'turbo', 'ldpc'}) && isfield(opt, 'NumBitsInInformationBlock')
+                 args = [args, {'NumBitsInInformationBlock', double(opt.NumBitsInInformationBlock)}];
+             end
+             if contains(codeStr, 'ldpc') && isfield(opt, 'IsLDPCOnSMTF')
+                 args = [args, {'IsLDPCOnSMTF', logical(opt.IsLDPCOnSMTF)}];
+             end
+             if contains(codeStr, 'ldpc') && isfield(opt, 'LDPCCodeblockSize')
+                 args = [args, {'LDPCCodeblockSize', double(opt.LDPCCodeblockSize)}];
              end
         end
         

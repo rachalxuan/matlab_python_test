@@ -173,13 +173,17 @@ function [res, ctx] = runOneShot(opt)
     else
 %         args = [args, {'WaveformSource','synchronization and channel coding', ...
 %                        'NumBytesInTransferFrame', 1115, 'Modulation', modStr}];
-        args = [args, {'WaveformSource','synchronization and channel coding', ...
-                       'NumBytesInTransferFrame', numBytesTF, 'Modulation', modStr}];
         if isfield(opt,'channelCoding'), codeStr = canonicalChannelCoding(opt.channelCoding); else, codeStr = 'none'; end
+        codeKey = lower(string(codeStr));
+        isLDPCOnSMTF = contains(codeKey,'ldpc') && isfield(opt,'IsLDPCOnSMTF') && logical(opt.IsLDPCOnSMTF);
+        args = [args, {'WaveformSource','synchronization and channel coding', ...
+                       'Modulation', modStr}];
+        if ~contains(codeKey,'ldpc') || isLDPCOnSMTF
+            args = [args, {'NumBytesInTransferFrame', numBytesTF}];
+        end
         args = [args, {'ChannelCoding', codeStr}];
         args = appendRSArgs(args, opt);
         
-        codeKey = lower(string(codeStr));
         if contains(codeKey,'convolutional') && isfield(opt,'ConvolutionalCodeRate')
             rate = char(opt.ConvolutionalCodeRate);
             if ~strcmp(rate,'N/A')
@@ -209,9 +213,22 @@ function [res, ctx] = runOneShot(opt)
         if contains(codeKey,{'turbo','ldpc'}) && isfield(opt,'CodeRate')
             args = [args, {'CodeRate', string(opt.CodeRate)}];
         end
+        if contains(codeKey,{'turbo','ldpc'}) && isfield(opt,'NumBitsInInformationBlock')
+            args = [args, {'NumBitsInInformationBlock', double(opt.NumBitsInInformationBlock)}];
+        end
+        if contains(codeKey,'ldpc') && isfield(opt,'IsLDPCOnSMTF')
+            args = [args, {'IsLDPCOnSMTF', logical(opt.IsLDPCOnSMTF)}];
+        end
+        if contains(codeKey,'ldpc') && isfield(opt,'LDPCCodeblockSize')
+            args = [args, {'LDPCCodeblockSize', double(opt.LDPCCodeblockSize)}];
+        end
     end
 
     tmWaveGen = ccsdsTMWaveformGenerator(args{:});
+    disp(tmWaveGen)
+    disp(info(tmWaveGen))
+    fprintf('[TX LDPC] NumInputBits=%d, ActualCodeRate=%.6f\n', ...
+        tmWaveGen.NumInputBits, info(tmWaveGen).ActualCodeRate);
     Fs = fSym * sps;
     bitsPerFrame = tmWaveGen.NumInputBits;
     fprintf('[Actual TF] NumInputBits=%d, NumInputBytes=%.3f\n', ...
@@ -731,9 +748,12 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
 %     decArgs = {'ChannelCoding',tmCode,'Modulation',tmMod, ...
 %                'NumBytesInTransferFrame',1115, ...
 %                'HasRandomizer',hasRandomizer,'HasASM',hasASM};
+    isLDPCOnSMTF = contains(lower(string(tmCode)),'ldpc') && isfield(opt,'IsLDPCOnSMTF') && logical(opt.IsLDPCOnSMTF);
     decArgs = {'ChannelCoding',tmCode,'Modulation',tmMod, ...
-               'NumBytesInTransferFrame',numBytesTF, ...
                'HasRandomizer',hasRandomizer,'HasASM',hasASM};
+    if ~contains(lower(string(tmCode)),'ldpc') || isLDPCOnSMTF
+        decArgs = [decArgs, {'NumBytesInTransferFrame',numBytesTF}];
+    end
     decArgs = appendRSArgs(decArgs, opt);
     if contains(lower(string(tmCode)),'convolutional')
         if isfield(opt,'ConvolutionalCodeRate')
@@ -741,6 +761,20 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
             if ~strcmp(rate,'N/A'), decArgs=[decArgs,{'ConvolutionalCodeRate',rate}]; end
         else
             decArgs=[decArgs,{'ConvolutionalCodeRate','1/2'}];
+        end
+    end
+    if contains(lower(string(tmCode)),'ldpc')
+        if isfield(opt,'CodeRate') && ~strcmp(char(opt.CodeRate),'N/A')
+            decArgs = [decArgs, {'CodeRate', string(opt.CodeRate)}];
+        end
+        if isfield(opt,'NumBitsInInformationBlock')
+            decArgs = [decArgs, {'NumBitsInInformationBlock', double(opt.NumBitsInInformationBlock)}];
+        end
+        if isfield(opt,'IsLDPCOnSMTF')
+            decArgs = [decArgs, {'IsLDPCOnSMTF', logical(opt.IsLDPCOnSMTF)}];
+        end
+        if isfield(opt,'LDPCCodeblockSize')
+            decArgs = [decArgs, {'LDPCCodeblockSize', double(opt.LDPCCodeblockSize)}];
         end
     end
     decoderobj = HelperCCSDSTMDecoder(decArgs{:});

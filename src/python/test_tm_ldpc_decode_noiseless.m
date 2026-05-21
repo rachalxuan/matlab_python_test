@@ -1,42 +1,98 @@
 clc;
 clear;
 
-load('tm_ldpc_H_k7136_n8160.mat','H','k','n','invr');
+tests = {
+    1024, "1/2";
+    1024, "2/3";
+    1024, "4/5";
+};
 
-Gc = satcom.internal.ccsds.getTMLDPCGeneratorMatrix(k, invr);
+for iCase = 1:size(tests,1)
+    kReq = tests{iCase,1};
+    rateReq = tests{iCase,2};
 
-msg = randi([0 1], k, 1, 'int8');
-cw = int8(satcom.internal.ccsds.tmldpcEncode(msg, Gc));
+    fprintf('\n==============================\n');
+    fprintf('Build and test k=%d, CodeRate=%s\n', kReq, rateReq);
+    fprintf('==============================\n');
 
-fprintf('k=%d, n=%d, parity=%d\n', k, n, n-k);
+    tmWaveGen = ccsdsTMWaveformGenerator( ...
+        'ChannelCoding','LDPC', ...
+        'Modulation','QPSK', ...
+        'HasASM',true, ...
+        'HasRandomizer',false, ...
+        'NumBitsInInformationBlock',kReq, ...
+        'CodeRate',rateReq, ...
+        'IsLDPCOnSMTF',false);
 
-syn = mod(H * double(cw(:)), 2);
-fprintf('syndrome weight = %d\n', nnz(syn));
+    s = info(tmWaveGen);
 
-ldpcCfg = ldpcDecoderConfig(sparse(logical(H)));
+    k = tmWaveGen.NumInputBits;
+    rate = s.ActualCodeRate;
+    n = round(k / rate);
+    invr = n / k;
 
-% LLR 约定测试：
-% A: bit 0 -> 正，bit 1 -> 负
-% B: 反过来
-llrA =  20 * double(1 - 2*double(cw));
-llrB = -20 * double(1 - 2*double(cw));
+    fprintf('CodeRate property = %s\n', string(tmWaveGen.CodeRate));
+    fprintf('ActualCodeRate    = %.9f\n', rate);
+    fprintf('k=%d, n=%d, parity=%d, invr=%.12f\n', k, n, n-k, invr);
 
-fprintf('Start LDPC decode A...\n');
-decA = ldpcDecode(llrA, ldpcCfg, 5, 'OutputFormat','whole');
+    H = buildTMLDPC_H_from_encoder(k, invr);
 
-fprintf('Start LDPC decode B...\n');
-decB = ldpcDecode(llrB, ldpcCfg, 5, 'OutputFormat','whole');
+    Gc = satcom.internal.ccsds.getTMLDPCGeneratorMatrix(k, invr);
 
-msgA = int8(decA(1:k));
-msgB = int8(decB(1:k));
+    % 1. syndrome 验证
+    for tt = 1:5
+        msg = randi([0 1], k, 1, 'int8');
+        cw = int8(satcom.internal.ccsds.tmldpcEncode(msg, Gc));
 
-errA = sum(msgA ~= msg);
-errB = sum(msgB ~= msg);
+        syn = mod(H * double(cw(:)), 2);
+        fprintf('  syndrome test %d: weight=%d\n', tt, nnz(syn));
 
-errA_inv = sum(int8(~logical(msgA)) ~= msg);
-errB_inv = sum(int8(~logical(msgB)) ~= msg);
+        if nnz(syn) ~= 0
+            error('Syndrome check failed: k=%d, rate=%s', k, rateReq);
+        end
+    end
 
-fprintf('errA     = %d\n', errA);
-fprintf('errB     = %d\n', errB);
-fprintf('errA_inv = %d\n', errA_inv);
-fprintf('errB_inv = %d\n', errB_inv);
+    % 2. ldpcDecode 无噪声验证
+    ldpcCfg = ldpcDecoderConfig(sparse(logical(H)));
+
+    for tt = 1:5
+        msg = randi([0 1], k, 1, 'int8');
+        cw = int8(satcom.internal.ccsds.tmldpcEncode(msg, Gc));
+
+        % MATLAB ldpcDecode: bit 0 -> 正 LLR, bit 1 -> 负 LLR
+        llr = 20 * double(1 - 2*double(cw(:)));
+
+        dec = ldpcDecode(llr, ldpcCfg, 20, 'OutputFormat','whole');
+        msgHat = int8(dec(1:k));
+
+        err = sum(msgHat ~= msg);
+
+        fprintf('  decode test %d: msgErr=%d\n', tt, err);
+
+        if err ~= 0
+            error('Noiseless decode failed: k=%d, rate=%s', k, rateReq);
+        end
+    end
+
+    % 3. 保存
+    tag = rateTagForFile(rateReq);
+    saveName = sprintf('tm_ldpc_H_k%d_%s.mat', k, tag);
+    save(saveName, 'H', 'k', 'n', 'invr', '-v7.3');
+
+    fprintf('PASS and saved: %s\n', saveName);
+end
+
+fprintf('\nAll tests passed.\n');
+
+function tag = rateTagForFile(rateReq)
+    switch string(rateReq)
+        case "1/2"
+            tag = 'r1_2';
+        case "2/3"
+            tag = 'r2_3';
+        case "4/5"
+            tag = 'r4_5';
+        otherwise
+            error('Unsupported rate: %s', rateReq);
+    end
+end

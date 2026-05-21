@@ -330,18 +330,25 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             end
 
             if strcmp(obj.ChannelCoding, "LDPC")
-                S = load('tm_ldpc_H_k7136_n8160.mat','H','k','n');
+                invr = getInverseCodeRate(obj);
+                kReq = double(obj.NumBitsInInformationBlock);
+                S = loadOrCreateTMLDPCH(kReq, invr);
             
-                obj.pLDPCMessageLength = S.k;      % 7136
-                obj.pLDPCCodewordLength = S.n;     % 8160
+                obj.pLDPCMessageLength = S.k;
+                obj.pLDPCCodewordLength = S.n;
                 obj.pLDPCDecoderCfg = ldpcDecoderConfig(sparse(logical(S.H)));
             
                 % 普通 TM LDPC: coded frame = ASM + LDPC codeword
-                obj.pFullInputBufferLength = obj.pLDPCCodewordLength + length(obj.pASM)*obj.HasASM;
+                syncLen = length(obj.pASM)*obj.HasASM;
+                obj.pFullInputBufferLength = obj.pLDPCCodewordLength + syncLen;
                 obj.pFrameLength = obj.pFullInputBufferLength;
             
-                fprintf('[LDPC setup] k=%d, n=%d, fullFrame=%d\n', ...
-                    obj.pLDPCMessageLength, obj.pLDPCCodewordLength, obj.pFullInputBufferLength);
+                fprintf('[LDPC setup] k=%d, n=%d, rate=%.6f, syncLen=%d, fullFrame=%d\n', ...
+                    obj.pLDPCMessageLength, ...
+                    obj.pLDPCCodewordLength, ...
+                    obj.pLDPCMessageLength/obj.pLDPCCodewordLength, ...
+                    obj.pFullInputBufferLength - obj.pLDPCCodewordLength, ...
+                    obj.pFullInputBufferLength);
             end
         end
 
@@ -541,8 +548,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                         case "LDPC"
                             % frames 是已经 frameSynchronize 后的一帧或多帧 soft coded frame
                             % 如果 HasASM=true，前 32 bits 是 ASM，后面是 LDPC codeword
-                            fprintf('[LDPC step] frames=%dx%d, cwLen=%d, msgLen=%d\n', ...
+                            fprintf('[LDPC step] frames=%dx%d, syncLen=%d, cwLen=%d, msgLen=%d\n', ...
                                 size(frames,1), size(frames,2), ...
+                                length(obj.pASM)*obj.HasASM, ...
                                 obj.pLDPCCodewordLength, obj.pLDPCMessageLength);
                             if obj.HasASM
                                 cwSoft = frames(length(obj.pASM)+1:end, :);
@@ -932,8 +940,19 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 flag = isFACM;
             elseif strcmp(prop,'NumBytesInTransferFrame')
                 flag = any(strcmp(obj.ChannelCoding,{'RS','concatenated','turbo'}));
+                if strcmp(obj.ChannelCoding,'LDPC')
+                    flag = ~obj.IsLDPCOnSMTF;
+                end
             elseif any(strcmp(prop,{'ConvolutionalCodeRate', 'ViterbiTraceBackDepth','ViterbiTrellis','ViterbiWordLength'}))
                 flag = ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) || isFACM;
+            elseif strcmp(prop,'CodeRate')
+                flag = ~any(strcmp(obj.ChannelCoding,{'turbo','LDPC'})) || isFACM;
+            elseif strcmp(prop,'NumBitsInInformationBlock')
+                flag = ~any(strcmp(obj.ChannelCoding,{'LDPC','turbo'})) || isFACM;
+            elseif strcmp(prop,'IsLDPCOnSMTF')
+                flag = ~strcmp(obj.ChannelCoding,'LDPC') || isFACM;
+            elseif strcmp(prop,'LDPCCodeblockSize')
+                flag = ~(strcmp(obj.ChannelCoding,'LDPC') && obj.IsLDPCOnSMTF) || isFACM;
             elseif strcmp(prop,'HasRandomizer')
                 flag = smtfFlag;
             elseif strcmp(prop,'HasASM')
@@ -968,6 +987,10 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 'DisablePhaseAmbiguityResolution',...
                 'NumBytesInTransferFrame',...
                 'ConvolutionalCodeRate',...
+                'CodeRate',...
+                'NumBitsInInformationBlock',...
+                'IsLDPCOnSMTF',...
+                'LDPCCodeblockSize',...
                 'ViterbiTraceBackDepth',...
                 'ViterbiTrellis',...
                 'ViterbiWordLength',...
@@ -979,5 +1002,49 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 'PCMFormat'};
             group = matlab.system.display.SectionGroup('PropertyList', genprops);
         end
+    end
+end
+
+function S = loadOrCreateTMLDPCH(k, invr)
+    cacheDir = fileparts(mfilename('fullpath'));
+    invrTag = rateTagFromInverse(invr);
+    cacheName = sprintf('tm_ldpc_H_k%d_%s.mat', k, invrTag);
+    cachePath = fullfile(cacheDir, cacheName);
+
+    if exist(cachePath, 'file')
+        S = load(cachePath, 'H', 'k', 'n');
+        S.invr = invr;
+        return;
+    end
+
+    legacyPath = fullfile(cacheDir, 'tm_ldpc_H_k7136_n8160.mat');
+    if k == 7136 && exist(legacyPath, 'file')
+        S = load(legacyPath, 'H', 'k', 'n');
+        S.invr = invr;
+        return;
+    end
+
+    fprintf('[LDPC setup] cache miss: building %s\n', cacheName);
+    H = buildTMLDPC_H_from_encoder(k, invr);
+    Gc = satcom.internal.ccsds.getTMLDPCGeneratorMatrix(k, invr);
+    z = zeros(k, 1, 'int8');
+    cw = int8(satcom.internal.ccsds.tmldpcEncode(z, Gc));
+    n = length(cw);
+    save(cachePath, 'H', 'k', 'n', 'invr', '-v7.3');
+    S = struct('H', H, 'k', k, 'n', n, 'invr', invr);
+end
+
+function tag = rateTagFromInverse(invr)
+    rate = 1 / double(invr);
+    if abs(rate - 1/2) < 1e-9
+        tag = 'r1_2';
+    elseif abs(rate - 2/3) < 1e-9
+        tag = 'r2_3';
+    elseif abs(rate - 4/5) < 1e-9
+        tag = 'r4_5';
+    elseif abs(rate - 7/8) < 1e-3 || abs(rate - 7136/8160) < 1e-3
+        tag = 'r7_8';
+    else
+        tag = sprintf('invr_%s', strrep(num2str(double(invr), '%.12g'), '.', 'p'));
     end
 end
