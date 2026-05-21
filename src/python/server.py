@@ -74,7 +74,30 @@ def run_simulation():
         print(f"📩 [Server] 收到仿真请求: Mod={params.get('modType', 'Unknown')}")
 
         # 2. 调用 MATLAB
-        result_json = eng.run_ccsds_tm_modulation(params_json, nargout=1)
+        debug_params = {
+            "modType": params.get("modType"),
+            "symbolRate": params.get("symbolRate"),
+            "sps": params.get("sps"),
+            "snr": params.get("snr"),
+            "cfo": params.get("cfo"),
+            "phaseOffset": params.get("phaseOffset"),
+            "delay": params.get("delay"),
+            "channelCoding": params.get("channelCoding"),
+            "ConvolutionalCodeRate": params.get("ConvolutionalCodeRate"),
+            "CodeRate": params.get("CodeRate"),
+            "NumBytesInTransferFrame": params.get("NumBytesInTransferFrame"),
+            "RSMessageLength": params.get("RSMessageLength"),
+            "RSInterleavingDepth": params.get("RSInterleavingDepth"),
+            "IsRSMessageShortened": params.get("IsRSMessageShortened"),
+            "RSShortenedMessageLength": params.get("RSShortenedMessageLength"),
+            "RolloffFactor": params.get("RolloffFactor"),
+            "hasASM": params.get("hasASM"),
+            "hasRandomizer": params.get("hasRandomizer"),
+        }
+        print("[Server] 参数摘要:", json.dumps(debug_params, ensure_ascii=False))
+
+        result_json = eng.run_ccsds_tm_evaluation(params_json, nargout=1)
+        # result_json = eng.run_ccsds_tm_modulation(params_json, nargout=1)
 
         # 3. 解析结果并返回
         result_data = json.loads(result_json)

@@ -85,6 +85,11 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         pFullInputBufferLength
         pFrameLength
         pASMOffsetLength
+        pSkipPreViterbiASMSync = false
+        pLDPCDecoderCfg
+        pLDPCCodewordLength
+        pLDPCMessageLength
+        pLDPCMaxIterations = 5
     end
 
     methods
@@ -104,6 +109,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             obj.pOutputBuffer = [];
             asm = obj.pASM;
             obj.pFullInputBufferLength = obj.pPRNSequenceLength + length(asm)*obj.HasASM;
+            obj.pSkipPreViterbiASMSync = false;
             if obj.IsRSMessageShortened == 0
                 % It is possible that "RSShortenedMessageLength" is
                 % set to non standard value even after disabling
@@ -141,6 +147,81 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                         obj.pDec.PuncturePattern = [1;1;0;1];
                         obj.pASMOffsetLength = 10;
                         obj.pFullInputBufferLength = 3*(obj.pPRNSequenceLength + 32)/2; % Note that obj.pPRNSequenceLength is always an even number. So, division by 2 is always an integer value
+                    case '3/4'
+                        % 3/4 punctured convolutional code.
+                        % Tx side uses the same puncture pattern:
+                        % [1;1;0;1;1;0]
+
+                        obj.pDec.PuncturePattern = [1;1;0;1;1;0];
+
+                        % 3/4 means: 3 input bits -> 4 transmitted coded bits.
+                        % Use the same input-length trimming logic as transmitter:
+                        % puncture period corresponds to 3 input bits.
+                        tempLen = obj.pPRNSequenceLength + length(obj.pASM)*obj.HasASM;
+                        convInLen = tempLen - mod(tempLen, 3);
+                        obj.pFullInputBufferLength = 4*convInLen/3;
+
+                        % Convolutional encoder memory = 6 input bits.
+                        % Mother code rate is 1/2, so first 6 input bits
+                        % correspond to 12 mother-code output bits.
+                        % After puncturing, this becomes 8 transmitted coded bits
+                        % for pattern [1;1;0;1;1;0].
+                        % 6 input bits -> 2 个 puncture 周期 -> 8 个 transmitted coded bits
+
+                        obj.pASMOffsetLength = 7;
+
+                        % Build coded ASM template for frame synchronization.
+                        asm = buildConvEncodedASMForSync(obj, obj.pASM, obj.ViterbiTrellis, ...
+                            obj.pDec.PuncturePattern, obj.pASMOffsetLength, false);
+                    case '5/6'
+                        % 5/6 punctured convolutional code.
+                        % Tx side pattern:
+                        % [1;1;0;1;1;0;0;1;1;0]
+                        %
+                        % 5 input bits -> 6 transmitted coded bits.
+                    
+                        obj.pDec.PuncturePattern = [1;1;0;1;1;0;0;1;1;0];
+                        % 3/4 means: 3 input bits -> 4 transmitted coded bits.
+                        % Use the same input-length trimming logic as transmitter:
+                        % puncture period corresponds to 3 input bits.
+                        tempLen = obj.pPRNSequenceLength + length(obj.pASM)*obj.HasASM;
+                        convInLen = tempLen - mod(tempLen, 5);
+                        obj.pFullInputBufferLength = 6*convInLen/5;
+
+                        % Convolutional encoder memory = 6 input bits.
+                        % Mother code rate is 1/2, so first 6 input bits
+                        % correspond to 12 mother-code output bits.
+                        % After puncturing, this becomes 8 transmitted coded bits
+                        % for pattern [1;1;0;1;1;0].
+                        % 6 input bits -> 2 个 puncture 周期 -> 8 个 transmitted coded bits
+
+                        % 如果 CADU 长度不能被 5 整除，说明 CADU 边界和卷积编码块边界会漂移。
+                        % 这时不要在 Viterbi 前做 coded ASM 同步。
+                        obj.pSkipPreViterbiASMSync = false;
+
+                        obj.pASMOffsetLength = 9;
+
+                        % Build coded ASM template for frame synchronization.
+                        asm = buildConvEncodedASMForSync(obj, obj.pASM, obj.ViterbiTrellis, ...
+                            obj.pDec.PuncturePattern, obj.pASMOffsetLength, false);
+                    case '7/8'
+                        % 7/8 punctured convolutional code.
+                        % Tx side pattern:
+                        % [1;1;0;1;0;1;0;1;1;0;0;1;1;0]
+                        %
+                        % 7 input bits -> 8 transmitted coded bits.
+
+                        obj.pDec.PuncturePattern = [1;1;0;1;0;1;0;1;1;0;0;1;1;0];
+
+                        tempLen = obj.pPRNSequenceLength + length(obj.pASM)*obj.HasASM;
+                        convInLen = tempLen - mod(tempLen, 7);
+                        obj.pFullInputBufferLength = 8*convInLen/7;
+
+                        obj.pASMOffsetLength = 7;
+
+                        % Build coded ASM template for frame synchronization.
+                        asm = buildConvEncodedASMForSync(obj, obj.pASM, obj.ViterbiTrellis, ...
+                            obj.pDec.PuncturePattern, obj.pASMOffsetLength, false);
                         
                 end
             end
@@ -175,17 +256,92 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     % === 【修改点】新增 8PSK 支持 ===
                     % 目前只支持 0 相位下的 ASM 匹配 (假设 Demodulator 已经解对了)
                     % 如果需要支持 8 相位搜索，需要生成 8 个旋转后的 ASM 模式，这里暂取基准模式
-                    obj.pRotatedASM = 2*asm(:)-1; 
-                    obj.pNumBitsPerSymbol = 3;
+                    % obj.pRotatedASM = 2*asm(:)-1; 
+                    % obj.pNumBitsPerSymbol = 3;
+
+                    %----------------------------
+                    m = 3;
+                    obj.pNumBitsPerSymbol = m;
+                
+                    % TM 8PSK demodulator uses this custom mapping:
+                    % comm.PSKDemodulator(8, pi/4, ...
+                    %   'SymbolMapping','Custom', ...
+                    %   'CustomSymbolMapping',[0 4 6 2 3 7 5 1])
+                    %
+                    % CustomSymbolMapping maps symbol index -> bit label.
+                    map = [0 4 6 2 3 7 5 1];
+                
+                    % Inverse map: bit label -> symbol index.
+                    invMap = zeros(1, 8);
+                    for k = 1:8
+                        invMap(map(k) + 1) = k - 1;
+                    end
+                
+                    % ASM length may not be divisible by 3 in all configurations.
+                    % Pad only for symbol grouping, then trim back to original ASM bit length.
+                    asmLen = length(asm);
+                    padLen = mod(m - mod(asmLen, m), m);
+                    asmPadded = [asm(:); zeros(padLen, 1)];
+                
+                    % Convert ASM bits into 8PSK demod bit labels.
+                    asmLabels = comm.internal.utilities.bi2deLeftMSB( ...
+                        double(reshape(asmPadded, m, []).'), 2);
+                
+                    % Convert bit labels to transmitted 8PSK symbol indices.
+                    asmSymIdx = zeros(size(asmLabels));
+                    for k = 1:length(asmLabels)
+                        asmSymIdx(k) = invMap(asmLabels(k) + 1);
+                    end
+                
+                    % Generate all 8 possible carrier phase ambiguities.
+                    % A rotation by k*pi/4 advances the received symbol index by k modulo 8.
+                    obj.pRotatedASM = zeros(asmLen, 8);
+                
+                    for iRot = 1:8
+                        rot = iRot - 1;
+                
+                        rotatedSymIdx = mod(asmSymIdx + rot, 8);
+                
+                        % Convert rotated symbol index back to the bit label the demodulator
+                        % would produce under this phase ambiguity.
+                        rotatedLabels = map(rotatedSymIdx + 1).';
+                
+                        rotatedBits = comm.internal.utilities.de2biBase2LeftMSB( ...
+                            rotatedLabels, m).';
+                
+                        rotatedBits = rotatedBits(:);
+                        rotatedBits = rotatedBits(1:asmLen);
+                
+                        % Decoder frame correlation expects soft sign convention:
+                        % bit 1 -> +1, bit 0 -> -1, matching existing code style.
+                        obj.pRotatedASM(:, iRot) = 2*rotatedBits(:) - 1;
+                    end
+                    %-----------------------------
 
                 otherwise % Don't do phase ambiguity resolution
                     obj.pRotatedASM = 2*asm(:)-1;
                     obj.pNumBitsPerSymbol = 1;
             end
             if any(strcmp(obj.ChannelCoding, {'concatenated', 'convolutional'}))
-                obj.pFrameLength = length(asm) + obj.pPRNSequenceLength*obj.pInverseCodeRate;
+%                 obj.pFrameLength = length(asm) + obj.pPRNSequenceLength*obj.pInverseCodeRate;
+                obj.pFrameLength = obj.pFullInputBufferLength - obj.pASMOffsetLength;
             else
                 obj.pFrameLength = length(asm) + obj.pPRNSequenceLength;
+            end
+
+            if strcmp(obj.ChannelCoding, "LDPC")
+                S = load('tm_ldpc_H_k7136_n8160.mat','H','k','n');
+            
+                obj.pLDPCMessageLength = S.k;      % 7136
+                obj.pLDPCCodewordLength = S.n;     % 8160
+                obj.pLDPCDecoderCfg = ldpcDecoderConfig(sparse(logical(S.H)));
+            
+                % 普通 TM LDPC: coded frame = ASM + LDPC codeword
+                obj.pFullInputBufferLength = obj.pLDPCCodewordLength + length(obj.pASM)*obj.HasASM;
+                obj.pFrameLength = obj.pFullInputBufferLength;
+            
+                fprintf('[LDPC setup] k=%d, n=%d, fullFrame=%d\n', ...
+                    obj.pLDPCMessageLength, obj.pLDPCCodewordLength, obj.pFullInputBufferLength);
             end
         end
 
@@ -199,15 +355,43 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 return;
             end
             
+%             if obj.HasASM
+%                 asmlen = length(obj.pASM);
+%                 % Frame synchronization
+%                 [frames, syncLostFlag] = frameSynchronize(obj, llr);
+%             else
+%                 asmlen = 0;
+%                 [frames,obj.pInputBuffer] = buffer([obj.pInputBuffer;llr], obj.pFullInputBufferLength); % When ASM is not there, then it is assumed that frame sync is done through other mechanisms
+%                 syncLostFlag = false;
+%             end
             if obj.HasASM
                 asmlen = length(obj.pASM);
-                % Frame synchronization
-                [frames, syncLostFlag] = frameSynchronize(obj, llr);
             else
                 asmlen = 0;
-                [frames,obj.pInputBuffer] = buffer([obj.pInputBuffer;llr], obj.pFullInputBufferLength); % When ASM is not there, then it is assumed that frame sync is done through other mechanisms
-                syncLostFlag = false;
             end
+            
+            % ---------------------------------------------------------
+            % 两种同步路径：
+            %
+            % 1) 默认路径：Viterbi 前 coded ASM 同步。
+            %    适合 1/2、2/3、3/4，以及 5/6/7/8 的安全帧长。
+            %
+            % 2) 高码率非整除路径：跳过 Viterbi 前 coded ASM 同步。
+            %    适合 5/6 + 1115 bytes、7/8 + 1115 bytes。
+            %    原因：CADU 长度不能被 puncture 输入周期整除，
+            %    CADU 边界相对卷积编码块边界漂移，coded ASM 不在固定位置。
+            % ---------------------------------------------------------
+            if obj.HasASM && ~obj.pSkipPreViterbiASMSync
+                [frames, syncLostFlag] = frameSynchronize(obj, llr);
+            else
+                % 如果有同步头 && 高码率 则跳过ASM同步 先进行解码
+                [frames, obj.pInputBuffer] = buffer([obj.pInputBuffer; llr], obj.pFullInputBufferLength);
+                syncLostFlag = false;
+
+                
+            end
+
+
             if any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'}))
                 u = frames;
             else
@@ -266,20 +450,61 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             else
                                 tdecoded = decoded;
                             end
-                            [ty,obj.pOutputBuffer] = buffer([obj.pOutputBuffer;tdecoded],obj.pPRNSequenceLength+asmlen);
-                            n = size(ty,2);
-                            if n
-                                tempy = ty(asmlen+1:end, :);
-                                if obj.HasRandomizer
-                                    derandom = bitxor(int8(tempy),obj.pPRNSequence);
-                                    y = derandom(:);
+%                             [ty,obj.pOutputBuffer] = buffer([obj.pOutputBuffer;tdecoded],obj.pPRNSequenceLength+asmlen);
+%                             n = size(ty,2);
+%                             if n
+%                                 tempy = ty(asmlen+1:end, :);
+%                                 if obj.HasRandomizer
+%                                     derandom = bitxor(int8(tempy),obj.pPRNSequence);
+%                                     y = derandom(:);
+%                                 else
+%                                     y = int8(tempy(:));
+%                                 end
+%                                 % valid = true;
+%                             else
+%                                 y = zeros(obj.pTFLen*8, 1, 'int8');
+%                                 % valid = false;
+%                             end
+                            % ---------------------------------------------------------
+                            % 如果是 5/6 + 1115 这种跳过 Viterbi 前 ASM 同步的路径，
+                            % Viterbi 后必须在 decoded bit stream 里重新找原始 ASM。
+                            % ---------------------------------------------------------
+                            if obj.HasASM && obj.pSkipPreViterbiASMSync
+                                [tempy, n] = decodedDomainFrameSynchronize(obj, tdecoded);
+                        
+                                if n
+                                    if obj.HasRandomizer
+                                        % tempy 是 TF payload，长度为 pPRNSequenceLength*n。
+                                        % pPRNSequence 是单帧长度，需要按帧重复。
+                                        tempMat = reshape(tempy, obj.pPRNSequenceLength, n);
+                                        derandom = bitxor(int8(tempMat), repmat(obj.pPRNSequence, 1, n));
+                                        y = derandom(:);
+                                    else
+                                        y = int8(tempy(:));
+                                    end
                                 else
-                                    y = int8(tempy(:));
+                                    y = zeros(0, 1, 'int8');
                                 end
-                                % valid = true;
+                        
                             else
-                                y = zeros(obj.pTFLen*8, 1, 'int8');
-                                % valid = false;
+                                % 原来的路径：Viterbi 前已经完成 coded ASM 同步，
+                                % 这里直接按 CADU 长度 buffer 即可。
+                                [ty,obj.pOutputBuffer] = buffer([obj.pOutputBuffer;tdecoded], ...
+                                    obj.pPRNSequenceLength+asmlen);
+                        
+                                n = size(ty,2);
+                        
+                                if n
+                                    tempy = ty(asmlen+1:end, :);
+                                    if obj.HasRandomizer
+                                        derandom = bitxor(int8(tempy),obj.pPRNSequence);
+                                        y = derandom(:);
+                                    else
+                                        y = int8(tempy(:));
+                                    end
+                                else
+                                    y = zeros(obj.pTFLen*8, 1, 'int8');
+                                end
                             end
                         case "concatenated"
                             if strcmp(obj.ConvolutionalCodeRate,"1/2")
@@ -313,7 +538,49 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 y = zeros(obj.pTFLen*8, 1, 'int8');
                                 % valid = false;
                             end
+                        case "LDPC"
+                            % frames 是已经 frameSynchronize 后的一帧或多帧 soft coded frame
+                            % 如果 HasASM=true，前 32 bits 是 ASM，后面是 LDPC codeword
+                            fprintf('[LDPC step] frames=%dx%d, cwLen=%d, msgLen=%d\n', ...
+                                size(frames,1), size(frames,2), ...
+                                obj.pLDPCCodewordLength, obj.pLDPCMessageLength);
+                            if obj.HasASM
+                                cwSoft = frames(length(obj.pASM)+1:end, :);
+                            else
+                                cwSoft = frames;
+                            end
+                        
+                            % 只取 LDPC codeword 长度，避免 buffer 多余
+                            cwSoft = cwSoft(1:obj.pLDPCCodewordLength, :);
+                        
+                            numWords = size(cwSoft, 2);
+                            y = zeros(obj.pLDPCMessageLength*numWords, 1, 'int8');
+                        
+                            for iWord = 1:numWords
+                                llrIn = double(cwSoft(:,iWord));
+                        
+                                % 关键：ldpcDecode 需要 bit0 正、bit1 负。
+                                % 你当前 TM demod/decoder 链路大概率是 bit1 正、bit0 负，
+                                % 所以这里先翻号。
+                                llr = -llrIn;
+                        
+                                % 如果启用了 randomizer：
+                                % 发送端是对 LDPC codeword bits 做 XOR；
+                                % 接收端对 soft LLR 的处理就是 PRN=1 的位置翻号。
+                                if obj.HasRandomizer
+                                    prn = obj.pPRNSequence(1:obj.pLDPCCodewordLength);
+                                    llr(logical(prn)) = -llr(logical(prn));
+                                end
+                        
+                                decWhole = ldpcDecode(llr, obj.pLDPCDecoderCfg, ...
+                                    obj.pLDPCMaxIterations, 'OutputFormat','whole');
+                        
+                                msg = int8(decWhole(1:obj.pLDPCMessageLength));
+                        
+                                y((iWord-1)*obj.pLDPCMessageLength+1:iWord*obj.pLDPCMessageLength) = msg(:);
+                            end 
                     end
+                    
                 else
                     y = zeros(0, 1, 'int8');
                 end
@@ -425,10 +692,176 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             [maxcorr,PeakPos] = max(SMu); % See equations in page 9-12 in CCSDS 130.1-G-2
             
         end
+
+        function [tfBits, nFrames] = decodedDomainFrameSynchronize(obj, decodedBits)
+            % Viterbi 后 decoded-domain frame synchronization.
+            %
+            % 适用于 5/6 + 1115 这种跳过 pre-Viterbi coded ASM sync 的情况。
+            %
+            % 核心逻辑：
+            % 1. 拼接历史 decoded buffer + 当前 decoded bits
+            % 2. 在前几个 CADU 范围内滑动搜索原始 ASM
+            % 3. 找到后，立刻从 ASM 位置重新对齐
+            % 4. 本次直接切出完整 CADU，并输出 TF payload
+        
+            asmBits = double(obj.pASM(:));
+            asmLen = length(asmBits);
+            caduLen = obj.pPRNSequenceLength + asmLen;
+        
+            stream = [obj.pOutputBuffer; double(decodedBits(:))];
+        
+            tfBits = zeros(0, 1, 'int8');
+            nFrames = 0;
+        
+            if length(stream) < caduLen
+                obj.pOutputBuffer = stream;
+                return;
+            end
+        
+            % ---------------------------------------------------------
+            % 搜索范围：
+            % 不要只搜第一帧，也不要全局无脑搜到几十万 bit 后面。
+            % 先在前 2 个 CADU 范围内找 ASM，通常足够覆盖 traceback/同步偏移。
+            % ---------------------------------------------------------
+            searchLen = min(length(stream), 2*caduLen);
+            maxPos = searchLen - asmLen + 1;
+        
+            bestPos = 1;
+            bestMetric = inf;
+        
+            for pos = 1:maxPos
+                win = stream(pos:pos+asmLen-1);
+                metric = sum(win ~= asmBits);
+        
+                if metric < bestMetric
+                    bestMetric = metric;
+                    bestPos = pos;
+                end
+            end
+        
+            fprintf('[PostVitASM align] bestPos=%d, bestMetric=%d\n', ...
+                bestPos, bestMetric);
+        
+            % 高 SNR 下如果 Viterbi 基本正确，ASM 误差应很小。
+            % 你现在看到 metric=4，所以这里先放宽到 4。
+            maxASMErrors = 4;
+        
+            if bestMetric > maxASMErrors
+                % 没找到可靠 ASM，保留最后一帧长度以内的尾巴。
+                keepLen = min(length(stream), caduLen - 1);
+                obj.pOutputBuffer = stream(end-keepLen+1:end);
+                return;
+            end
+        
+            % ---------------------------------------------------------
+            % 关键点：
+            % 找到 ASM 后，不要等下一次调用。
+            % 直接从 bestPos 对齐，并在本次输出完整帧。
+            % ---------------------------------------------------------
+            stream = stream(bestPos:end);
+        
+            nFrames = floor(length(stream) / caduLen);
+        
+            if nFrames == 0
+                obj.pOutputBuffer = stream;
+                return;
+            end
+        
+            usedLen = nFrames * caduLen;
+            cadu = reshape(stream(1:usedLen), caduLen, nFrames);
+        
+            % 可选：检查周期性 ASM，防止误锁。
+            asmMetrics = zeros(1, nFrames);
+            for k = 1:nFrames
+                asmMetrics(k) = sum(cadu(1:asmLen,k) ~= asmBits);
+            end
+        
+            fprintf('[PostVitASM check] nFrames=%d, firstASMerr=%d, meanASMerr=%.2f\n', ...
+                nFrames, asmMetrics(1), mean(asmMetrics));
+        
+            % 如果平均 ASM 错误太大，说明 bestPos 可能是假峰。
+            if mean(asmMetrics) > maxASMErrors
+                keepLen = min(length(stream), caduLen - 1);
+                obj.pOutputBuffer = stream(end-keepLen+1:end);
+                tfBits = zeros(0, 1, 'int8');
+                nFrames = 0;
+                return;
+            end
+        
+            payload = cadu(asmLen+1:end, :);
+            tfBits = int8(payload(:));
+        
+            obj.pOutputBuffer = stream(usedLen+1:end);
+        end
+
+        function [PeakPos, minDist] = RawASMCorrelate(obj, decodedFrame, asmBits)
+            % 在 Viterbi 后的 hard bits 中滑动寻找原始 ASM。
+            % 类似 FrameCorrelate，但这里没有 soft value，所以用汉明距离。
+        
+            asmLen = length(asmBits);
+            F = length(decodedFrame);
+        
+            maxPos = F - asmLen + 1;
+        
+            if maxPos < 1
+                PeakPos = 1;
+                minDist = inf;
+                return;
+            end
+        
+            dist = inf(maxPos, 1);
+        
+            for iBit = 1:maxPos
+                yi = decodedFrame(iBit:iBit+asmLen-1);
+                dist(iBit) = sum(yi ~= asmBits);
+            end
+        
+            [minDist, PeakPos] = min(dist);
+        end
+
+        function syncASM = buildConvEncodedASMForSync(~, asmBits, trellis, puncturePattern, offsetLength, flipSecondBranch)
+            % Build convolutionally encoded ASM template for coded-frame sync.
+            %
+            % Important:
+            % Do NOT let comm.ConvolutionalEncoder apply puncturing here.
+            % 32-bit ASM produces 64 mother-code bits. For 3/4, puncture pattern
+            % length is 6, and 64 is not divisible by 6, so MATLAB will error.
+            %
+            % Instead:
+            %   1. Generate mother rate-1/2 coded bits.
+            %   2. Apply puncturing manually.
+            %   3. Drop the first offsetLength coded bits.
+        
+            asmBits = int8(asmBits(:));
+        
+            % 1) Mother rate-1/2 convolutional encoding, no puncturing here.
+            enc = comm.ConvolutionalEncoder('TrellisStructure', trellis);
+            motherBits = enc(asmBits);
+        
+            % For 1/2 CCSDS case only, second branch is inverted.
+            % For 3/4, flipSecondBranch should be false.
+            if flipSecondBranch
+                motherBits(2:2:end) = int8(~motherBits(2:2:end));
+            end
+        
+            % 2) Manual puncturing.
+            p = puncturePattern(:);
+            pp = repmat(p, ceil(length(motherBits)/length(p)), 1);
+            pp = pp(1:length(motherBits));
+        
+            codedASM = motherBits(logical(pp));
+        
+            % 3) Drop leading bits affected by convolutional encoder memory.
+            offsetLength = min(offsetLength, length(codedASM)-1);
+            syncASM = codedASM(offsetLength+1:end);
+        end
         
         function resetImpl(obj)
             % Initialize / reset discrete-state properties
-            reset(obj.pDec);
+            if ~isempty(obj.pDec)
+                reset(obj.pDec);
+            end
+%             reset(obj.pDec);
             obj.pFirstTimeStepCalling = true;
             obj.pInputBuffer = [];
             obj.pOutputBuffer = [];

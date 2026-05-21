@@ -488,6 +488,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
         if ~isempty(ME.stack)
              errMsg = sprintf('%s (File: %s, Line: %d)', errMsg, ME.stack(1).name, ME.stack(1).line);
         end
+        
         err = struct('success', false, 'error', errMsg);
         json_str = jsonencode(err);
     end

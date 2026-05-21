@@ -43,6 +43,41 @@ import * as echarts from "echarts";
 import "./index.scss";
 
 const { Option } = Select;
+const RS_PRESETS = {
+  "rs-255-223-i5": {
+    label: "RS(255,223), I=5, TF=1115",
+    RSMessageLength: 223,
+    RSInterleavingDepth: 5,
+    IsRSMessageShortened: false,
+    RSShortenedMessageLength: 223,
+    NumBytesInTransferFrame: 1115,
+  },
+  "rs-255-239-i5": {
+    label: "RS(255,239), I=5, TF=1195",
+    RSMessageLength: 239,
+    RSInterleavingDepth: 5,
+    IsRSMessageShortened: false,
+    RSShortenedMessageLength: 239,
+    NumBytesInTransferFrame: 1195,
+  },
+  "rs-255-223-i1": {
+    label: "RS(255,223), I=1, TF=223",
+    RSMessageLength: 223,
+    RSInterleavingDepth: 1,
+    IsRSMessageShortened: false,
+    RSShortenedMessageLength: 223,
+    NumBytesInTransferFrame: 223,
+  },
+  "rs-255-239-i1": {
+    label: "RS(255,239), I=1, TF=239",
+    RSMessageLength: 239,
+    RSInterleavingDepth: 1,
+    IsRSMessageShortened: false,
+    RSShortenedMessageLength: 239,
+    NumBytesInTransferFrame: 239,
+  },
+};
+
 const isFiniteNumber = (value) =>
   typeof value === "number" && Number.isFinite(value);
 
@@ -61,12 +96,55 @@ const formatLockStatus = (locked) => {
   return "Unknown";
 };
 
+const formatCodeRateDisplay = (raw) => {
+  const preferred =
+    raw?.ConvolutionalCodeRate ?? raw?.codeRate ?? raw?.CodeRate ?? null;
+
+  if (typeof preferred === "string") {
+    return preferred;
+  }
+
+  if (isFiniteNumber(preferred)) {
+    const commonRates = new Map([
+      [0.5, "1/2"],
+      [1 / 3, "1/3"],
+      [1 / 4, "1/4"],
+      [1 / 6, "1/6"],
+      [2 / 3, "2/3"],
+      [3 / 4, "3/4"],
+      [4 / 5, "4/5"],
+      [5 / 6, "5/6"],
+      [7 / 8, "7/8"],
+      [1, "1"],
+    ]);
+
+    for (const [rate, label] of commonRates.entries()) {
+      if (Math.abs(preferred - rate) < 1e-6) {
+        return label;
+      }
+    }
+
+    return formatMetricValue(preferred, 3);
+  }
+
+  return "N/A";
+};
+
 const getEvmDisplay = (stats) => {
   if (!stats || !isFiniteNumber(stats.EVMPercent) || stats.EVMPercent < 0) {
     return "未启用";
   }
   return `${formatMetricValue(stats.EVMPercent)}%`;
 };
+
+const isGMSKResult = (result) =>
+  String(result?.modType || result?.info || "")
+    .toUpperCase()
+    .includes("GMSK");
+
+const getEvmTitle = (result) => (isGMSKResult(result) ? "GMSK IQ err" : "EVM");
+
+const getMerTitle = (result) => (isGMSKResult(result) ? "IQ MER" : "MER");
 
 const getMetricTone = (value, thresholds = {}) => {
   if (!isFiniteNumber(value) || value < 0) return "default";
@@ -92,6 +170,61 @@ const getEvmSummary = (evmPercent) => {
   if (evmPercent < 12) return "星座有一定扩散，但接收机通常还能稳定工作。";
   if (evmPercent < 20) return "调制质量已经明显下降，误码可能快速上升。";
   return "星座偏离较大，当前损伤已经比较重。";
+};
+
+const getGMSKEvmSummary = () =>
+  "GMSK 是一种连续相位调制，因此该数值仅作为 IQ 或包络的粗略指示，而非标准的星座图 EVM。在评估 GMSK 的信号质量时，建议优先参考 BER（误码率）、LockRate（锁定率）、PAPR（峰均功率比）、相位轨迹、相位差以及 PSD（功率谱密度）";
+
+const normalizeSimulationResult = (raw) => {
+  if (!raw) return null;
+
+  if (raw.success === false) {
+    return raw;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(raw, "BER")) {
+    const lockRate = isFiniteNumber(raw.LockRate) ? raw.LockRate : null;
+    const elapsedTime = isFiniteNumber(raw.ElapsedTime)
+      ? raw.ElapsedTime
+      : null;
+
+    return {
+      success: true,
+      info: raw.info || raw.modType || "CCSDS Evaluation",
+      modType: raw.modType || raw.info || "",
+      ber: raw.BER,
+      errorMsg: raw.errorMsg || "",
+      spectrum: raw.spectrum,
+      constellation_raw: raw.constellation_raw,
+      constellation_synced: raw.constellation_synced,
+      pipeline: raw.pipeline, // 4 阶段星座 + EVM 数组 + 标签
+      stats: {
+        Fs: raw.Fs,
+        CodeRate: formatCodeRateDisplay(raw),
+        ElapsedTime: elapsedTime,
+        EVMPercent: raw.EVM_post_pct,
+        EVMPrePercent: raw.EVM_pre_pct,
+        MERdB: raw.MER_dB,
+        SNREstdB: raw.SNR_est_dB,
+        PAPRdB: raw.PAPR_dB,
+        LockRate: lockRate,
+        LockRatePercent: isFiniteNumber(lockRate) ? lockRate * 100 : null,
+        LockStatus: isFiniteNumber(lockRate) ? lockRate > 0.8 : null,
+        InputSNR: raw.snr_in,
+        InputCFO: raw.cfo_in,
+        InputPhase: raw.phase_in,
+        InputDelay: raw.delay_in,
+        // 残余损伤 (同步链路压制后剩余,理想值接近 0)
+        ResidCFOHz: isFiniteNumber(raw.residCFO_Hz) ? raw.residCFO_Hz : null,
+        ResidPhaseDeg: isFiniteNumber(raw.residPhase_deg)
+          ? raw.residPhase_deg
+          : null,
+      },
+      rawEvaluation: raw,
+    };
+  }
+
+  return raw;
 };
 
 const CCSDSPlatform = () => {
@@ -120,7 +253,7 @@ const CCSDSPlatform = () => {
 
     const resizeHandler = () => {
       Object.values(chartInstances.current).forEach(
-        (chart) => chart && chart.resize()
+        (chart) => chart && chart.resize(),
       );
     };
     window.addEventListener("resize", resizeHandler);
@@ -131,24 +264,45 @@ const CCSDSPlatform = () => {
     setLoading(true);
     setSimResult(null);
     try {
-      const payload = { ...values, taskType: "ccsds_tm" };
+      const payload = {
+        ...values,
+        taskType: "ccsds_tm",
+        NumBytesInTransferFrame: Number(values.NumBytesInTransferFrame ?? 1151),
+      };
 
-      console.log("正在通过 HTTP 请求仿真...", values);
-      const res = await runMatlabSimulation(values);
+      if (
+        payload.channelCoding === "convolutional" ||
+        payload.channelCoding === "concatenated"
+      ) {
+        payload.ConvolutionalCodeRate = payload.ConvolutionalCodeRate || "5/6";
+      }
 
-      if (res && res.success) {
+      if (
+        payload.channelCoding === "RS" ||
+        payload.channelCoding === "concatenated"
+      ) {
+        const preset =
+          RS_PRESETS[payload.rsPreset] || RS_PRESETS["rs-255-223-i5"];
+        Object.assign(payload, preset);
+      }
+
+      console.log("正在通过 HTTP 请求仿真...", payload);
+      const res = await runMatlabSimulation(payload);
+      const normalizedRes = normalizeSimulationResult(res);
+
+      if (normalizedRes && normalizedRes.success) {
         message.success("仿真成功！");
-        setSimResult(res);
-        renderCharts(res);
+        setSimResult(normalizedRes);
+        renderCharts(normalizedRes);
 
         //  保存到 localStorage
-        localStorage.setItem("latestSimResult", JSON.stringify(res));
+        localStorage.setItem("latestSimResult", JSON.stringify(normalizedRes));
 
-        if (res.stats) {
-          console.log(`后端计算耗时: ${res.stats.ElapsedTime}s`);
+        if (normalizedRes.stats?.ElapsedTime) {
+          console.log(`后端计算耗时: ${normalizedRes.stats.ElapsedTime}s`);
         }
       } else {
-        message.error("仿真失败: " + (res?.error || "未知错误"));
+        message.error("仿真失败: " + (normalizedRes?.error || "未知错误"));
       }
     } catch (error) {
       console.error("调用失败:", error);
@@ -213,6 +367,7 @@ const CCSDSPlatform = () => {
 
       if (res && res.success && res.data) {
         const { config, result } = res.data;
+        const normalizedResult = normalizeSimulationResult(result);
 
         // 2. 核心操作：把存的数据“填”回去
 
@@ -220,11 +375,11 @@ const CCSDSPlatform = () => {
         form.setFieldsValue(config);
 
         // 2.2 恢复 React 状态（这会让界面上的数字变化）
-        setSimResult(result);
+        setSimResult(normalizedResult);
 
         // 2.3 这一步最关键：重新根据数据画图
         // React 的 state 更新是异步的，为了保险，直接把 result 传给画图函数
-        renderCharts(result);
+        renderCharts(normalizedResult);
 
         message.success("已加载历史记录");
         setHistoryVisible(false); // 关掉抽屉
@@ -314,12 +469,13 @@ const CCSDSPlatform = () => {
     return sumFreqTimesEnergy / sumEnergy;
   };
   const renderCharts = (data) => {
+    if (!data) return;
     // 1. 画修复前的图
     if (data.constellation_raw) {
       drawConstellation(
         rawConstellationRef,
         "❌ 修复前 (信道损伤)",
-        data.constellation_raw
+        data.constellation_raw,
       );
     }
 
@@ -328,11 +484,11 @@ const CCSDSPlatform = () => {
       drawConstellation(
         syncedConstellationRef,
         "✅ 修复后 (接收机同步)",
-        data.constellation_synced
+        data.constellation_synced,
       );
     }
     // 3. 频谱图（增强版：添加峰值标记线）
-    if (spectrumRef.current) {
+    if (spectrumRef.current && data.spectrum) {
       const domSpe = spectrumRef.current;
       let instance = echarts.getInstanceByDom(domSpe);
       if (instance) instance.dispose();
@@ -465,6 +621,185 @@ const CCSDSPlatform = () => {
     }
   };
 
+  const renderEvaluationInsights = () => {
+    if (!simResult?.stats) return null;
+    const isGMSK = isGMSKResult(simResult);
+
+    return (
+      <div className="result-insights">
+        <div className="kpi-grid">
+          <Card className="kpi-card" bordered={false}>
+            <Statistic
+              title="BER"
+              value={simResult.ber}
+              valueStyle={{
+                color:
+                  simResult.ber === 0
+                    ? "#389e0d"
+                    : simResult.ber > 0
+                      ? "#cf1322"
+                      : "#8c8c8c",
+              }}
+              formatter={(val) => {
+                if (val === -1) return "N/A";
+                if (val === -2) return "Error";
+                if (val === 0) return "0";
+                return Number(val).toExponential(2);
+              }}
+            />
+          </Card>
+          <Card className="kpi-card" bordered={false}>
+            <Statistic
+              title={getEvmTitle(simResult)}
+              value={getEvmDisplay(simResult.stats)}
+            />
+          </Card>
+          <Card className="kpi-card" bordered={false}>
+            <Statistic
+              title={getMerTitle(simResult)}
+              value={formatMetricValue(simResult.stats.MERdB)}
+              suffix="dB"
+            />
+          </Card>
+          <Card className="kpi-card" bordered={false}>
+            <Statistic
+              title="SNR估计"
+              value={formatMetricValue(simResult.stats.SNREstdB)}
+              suffix="dB"
+              valueStyle={{ color: "#1677ff", fontSize: 24 }}
+            />
+          </Card>
+          <Card className="kpi-card" bordered={false}>
+            <Statistic
+              title="锁定率"
+              value={formatMetricValue(simResult.stats.LockRatePercent)}
+              suffix="%"
+            />
+          </Card>
+          <Card className="kpi-card" bordered={false}>
+            <Statistic
+              title="PAPR"
+              value={formatMetricValue(simResult.stats.PAPRdB)}
+              suffix="dB"
+            />
+          </Card>
+        </div>
+
+        <Card className="evaluation-panel" bordered={false} title="链路评估">
+          <Row gutter={[16, 16]}>
+            <Col xs={24} xl={10}>
+              <Descriptions title="链路质量" size="small" column={1} bordered>
+                <Descriptions.Item label="BER">
+                  <Tag
+                    color={getMetricTone(simResult.ber, {
+                      good: 1e-5,
+                      warn: 1e-3,
+                    })}
+                  >
+                    {simResult.ber >= 0
+                      ? formatMetricValue(simResult.ber)
+                      : "N/A"}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label={getEvmTitle(simResult)}>
+                  {isFiniteNumber(simResult.stats.EVMPercent) &&
+                  simResult.stats.EVMPercent >= 0 ? (
+                    <Tag
+                      color={getMetricTone(simResult.stats.EVMPercent, {
+                        good: 5,
+                        warn: 12,
+                      })}
+                    >
+                      {formatMetricValue(simResult.stats.EVMPercent)}%
+                    </Tag>
+                  ) : (
+                    <Tag>未启用</Tag>
+                  )}
+                </Descriptions.Item>
+                <Descriptions.Item label={getMerTitle(simResult)}>
+                  {formatMetricValue(simResult.stats.MERdB)} dB
+                </Descriptions.Item>
+                <Descriptions.Item label="SNR估计">
+                  {formatMetricValue(simResult.stats.SNREstdB)} dB
+                </Descriptions.Item>
+                <Descriptions.Item label="PAPR">
+                  {formatMetricValue(simResult.stats.PAPRdB)} dB
+                </Descriptions.Item>
+                <Descriptions.Item label="实际码率">
+                  {simResult.stats.CodeRate}
+                </Descriptions.Item>
+                <Descriptions.Item label="采样率">
+                  {isFiniteNumber(simResult.stats.Fs)
+                    ? `${formatMetricValue(simResult.stats.Fs / 1e6)} MHz`
+                    : "N/A"}
+                </Descriptions.Item>
+              </Descriptions>
+            </Col>
+
+            <Col xs={24} xl={7}>
+              <Descriptions title="输入损伤" size="small" column={1} bordered>
+                <Descriptions.Item label="输入SNR">
+                  {formatMetricValue(simResult.stats.InputSNR)} dB
+                </Descriptions.Item>
+                <Descriptions.Item label="输入CFO">
+                  {formatMetricValue(simResult.stats.InputCFO)} Hz
+                </Descriptions.Item>
+                <Descriptions.Item label="输入相位">
+                  {formatMetricValue(simResult.stats.InputPhase)} deg
+                </Descriptions.Item>
+                <Descriptions.Item label="输入时延">
+                  {formatMetricValue(simResult.stats.InputDelay, 3)} samples
+                </Descriptions.Item>
+              </Descriptions>
+            </Col>
+
+            <Col xs={24} xl={7}>
+              <Descriptions title="运行信息" size="small" column={1} bordered>
+                <Descriptions.Item label="锁定率">
+                  {formatMetricValue(simResult.stats.LockRatePercent)}%
+                </Descriptions.Item>
+                <Descriptions.Item label="同步状态">
+                  <Tag
+                    color={simResult.stats.LockStatus ? "success" : "warning"}
+                  >
+                    {formatLockStatus(simResult.stats.LockStatus)}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="MATLAB耗时">
+                  {formatMetricValue(simResult.stats.ElapsedTime, 3)} s
+                </Descriptions.Item>
+                <Descriptions.Item label="结论">
+                  {simResult.stats.LockStatus
+                    ? "链路已锁定，可结合 BER / EVM / MER 判断质量"
+                    : "优先检查同步链是否稳定锁定"}
+                </Descriptions.Item>
+              </Descriptions>
+            </Col>
+          </Row>
+
+          <Alert
+            className="evaluation-alert"
+            type={
+              simResult.stats.LockStatus &&
+              isFiniteNumber(simResult.ber) &&
+              simResult.ber >= 0 &&
+              simResult.ber < 1e-3
+                ? "success"
+                : "warning"
+            }
+            showIcon
+            message="评估解读"
+            description={`${getBerSummary(simResult.ber)} ${
+              isGMSK
+                ? getGMSKEvmSummary()
+                : getEvmSummary(simResult.stats.EVMPercent)
+            }`}
+          />
+        </Card>
+      </div>
+    );
+  };
+
   return (
     <div className="ccsds-platform">
       {/* 顶部 Header */}
@@ -515,11 +850,20 @@ const CCSDSPlatform = () => {
             initialValues={{
               modType: "QPSK",
               channelCoding: "convolutional",
+              ConvolutionalCodeRate: "5/6",
+              NumBytesInTransferFrame: 1151,
               symbolRate: 5000000,
               RolloffFactor: 0.35,
               snr: 10,
               phaseOffset: 0,
               sps: 8,
+              hasASM: true,
+              hasRandomizer: false,
+              rsPreset: "rs-255-223-i5",
+              RSMessageLength: 223,
+              RSInterleavingDepth: 5,
+              IsRSMessageShortened: false,
+              RSShortenedMessageLength: 223,
             }}
           >
             <Row gutter={24} align="bottom">
@@ -715,13 +1059,18 @@ const CCSDSPlatform = () => {
                         value === "convolutional" ||
                         value === "concatenated"
                       ) {
-                        form.setFieldsValue({ ConvolutionalCodeRate: "1/2" });
+                        form.setFieldsValue({
+                          ConvolutionalCodeRate:
+                            form.getFieldValue("ConvolutionalCodeRate") ||
+                            "5/6",
+                        });
                       }
                     }}
                   >
                     <Option value="convolutional">Convolutional</Option>
                     {/* <Option value="concatenated">concatenated</Option> */}
                     <Option value="RS">RS码</Option>
+                    <Option value="concatenated">Concatenated</Option>
                     <Option value="LDPC">LDPC</Option>
                     <Option value="Turbo">Turbo</Option>
                     <Option value="None">None</Option>
@@ -754,10 +1103,11 @@ const CCSDSPlatform = () => {
                   const showConvRate =
                     coding === "convolutional" || coding === "concatenated";
                   const showRS = coding === "RS" || coding === "concatenated";
+                  const showFrameLength = showConvRate && !showRS;
                   const isApplicable = coding === "Turbo" || coding === "LDPC";
 
                   // 分别计算各自的默认值和选项
-                  let convDefaultRate = "1/2";
+                  let convDefaultRate = "5/6";
                   let convRateOptions = CONVOLUTIONAL_RATES;
 
                   let turboLdpcDefaultRate = "N/A";
@@ -793,23 +1143,77 @@ const CCSDSPlatform = () => {
                       )}
 
                       {/* B. RS 交织深度 */}
-                      {showRS && (
+                      {/* {showConvRate && (
                         <Col span={4}>
                           <Form.Item
-                            name="RSInterleavingDepth"
-                            label="RS 交织深度"
-                            initialValue={1}
+                            name="NumBytesInTransferFrame"
+                            label="Transfer Frame Bytes"
+                            initialValue={1151}
                           >
                             <InputNumber
                               min={1}
-                              max={5}
+                              max={65535}
                               style={{ width: "100%" }}
                             />
+                          </Form.Item>
+                        </Col>
+                      )} */}
+
+                      {/* {showFrameLength && (
+                        <Col span={4}>
+                          <Form.Item
+                            name="NumBytesInTransferFrame"
+                            label="Transfer Frame Bytes"
+                            initialValue={1151}
+                          >
+                            <InputNumber
+                              min={1}
+                              max={65535}
+                              style={{ width: "100%" }}
+                            />
+                          </Form.Item>
+                        </Col>
+                      )} */}
+
+                      {showRS && (
+                        <Col span={5}>
+                          <Form.Item
+                            name="rsPreset"
+                            label="RS 配置"
+                            initialValue="rs-255-223-i5"
+                          >
+                            <Select
+                              onChange={(key) => {
+                                const preset = RS_PRESETS[key];
+                                if (preset) {
+                                  form.setFieldsValue({
+                                    RSMessageLength: preset.RSMessageLength,
+                                    RSInterleavingDepth:
+                                      preset.RSInterleavingDepth,
+                                    IsRSMessageShortened:
+                                      preset.IsRSMessageShortened,
+                                    RSShortenedMessageLength:
+                                      preset.RSShortenedMessageLength,
+                                    NumBytesInTransferFrame:
+                                      preset.NumBytesInTransferFrame,
+                                  });
+                                }
+                              }}
+                            >
+                              {Object.entries(RS_PRESETS).map(
+                                ([key, preset]) => (
+                                  <Option key={key} value={key}>
+                                    {preset.label}
+                                  </Option>
+                                ),
+                              )}
+                            </Select>
                           </Form.Item>
                         </Col>
                       )}
 
                       {/* C. Turbo/LDPC 码率 */}
+
                       <Col span={4}>
                         <Form.Item
                           name="CodeRate"
@@ -938,206 +1342,207 @@ const CCSDSPlatform = () => {
                   <div ref={spectrumRef} className="chart-box" />
                 </div>
 
-                {simResult && simResult.stats && (
-                  <div className="result-insights">
-                    <div className="kpi-grid">
-                      <Card className="kpi-card" bordered={false}>
-                        <Statistic
-                          title="BER"
-                          value={simResult.ber}
-                          valueStyle={{
-                            color:
-                              simResult.ber === 0
-                                ? "#389e0d"
-                                : simResult.ber > 0
-                                  ? "#cf1322"
-                                  : "#8c8c8c",
-                          }}
-                          formatter={(val) => {
-                            if (val === -1) return "N/A";
-                            if (val === -2) return "Error";
-                            if (val === 0) return "0";
-                            return Number(val).toExponential(2);
-                          }}
-                        />
-                      </Card>
-                      <Card className="kpi-card" bordered={false}>
-                        <Statistic
-                          title="FER"
-                          value={formatMetricValue(simResult.stats.FER)}
-                        />
-                      </Card>
-                      <Card className="kpi-card" bordered={false}>
-                        <Statistic
-                          title="EVM"
-                          value={getEvmDisplay(simResult.stats)}
-                        />
-                      </Card>
-                      <Card className="kpi-card" bordered={false}>
-                        <Statistic
-                          title="同步状态"
-                          value={formatLockStatus(simResult.stats.LockStatus)}
-                          valueStyle={{
-                            color: simResult.stats.LockStatus
-                              ? "#389e0d"
-                              : "#cf1322",
-                            fontSize: 24,
-                          }}
-                        />
-                      </Card>
-                      <Card className="kpi-card" bordered={false}>
-                        <Statistic
-                          title="估计频偏"
-                          value={formatMetricValue(simResult.stats.EstimatedCFO)}
-                          suffix="Hz"
-                        />
-                      </Card>
-                      <Card className="kpi-card" bordered={false}>
-                        <Statistic
-                          title="采样率"
-                          value={simResult.stats.Fs / 1e6}
-                          precision={2}
-                          suffix="MHz"
+                {simResult &&
+                  simResult.stats &&
+                  (simResult.rawEvaluation ? (
+                    renderEvaluationInsights()
+                  ) : (
+                    <div className="result-insights">
+                      <div className="kpi-grid">
+                        <Card className="kpi-card" bordered={false}>
+                          <Statistic
+                            title="BER"
+                            value={simResult.ber}
+                            valueStyle={{
+                              color:
+                                simResult.ber === 0
+                                  ? "#389e0d"
+                                  : simResult.ber > 0
+                                    ? "#cf1322"
+                                    : "#8c8c8c",
+                            }}
+                            formatter={(val) => {
+                              if (val === -1) return "N/A";
+                              if (val === -2) return "Error";
+                              if (val === 0) return "0";
+                              return Number(val).toExponential(2);
+                            }}
+                          />
+                        </Card>
+                        <Card className="kpi-card" bordered={false}>
+                          <Statistic
+                            title="EVM"
+                            value={getEvmDisplay(simResult.stats)}
+                          />
+                        </Card>
+                        <Card className="kpi-card" bordered={false}>
+                          <Statistic
+                            title="MER"
+                            value={formatMetricValue(simResult.stats.MERdB)}
+                            suffix="dB"
+                          />
+                        </Card>
+                        <Card className="kpi-card" bordered={false}>
+                          <Statistic
+                            title="同步状态"
+                            value={formatMetricValue(simResult.stats.SNREstdB)}
+                            suffix="dB"
+                            valueStyle={{
+                              color: "#1677ff",
+                              fontSize: 24,
+                            }}
+                          />
+                        </Card>
+                        <Card className="kpi-card" bordered={false}>
+                          <Statistic
+                            title="估计频偏"
+                            value={formatMetricValue(
+                              simResult.stats.LockRatePercent,
+                            )}
+                            suffix="%"
+                          />
+                        </Card>
+                        <Card className="kpi-card" bordered={false}>
+                          <Statistic
+                            title="采样率"
+                            value={formatMetricValue(simResult.stats.PAPRdB)}
+                            suffix="dB"
+                          />
+                        </Card>
+                      </div>
+
+                      <Card
+                        className="evaluation-panel"
+                        bordered={false}
+                        title="链路评估"
+                      >
+                        <Row gutter={[16, 16]}>
+                          <Col xs={24} xl={10}>
+                            <Descriptions
+                              title="链路质量"
+                              size="small"
+                              column={1}
+                              bordered
+                            >
+                              <Descriptions.Item label="BER">
+                                <Tag
+                                  color={getMetricTone(simResult.ber, {
+                                    good: 1e-5,
+                                    warn: 1e-3,
+                                  })}
+                                >
+                                  {simResult.ber >= 0
+                                    ? formatMetricValue(simResult.ber)
+                                    : "N/A"}
+                                </Tag>
+                              </Descriptions.Item>
+                              <Descriptions.Item label="MER">
+                                {formatMetricValue(simResult.stats.MERdB)} dB
+                              </Descriptions.Item>
+                              <Descriptions.Item label="EVM">
+                                {isFiniteNumber(simResult.stats.EVMPercent) &&
+                                simResult.stats.EVMPercent >= 0 ? (
+                                  <Tag
+                                    color={getMetricTone(
+                                      simResult.stats.EVMPercent,
+                                      { good: 5, warn: 12 },
+                                    )}
+                                  >
+                                    {formatMetricValue(
+                                      simResult.stats.EVMPercent,
+                                    )}
+                                    %
+                                  </Tag>
+                                ) : (
+                                  <Tag>未启用</Tag>
+                                )}
+                              </Descriptions.Item>
+                              <Descriptions.Item label="实际码率">
+                                {simResult.stats.CodeRate}
+                              </Descriptions.Item>
+                              <Descriptions.Item label="MATLAB耗时">
+                                {formatMetricValue(
+                                  simResult.stats.ElapsedTime,
+                                  3,
+                                )}{" "}
+                                s
+                              </Descriptions.Item>
+                            </Descriptions>
+                          </Col>
+
+                          <Col xs={24} xl={7}>
+                            <Descriptions
+                              title="同步状态"
+                              size="small"
+                              column={1}
+                              bordered
+                            >
+                              <Descriptions.Item label="锁定状态">
+                                <Tag
+                                  color={
+                                    simResult.stats.LockStatus
+                                      ? "success"
+                                      : "error"
+                                  }
+                                >
+                                  {formatLockStatus(simResult.stats.LockStatus)}
+                                </Tag>
+                              </Descriptions.Item>
+                              <Descriptions.Item label="估计频偏">
+                                {formatMetricValue(
+                                  simResult.stats.EstimatedCFO,
+                                )}{" "}
+                                Hz
+                              </Descriptions.Item>
+                              <Descriptions.Item label="建议观察">
+                                {simResult.stats.LockStatus
+                                  ? "优先结合 EVM 与 BER 看损伤强度"
+                                  : "优先检查 CFO、延时和 SNR 是否过重"}
+                              </Descriptions.Item>
+                            </Descriptions>
+                          </Col>
+
+                          <Col xs={24} xl={7}>
+                            <Descriptions
+                              title="帧统计"
+                              size="small"
+                              column={1}
+                              bordered
+                            >
+                              <Descriptions.Item label="对比帧数">
+                                {simResult.stats.ComparedFrames ?? 0}
+                              </Descriptions.Item>
+                              <Descriptions.Item label="出错帧数">
+                                {simResult.stats.FrameErrors ?? 0}
+                              </Descriptions.Item>
+                              <Descriptions.Item label="结论">
+                                {simResult.stats.ComparedFrames > 0
+                                  ? "已有足够样本可用于链路对比"
+                                  : "当前没有有效帧，指标参考意义有限"}
+                              </Descriptions.Item>
+                            </Descriptions>
+                          </Col>
+                        </Row>
+
+                        <Alert
+                          className="evaluation-alert"
+                          type={
+                            simResult.stats.LockStatus &&
+                            isFiniteNumber(simResult.ber) &&
+                            simResult.ber >= 0 &&
+                            simResult.ber < 1e-3
+                              ? "success"
+                              : "warning"
+                          }
+                          showIcon
+                          message="评估解读"
+                          description={`${getBerSummary(
+                            simResult.ber,
+                          )} ${getEvmSummary(simResult.stats.EVMPercent)}`}
                         />
                       </Card>
                     </div>
-
-                    <Card
-                      className="evaluation-panel"
-                      bordered={false}
-                      title="链路评估"
-                    >
-                      <Row gutter={[16, 16]}>
-                        <Col xs={24} xl={10}>
-                          <Descriptions
-                            title="链路质量"
-                            size="small"
-                            column={1}
-                            bordered
-                          >
-                            <Descriptions.Item label="BER">
-                              <Tag
-                                color={getMetricTone(simResult.ber, {
-                                  good: 1e-5,
-                                  warn: 1e-3,
-                                })}
-                              >
-                                {simResult.ber >= 0
-                                  ? formatMetricValue(simResult.ber)
-                                  : "N/A"}
-                              </Tag>
-                            </Descriptions.Item>
-                            <Descriptions.Item label="FER">
-                              <Tag
-                                color={getMetricTone(simResult.stats.FER, {
-                                  good: 0.01,
-                                  warn: 0.1,
-                                })}
-                              >
-                                {formatMetricValue(simResult.stats.FER)}
-                              </Tag>
-                            </Descriptions.Item>
-                            <Descriptions.Item label="EVM">
-                              {isFiniteNumber(simResult.stats.EVMPercent) &&
-                              simResult.stats.EVMPercent >= 0 ? (
-                                <Tag
-                                  color={getMetricTone(
-                                    simResult.stats.EVMPercent,
-                                    { good: 5, warn: 12 }
-                                  )}
-                                >
-                                  {formatMetricValue(simResult.stats.EVMPercent)}%
-                                </Tag>
-                              ) : (
-                                <Tag>未启用</Tag>
-                              )}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="实际码率">
-                              {simResult.stats.CodeRate}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="MATLAB耗时">
-                              {formatMetricValue(
-                                simResult.stats.ElapsedTime,
-                                3
-                              )}{" "}
-                              s
-                            </Descriptions.Item>
-                          </Descriptions>
-                        </Col>
-
-                        <Col xs={24} xl={7}>
-                          <Descriptions
-                            title="同步状态"
-                            size="small"
-                            column={1}
-                            bordered
-                          >
-                            <Descriptions.Item label="锁定状态">
-                              <Tag
-                                color={
-                                  simResult.stats.LockStatus
-                                    ? "success"
-                                    : "error"
-                                }
-                              >
-                                {formatLockStatus(simResult.stats.LockStatus)}
-                              </Tag>
-                            </Descriptions.Item>
-                            <Descriptions.Item label="估计频偏">
-                              {formatMetricValue(
-                                simResult.stats.EstimatedCFO
-                              )}{" "}
-                              Hz
-                            </Descriptions.Item>
-                            <Descriptions.Item label="建议观察">
-                              {simResult.stats.LockStatus
-                                ? "优先结合 EVM 与 BER 看损伤强度"
-                                : "优先检查 CFO、延时和 SNR 是否过重"}
-                            </Descriptions.Item>
-                          </Descriptions>
-                        </Col>
-
-                        <Col xs={24} xl={7}>
-                          <Descriptions
-                            title="帧统计"
-                            size="small"
-                            column={1}
-                            bordered
-                          >
-                            <Descriptions.Item label="对比帧数">
-                              {simResult.stats.ComparedFrames ?? 0}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="出错帧数">
-                              {simResult.stats.FrameErrors ?? 0}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="结论">
-                              {simResult.stats.ComparedFrames > 0
-                                ? "已有足够样本可用于链路对比"
-                                : "当前没有有效帧，指标参考意义有限"}
-                            </Descriptions.Item>
-                          </Descriptions>
-                        </Col>
-                      </Row>
-
-                      <Alert
-                        className="evaluation-alert"
-                        type={
-                          simResult.stats.LockStatus &&
-                          isFiniteNumber(simResult.ber) &&
-                          simResult.ber >= 0 &&
-                          simResult.ber < 1e-3
-                            ? "success"
-                            : "warning"
-                        }
-                        showIcon
-                        message="评估解读"
-                        description={`${getBerSummary(
-                          simResult.ber
-                        )} ${getEvmSummary(simResult.stats.EVMPercent)}`}
-                      />
-                    </Card>
-                  </div>
-                )}
+                  ))}
               </Card>
             </Col>
           </Row>

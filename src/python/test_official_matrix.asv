@@ -1,0 +1,173 @@
+clc;
+clear;
+
+snrList = 0:2:20;
+
+ber = zeros(size(snrList));
+evm = zeros(size(snrList));
+mer = zeros(size(snrList));
+lock = zeros(size(snrList));
+
+for k = 1:length(snrList)
+
+    snrNow = snrList(k);
+    fprintf('\n==============================\n');
+    fprintf('running snr = %.1f dB \n',snrNow);
+    fprintf('\n==============================\n');
+
+    p = struct( ...
+        'modType','8PSK', ...
+        'symbolRate',1e6, ...
+        'sps',8, ...
+        'snr',snrNow, ...
+        'cfo',3000, ...
+        'phaseOffset',30, ...
+        'delay',0.35, ...
+        'channelCoding','convolutional', ...
+        'ConvolutionalCodeRate','2/3', ...
+        'RolloffFactor',0.35, ...
+        'hasASM',true, ...
+        'showFigures',false);
+
+    out = run_ccsds_tm_evaluation(p);
+
+    r = jsonencode(out);
+
+    ber(k) = r.BER;
+    evm(k) = r.EVM_post_pct;
+    mer(k) = r.MER_dB;
+    lock(k) = r.LockRate;
+
+
+end
+figure;
+
+semilogx(snrList,ber);
+grid on;
+xlabel('SNR(dB)');
+ylabel('ber');
+title('8PSK BER vs SNR');
+ylim([1e-5 1]);
+
+
+
+% function results = test_official_matrix()
+% % TEST_OFFICIAL_MATRIX  扫遍 helper 官方支持的所有 Mod×Coding×Rate 组合
+% %
+% % 测试条件: SNR=15dB, CFO=0, Phase=0, Delay=0, ASM 打开
+% % 通过判据: BER < 1e-2 且 LockRate > 50% (helper 干净场景下应几乎都为 0)
+% %
+% % 用法:
+% %   results = test_official_matrix();
+% % 跑完打印一张表 + 返回结构数组,方便后续分析。
+% 
+% base = struct('symbolRate', 1e6, 'sps', 8, 'snr', 15, ...
+%               'cfo', 0, 'phaseOffset', 0, 'delay', 0, ...
+%               'RolloffFactor', 0.35, 'BandwidthTimeProduct', 0.5, ...
+%               'hasASM', true, 'hasRandomizer', false, ...
+%               'showFigures', false);
+% 
+% mods    = {'BPSK','QPSK','OQPSK','8PSK','GMSK'};
+% codings = {'none','rs','convolutional','concatenated'};
+% 
+% results = struct('mod',{},'code',{},'rate',{},'BER',{},'EVM',{},'MER',{}, ...
+%                  'Lock',{},'Time',{},'pass',{},'errMsg',{});
+% 
+% fprintf('\n=========================================================\n');
+% fprintf('  CCSDS Helper 官方矩阵测试  (SNR=%d dB)\n', base.snr);
+% fprintf('=========================================================\n');
+% 
+% for mi = 1:length(mods)
+%     for ci = 1:length(codings)
+%         % convolutional / concatenated 才需要 rate
+%         if any(strcmp(codings{ci}, {'convolutional','concatenated'}))
+%             rates = {'1/2','2/3'};
+%         else
+%             rates = {''};
+%         end
+% 
+%         for ri = 1:length(rates)
+%             p = base;
+%             p.modType       = mods{mi};
+%             p.channelCoding = codings{ci};
+%             if ~isempty(rates{ri})
+%                 p.ConvolutionalCodeRate = rates{ri};
+%             end
+% 
+%             label = sprintf('%-6s | %-13s | %-3s', ...
+%                 mods{mi}, codings{ci}, ifelse(isempty(rates{ri}),'-',rates{ri}));
+%             fprintf('Testing %s ... ', label);
+% 
+%             t0 = tic;
+%             try
+%                 jstr = run_ccsds_tm_evaluation(p);
+%                 m = jsondecode(jstr);
+%                 ber  = m.BER;
+%                 evm  = m.EVM_post_pct;
+%                 mer  = m.MER_dB;
+%                 lock = m.LockRate * 100;
+%                 tt   = toc(t0);
+%                 pass = (ber >= 0) && (ber < 1e-2) && (lock > 50);
+%                 marker = ifelse(pass, '✓', '✗');
+% 
+%                 fprintf('%s  BER=%.2e EVM=%.1f%% Lock=%.0f%% (%.1fs)\n', ...
+%                         marker, ber, evm, lock, tt);
+% 
+%                 results(end+1) = struct( ...
+%                     'mod', mods{mi}, 'code', codings{ci}, ...
+%                     'rate', ifelse(isempty(rates{ri}),'-',rates{ri}), ...
+%                     'BER', ber, 'EVM', evm, 'MER', mer, ...
+%                     'Lock', lock, 'Time', tt, 'pass', pass, 'errMsg', '');
+%             catch ME
+%                 fprintf('✗ ERROR: %s\n', ME.message);
+%                 results(end+1) = struct( ...
+%                     'mod', mods{mi}, 'code', codings{ci}, ...
+%                     'rate', ifelse(isempty(rates{ri}),'-',rates{ri}), ...
+%                     'BER', NaN, 'EVM', NaN, 'MER', NaN, ...
+%                     'Lock', NaN, 'Time', toc(t0), 'pass', false, ...
+%                     'errMsg', ME.message);
+%             end
+%             close all;   % 防止图窗堆积(虽然 showFigures=false,保险起见)
+%         end
+%     end
+% end
+% 
+% % ===== 汇总表 =====
+% fprintf('\n=========================================================\n');
+% fprintf('  汇总  (共 %d 组合, 通过 %d / 失败 %d)\n', ...
+%     numel(results), sum([results.pass]), sum(~[results.pass]));
+% fprintf('=========================================================\n');
+% fprintf('%-6s | %-13s | %-4s | %-10s | %-7s | %-7s | %-5s | %s\n', ...
+%         'Mod','Code','Rate','BER','EVM%','MER dB','Lock%','PASS');
+% fprintf('%s\n', repmat('-', 1, 78));
+% for k = 1:length(results)
+%     r = results(k);
+%     if isnan(r.BER)
+%         fprintf('%-6s | %-13s | %-4s | %-10s | %-7s | %-7s | %-5s | %s\n', ...
+%             r.mod, r.code, r.rate, 'NaN','NaN','NaN','NaN', '✗');
+%     else
+%         fprintf('%-6s | %-13s | %-4s | %-10.3e | %-7.2f | %-7.2f | %-5.0f | %s\n', ...
+%             r.mod, r.code, r.rate, r.BER, r.EVM, r.MER, r.Lock, ...
+%             ifelse(r.pass, '✓', '✗'));
+%     end
+% end
+% 
+% % ===== 失败列表(详情) =====
+% failed = results(~[results.pass]);
+% if ~isempty(failed)
+%     fprintf('\n--- 失败组合详情 ---\n');
+%     for k = 1:length(failed)
+%         f = failed(k);
+%         fprintf('  %s + %s + %s\n', f.mod, f.code, f.rate);
+%         if ~isempty(f.errMsg)
+%             fprintf('    异常: %s\n', f.errMsg);
+%         else
+%             fprintf('    BER=%.3e  Lock=%.0f%%\n', f.BER, f.Lock);
+%         end
+%     end
+% end
+% end
+% 
+% function out = ifelse(c, t, f)
+%     if c, out = t; else, out = f; end
+% end

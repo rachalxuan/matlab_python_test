@@ -23,8 +23,8 @@ def run_ccsds_tm(params):
         # 3. 调用 MATLAB 函数
         # 注意：函数名必须与文件名一致
         print(f"Calling MATLAB with: {params_json}")  # 调试日志
-        result_json = eng.run_ccsds_tm_modulation(params_json, nargout=1)
-
+        # result_json = eng.run_ccsds_tm_modulation(params_json, nargout=1)
+        result_json = eng.run_ccsds_tm_evaluation(params_json, nargout=1)
         # 4. 将 MATLAB 返回的 JSON 字符串转回 Python 字典返回给 Node.js
         # return json.loads(result_json)
         result_dict = json.loads(result_json)

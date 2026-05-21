@@ -6,6 +6,7 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
     properties(Nontunable, Access = private)
         pDemod
         pIsGMSK
+        pIsOQPSK
     end
     
     properties(Access = private)
@@ -30,13 +31,28 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             obj.pLastSymbol = complex(0, 0); % 用于存储上一个复数符号
 
             obj.pIsGMSK = contains(string(obj.Modulation), 'GMSK');
+            obj.pIsOQPSK = strcmp(obj.Modulation, 'OQPSK');
             
-            if any(strcmp(obj.Modulation, {'QPSK','OQPSK'}))
-                obj.pDemod = comm.PSKDemodulator('PhaseOffset',pi/4,'ModulationOrder',4,'BitOutput',true,...
-                    'DecisionMethod',"Approximate log-likelihood ratio",'SymbolMapping','Custom',...
+            if strcmp(obj.Modulation, 'QPSK')
+                obj.pDemod = comm.PSKDemodulator( ...
+                    'PhaseOffset',pi/4, ...
+                    'ModulationOrder',4, ...
+                    'BitOutput',true, ...
+                    'DecisionMethod',"Approximate log-likelihood ratio", ...
+                    'SymbolMapping','Custom', ...
                     'CustomSymbolMapping',[0;2;3;1]);
+            
+            elseif strcmp(obj.Modulation, 'OQPSK')
+                    %  OQPSK 现在用 comm.OQPSKDemodulator 是为了让它处理半符号偏移和匹配滤波，
+                    % 但它的输出 bit 顺序/LLR 极性和 CCSDS decoder 约定不完全一致，所以要手动做：
+                    % 每对 bit 内部交换 + soft bit 极性适配成 ±5
+                 obj.pDemod = comm.OQPSKDemodulator( ...
+                    'PulseShape','Root raised cosine', ...
+                    'RolloffFactor', obj.RolloffFactor, ...
+                    'SamplesPerSymbol', obj.SamplesPerSymbol, ...
+                    'BitOutput', true);
             elseif strcmp(obj.Modulation, '8PSK')
-                obj.pDemod = comm.PSKDemodulator('PhaseOffset', pi/4, 'ModulationOrder', 8, ...
+                obj.pDemod = comm.PSKDemodulator('PhaseOffset', pi/8, 'ModulationOrder', 8, ...
                     'BitOutput', true, 'DecisionMethod', "Approximate log-likelihood ratio", ...
                     'SymbolMapping', 'Custom', 'CustomSymbolMapping', [0 4 6 2 3 7 5 1]); 
             elseif obj.pIsGMSK
@@ -101,7 +117,29 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                 y = double(decodedBits);
                 y(y==0) = 5; 
                 y(y==1) = -5;
-                
+            elseif obj.pIsOQPSK
+                % =========================================================
+                % OQPSK 官方解调路径
+                % 输入 u 是 full-rate waveform, 即 SamplesPerSymbol=sps
+                % pDemod 内部完成 RRC 匹配滤波 + OQPSK 半符号对齐 + hard bit 输出
+                % =========================================================
+                y0 = obj.pDemod(u);
+                y0 = double(y0(:));
+            
+                % MATLAB OQPSKDemodulator 默认 Gray 输出。
+                % 当前 CCSDS/QPSK 路径等效需要每对 bit 内部交换。
+                if mod(length(y0), 2) == 0
+                    y0 = reshape(y0, 2, []);
+                    y0 = y0([2 1], :);
+                    y0 = y0(:);
+                end
+            
+                % 保持与你当前 tryOneRotation 里成功版本完全一致：
+                % bit=0 -> -5, bit=1 -> +5
+                hardBits = y0 > 0;
+                y = -5 * ones(size(hardBits));
+                y(hardBits) = 5;
+                y = double(y);    
             elseif strcmp(obj.Modulation, 'BPSK')
                 y = double(real(u));
                 if strcmp(obj.PCMFormat,'NRZ-M') && ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'}))
@@ -111,8 +149,14 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                 end
             else
                 y = obj.pDemod(u);
-                if any(strcmp(obj.Modulation, {'QPSK','OQPSK','8PSK'}))
-                     y = -1*y; 
+                 if any(strcmp(obj.Modulation, {'QPSK','8PSK'}))
+                    y = -1*y;
+                elseif strcmp(obj.Modulation,'OQPSK')
+%                     y = -1*y;
+                    % 不翻号: 用 PSKDemodulator 原生的 LLR 极性 (>0 ⇒ bit 0).
+                    % 早期版本写 y = -1*y 是 "先保留, 如 BER=0.5 试去掉" 的占位,
+                    % 实测 SNR=25 + conv 7/8 场景下翻号会把 Viterbi 推到全 1 解码鞍点,
+                    % 4 重旋转搜索也救不回来 (旋转只能 XOR 编码层 bit, 不改 LLR 整体偏置).
                 end
             end
         end
@@ -142,6 +186,11 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             % 【新增】允许 GMSK 模式下设置 BandwidthTimeProduct
             elseif strcmp(prop, 'BandwidthTimeProduct')
                 flag = ~contains(string(obj.Modulation), 'GMSK');
+            elseif strcmp(prop, 'SamplesPerSymbol')
+                flag = ~strcmp(obj.Modulation, 'OQPSK');
+            
+            elseif strcmp(prop, 'RolloffFactor')
+                flag = ~strcmp(obj.Modulation, 'OQPSK');
             end
         end
     end
