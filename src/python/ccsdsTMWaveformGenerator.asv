@@ -1233,45 +1233,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     end
                 case '4D-8PSK-TCM'
                     if coder.target('MATLAB')
-                        %% 
-                         %% 
-                         if evalin('base','exist(''DEBUG_4D_TX_MODIN'',''var'') && logical(DEBUG_4D_TX_MODIN)')
-                             assignin('base','debug4D_tx_modin', int8(modin(:)));
-                             assignin('base','debug4D_tx_eff', double(obj.ModulationEfficiency));
-                             assignin('base','debug4D_tx_convState_before', obj.pConvEncState);
-                             assignin('base','debug4D_tx_diffState_before', obj.pDiffEncState);
-
-                             fprintf('[TX 4D debug] modinLen=%d, eff=%.2f, groupBits=%d, remainder=%d\n', ...
-                                 length(modin), ...
-                                 double(obj.ModulationEfficiency), ...
-                                 round(4*double(obj.ModulationEfficiency)), ...
-                                 mod(length(modin), round(4*double(obj.ModulationEfficiency))));
-
-                             fprintf('[TX 4D debug] convBefore=%s, diffBefore=%s\n', ...
-                                 mat2str(obj.pConvEncState(:).'), ...
-                                 mat2str(obj.pDiffEncState(:).'));
-
-                             fprintf('[TX 4D debug] first 64 modin bits:\n');
-                             disp(double(modin(1:min(64,end))).');
-                         end
-
-                         [waveform, obj.pConvEncState, obj.pDiffEncState] = ...
-                             satcom.internal.ccsds.cg_fourD8PSKTCMMod_int8( ...
-                             modin, double(obj.ModulationEfficiency), ...
-                             obj.pConvEncState, obj.pDiffEncState);
-
-                         if evalin('base','exist(''DEBUG_4D_TX_MODIN'',''var'') && logical(DEBUG_4D_TX_MODIN)')
-                             assignin('base','debug4D_tx_symbols', complex(waveform(:)));
-                             assignin('base','debug4D_tx_convState_after', obj.pConvEncState);
-                             assignin('base','debug4D_tx_diffState_after', obj.pDiffEncState);
-
-                             fprintf('[TX 4D debug] convAfter=%s, diffAfter=%s\n', ...
-                                 mat2str(obj.pConvEncState(:).'), ...
-                                 mat2str(obj.pDiffEncState(:).'));
-                         end
-                        %% 
-
-%                         [waveform, obj.pConvEncState, obj.pDiffEncState] = satcom.internal.ccsds.cg_fourD8PSKTCMMod_int8(modin, double(obj.ModulationEfficiency), obj.pConvEncState, obj.pDiffEncState);
+                        [waveform, obj.pConvEncState, obj.pDiffEncState] = satcom.internal.ccsds.cg_fourD8PSKTCMMod_int8(modin, double(obj.ModulationEfficiency), obj.pConvEncState, obj.pDiffEncState);
                     else
                         [waveform, obj.pConvEncState, obj.pDiffEncState] = satcom.internal.ccsds.fourD8PSKTCMMod(modin, double(obj.ModulationEfficiency), obj.pConvEncState, obj.pDiffEncState);
                     end
@@ -1424,26 +1386,6 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
     end
     
     methods % Public
-        function s = debugTurboInfo(obj)
-            s.ChannelCoding = obj.ChannelCoding;
-            s.NumInputBits = obj.NumInputBits;
-            s.CodeRate = obj.CodeRate;
-            s.InverseCodeRate = getInverseCodeRate(obj);
-    
-            s.ASMLength = length(obj.pASM);
-            s.ASM = obj.pASM;
-    
-            s.TurboInterleaverLength = length(obj.pTurboInterleaverIndices);
-            s.TurboInterleaverIndices = obj.pTurboInterleaverIndices;
-    
-            s.TurboPuncturePatternLength = length(obj.pTurboPuncturePattern);
-            s.TurboPuncturePatternMax = max(obj.pTurboPuncturePattern);
-            s.TurboPuncturePattern = obj.pTurboPuncturePattern;
-    
-            s.TurboN = obj.pN;
-            s.TurboTrellis = obj.TurboTrellis;
-        end
-        
         function out = flushFilter(obj)
             %flushFilter Get residual data samples in the filter state by
             %flushing zeros

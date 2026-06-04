@@ -60,7 +60,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
             
             if isfield(opt, 'channelCoding'), codeStr = lower(string(opt.channelCoding)); else, codeStr = 'none'; end
             isLDPCOnSMTF = contains(codeStr,'ldpc') && isfield(opt,'IsLDPCOnSMTF') && logical(opt.IsLDPCOnSMTF);
-            if ~contains(codeStr,'ldpc') || isLDPCOnSMTF
+            if (~contains(codeStr,'ldpc') && ~contains(codeStr,'turbo')) || isLDPCOnSMTF
                 if isfield(opt, 'NumBytesInTransferFrame')
                     args = [args, {'NumBytesInTransferFrame', double(opt.NumBytesInTransferFrame)}];
                 else
@@ -77,18 +77,25 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
                 rolloff = 0.5; 
             end
             btVal = 0.5;
-        if isfield(opt, 'BandwidthTimeProduct')
-            if ischar(opt.BandwidthTimeProduct) || isstring(opt.BandwidthTimeProduct)
-                btVal = makeNum(opt.BandwidthTimeProduct);
-            else
-                btVal = double(opt.BandwidthTimeProduct);
+            if isfield(opt, 'BandwidthTimeProduct')
+                if ischar(opt.BandwidthTimeProduct) || isstring(opt.BandwidthTimeProduct)
+                    btVal = makeNum(opt.BandwidthTimeProduct);
+                else
+                    btVal = double(opt.BandwidthTimeProduct);
+                end
             end
-        end
 
             % 【关键修正】显式设置 BT 值
             if contains(modStr, 'GMSK')
                  % GMSK 使用 BandwidthTimeProduct 参数
                  args = [args, {'BandwidthTimeProduct', btVal}]; 
+            elseif contains(modStr, '4D-8PSK-TCM')
+                 if isfield(opt, 'ModulationEfficiency')
+                     modEff = makeNum(opt.ModulationEfficiency);
+                 else
+                     modEff = 2;
+                 end
+                 args = [args, {'ModulationEfficiency', modEff}];
             else
                  % 其他调制使用 RolloffFactor
                  args = [args, {'RolloffFactor', rolloff}];
@@ -278,6 +285,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
             % 4. 精细频偏 (Carrier Sync) - QPSK 必须有这个
             fineMod = modStr; 
             if contains(modStr, 'OQPSK')|| contains(modStr, 'GMSK'), fineMod = 'QPSK'; end
+            if contains(modStr, '4D-8PSK-TCM'), fineMod = '8PSK'; end
             if contains(modStr, 'APSK'), fineMod = 'QAM'; end
             carrierSyncObj = comm.CarrierSynchronizer('Modulation', fineMod, 'SamplesPerSymbol', 1, 'DampingFactor', 1/sqrt(2), 'NormalizedLoopBandwidth', 0.01);
             fineSynced = carrierSyncObj(TimeSynced);
@@ -305,6 +313,9 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
                 % ------------------------------------------------
                 if contains(tmMod, 'GMSK')
                     demodobj = HelperCCSDSTMDemodulator('Modulation', tmMod, 'ChannelCoding', tmCode, 'BandwidthTimeProduct', btVal);
+                elseif strcmp(tmMod, '4D-8PSK-TCM')
+                    demodobj = HelperCCSDSTMDemodulator('Modulation', tmMod, 'ChannelCoding', tmCode, ...
+                        'ModulationEfficiency', modEff);
                 else
                     demodobj = HelperCCSDSTMDemodulator('Modulation', tmMod, 'ChannelCoding', tmCode);
                 end

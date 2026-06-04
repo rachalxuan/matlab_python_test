@@ -178,7 +178,8 @@ function [res, ctx] = runOneShot(opt)
         isLDPCOnSMTF = contains(codeKey,'ldpc') && isfield(opt,'IsLDPCOnSMTF') && logical(opt.IsLDPCOnSMTF);
         args = [args, {'WaveformSource','synchronization and channel coding', ...
                        'Modulation', modStr}];
-        if ~contains(codeKey,'ldpc') || isLDPCOnSMTF
+        usesTransferFrameBytes = any(strcmp(codeKey, ["none", "convolutional"])) || isLDPCOnSMTF;
+        if usesTransferFrameBytes
             args = [args, {'NumBytesInTransferFrame', numBytesTF}];
         end
         args = [args, {'ChannelCoding', codeStr}];
@@ -203,8 +204,26 @@ function [res, ctx] = runOneShot(opt)
 
         if contains(modStr,'GMSK')
             args = [args, {'BandwidthTimeProduct', btVal}];
+        elseif HelperCCSDSTMPCMDemodulator.supports(modStr)
+            if isfield(opt,'ModulationIndex') && ~isempty(opt.ModulationIndex)
+                args = [args, {'ModulationIndex', double(opt.ModulationIndex)}];
+            end
+            if strcmp(string(modStr), "PCM/PSK/PM")
+                if isfield(opt,'PCMFormat') && ~isempty(opt.PCMFormat)
+                    args = [args, {'PCMFormat', string(opt.PCMFormat)}];
+                end
+                if isfield(opt,'SubcarrierWaveform') && ~isempty(opt.SubcarrierWaveform)
+                    args = [args, {'SubcarrierWaveform', string(opt.SubcarrierWaveform)}];
+                end
+                if isfield(opt,'SubcarrierToSymbolRateRatio') && ~isempty(opt.SubcarrierToSymbolRateRatio)
+                    args = [args, {'SubcarrierToSymbolRateRatio', double(opt.SubcarrierToSymbolRateRatio)}];
+                end
+            end
         else
             args = [args, {'RolloffFactor', rolloff}];
+        end
+        if contains(modStr,'4D-8PSK-TCM') && isfield(opt,'ModulationEfficiency')
+            args = [args, {'ModulationEfficiency', double(opt.ModulationEfficiency)}];
         end
         switch modStr
             case {'BPSK','QPSK','8PSK','OQPSK'}
@@ -223,18 +242,27 @@ function [res, ctx] = runOneShot(opt)
             args = [args, {'LDPCCodeblockSize', double(opt.LDPCCodeblockSize)}];
         end
     end
+%% 创建发送端波形
 
     tmWaveGen = ccsdsTMWaveformGenerator(args{:});
     disp(tmWaveGen)
     disp(info(tmWaveGen))
-    fprintf('[TX LDPC] NumInputBits=%d, ActualCodeRate=%.6f\n', ...
-        tmWaveGen.NumInputBits, info(tmWaveGen).ActualCodeRate);
+    fprintf('[TX %s] NumInputBits=%d, ActualCodeRate=%.6f\n', ...
+        char(codeStr), tmWaveGen.NumInputBits, info(tmWaveGen).ActualCodeRate);
     Fs = fSym * sps;
     bitsPerFrame = tmWaveGen.NumInputBits;
     fprintf('[Actual TF] NumInputBits=%d, NumInputBytes=%.3f\n', ...
              tmWaveGen.NumInputBits, tmWaveGen.NumInputBits/8);
     numHeaderBits = 8;
-    numWarmUp = 8; numRealFrames = 100; totalFrames = numWarmUp + numRealFrames;
+    numWarmUp = 8;
+    if isfield(opt,'berWarmUpFrames') && ~isempty(opt.berWarmUpFrames)
+        numWarmUp = max(0, round(double(opt.berWarmUpFrames)));
+    end
+    numRealFrames = 100;
+    if isfield(opt,'berFrames') && ~isempty(opt.berFrames)
+        numRealFrames = max(1, round(double(opt.berFrames)));
+    end
+    totalFrames = numWarmUp + numRealFrames;
 
     msg = []; validTxFrames = {};
     for i = 1:totalFrames
@@ -245,8 +273,8 @@ function [res, ctx] = runOneShot(opt)
         validTxFrames{end+1} = currentFrame; %#ok<AGROW>
     end
     txWaveform = tmWaveGen(msg);
+%%  ===== 信道损伤 =====
 
-    % ===== 信道损伤 =====
     cfo_val   = getf(opt,'cfo',0);
     phase_val = getf(opt,'phaseOffset',0) * pi/180;
     delay_val = getf(opt,'delay',0);
@@ -264,10 +292,25 @@ function [res, ctx] = runOneShot(opt)
     else
         txWithDelay = txWithCFO;
     end
-    rxWaveform = awgn(txWithDelay, snr_val, 'measured');
 
-    % ===== 接收链路（与主脚本一致，简化版） =====
-    if contains(modStr,'GMSK')
+    [txAfterH, hInfo] = applyHChannelDamage(txWithDelay, opt);
+
+    rxWaveform = awgn(txAfterH, snr_val, 'measured');
+    rxWaveform = applyKnownHMMSEEqualizer(rxWaveform, opt, snr_val, false);
+%% ===== 接收链路 =====
+    isPCMPhaseMod = HelperCCSDSTMPCMDemodulator.supports(modStr);
+
+    if isPCMPhaseMod
+        % PCM/PM 类波形不是普通星座调制, 不能交给官方 CarrierSynchronizer。
+        % 这里先做相位检波/双相码恢复, 输出 soft bits 直接用于后面的帧同步/译码。
+        coarseSynced = rxWaveform;
+        [softBitsPCM, phaseMetricPCM] = HelperCCSDSTMPCMDemodulator.demodulate( ...
+            modStr, rxWaveform, opt, Fs, fSym, sps);
+        TimeSynced = phaseMetricPCM(:);
+        fineSynced = complex(softBitsPCM(:), 0);
+        fineSyncedForBER = softBitsPCM(:);
+
+    elseif contains(modStr,'GMSK')
         % --- 1) 基于 x^2 的 GMSK 粗 CFO 估计 ---
         % MSK/GMSK 信号平方后频谱有两条边带：±fSym/2 + 2*CFO
         % 取两条边带中点 = 2*CFO，再除以 2
@@ -308,6 +351,94 @@ function [res, ctx] = runOneShot(opt)
 
         fprintf('   [GMSK coarse CFO] estimated = %+.1f Hz (input = %+.1f Hz)\n', ...
                 cfo_est, getf(opt,'cfo',0));
+    elseif contains(modStr,'4D-8PSK-TCM')
+        % 4D-8PSK-TCM 专用同步分支。
+        % 不能把 "4D-8PSK-TCM" 直接交给官方 CarrierSynchronizer,
+        % 因为官方对象只接受 BPSK/QPSK/OQPSK/8PSK/PAM/QAM 等普通调制名。
+        if abs(getf(opt,'cfo',0)) > 0
+            % 4D-TCM 的符号仍落在 8PSK 星座点上, 因此粗频偏阶段用官方
+            % 8PSK CoarseFrequencyCompensator。后面的 4D Viterbi 解调仍由
+            % HelperCCSDSTMDemodulator 处理, 这里不把 4D 名称交给官方同步器。
+            coarseFreqSync4D = comm.CoarseFrequencyCompensator( ...
+                'Modulation','8PSK', ...
+                'SampleRate', Fs, ...
+                'FrequencyResolution', 1e3);
+            coarseSynced = coarseFreqSync4D(rxWaveform);
+        else
+            coarseSynced = rxWaveform;
+        end
+
+        rxfilter4D = comm.RaisedCosineReceiveFilter( ...
+            'RolloffFactor', rolloff, ...
+            'InputSamplesPerSymbol', sps, ...
+            'DecimationFactor', 1);
+        matched4D = rxfilter4D(coarseSynced);
+
+        totalRRCGroupDelaySym = getf(opt,'tcmRRCGroupDelaySymbols',10);
+        drop4D = max(0, round(totalRRCGroupDelaySym));
+        searchOffset4D = isfield(opt,'tcmSampleOffsetSearchAll') && logical(opt.tcmSampleOffsetSearchAll);
+
+        ref4D = getReferenceConstellation(modStr);
+        bestOffset4D = 0;
+        bestMetric4D = inf;
+        bestTimeSynced4D = [];
+        bestFineSynced4D = [];
+        bestTheta4D = 0;
+
+        if searchOffset4D
+            offsetList4D = 0:(sps-1);
+        else
+            offsetList4D = max(0, min(sps-1, round(getf(opt,'tcmSampleOffset',0))));
+        end
+
+        for off = offsetList4D
+            sampledTmp = matched4D(off+1:sps:end);
+            if length(sampledTmp) > drop4D
+                timeTmp = sampledTmp(drop4D+1:end);
+            else
+                timeTmp = sampledTmp;
+            end
+
+            if abs(getf(opt,'phaseOffset',0)) > 0 || abs(getf(opt,'cfo',0)) > 0
+                carrierTmp = comm.CarrierSynchronizer( ...
+                    'Modulation','8PSK', ...
+                    'SamplesPerSymbol',1, ...
+                    'DampingFactor',1/sqrt(2), ...
+                    'NormalizedLoopBandwidth',0.002);
+                fineTmp = carrierTmp(timeTmp);
+            else
+                fineTmp = timeTmp;
+            end
+
+            if ~isempty(fineTmp)
+                fineTmp = fineTmp ./ sqrt(mean(abs(fineTmp).^2) + eps);
+            end
+
+            [evmTmp, ~, ~, thetaTmp] = computeEVMPhaseAligned(fineTmp, ref4D);
+            if searchOffset4D
+                fprintf('   [4D timing search] sampleOffset=%d, EVM=%.3f%%\n', off, evmTmp);
+            end
+
+            if evmTmp < bestMetric4D
+                bestMetric4D = evmTmp;
+                bestOffset4D = off;
+                bestTimeSynced4D = timeTmp;
+                bestFineSynced4D = fineTmp;
+                bestTheta4D = thetaTmp;
+            end
+        end
+
+        if searchOffset4D
+            fprintf('   [4D timing search] best sampleOffset=%d, best EVM=%.3f%%\n', ...
+                bestOffset4D, bestMetric4D);
+        end
+
+        TimeSynced = bestTimeSynced4D;
+        fineSynced = bestFineSynced4D;
+        fineSyncedForBER = bestFineSynced4D * exp(1j*bestTheta4D);
+        fineSyncedMetricPhase = bestTheta4D;
+        bestTCMSampleOffset = bestOffset4D;
+
     else
         if contains(modStr,'BPSK')
             coarseMod = 'BPSK';
@@ -335,6 +466,12 @@ function [res, ctx] = runOneShot(opt)
             % =================================================================
 
             % --- 1) 4 次幂 FFT 粗 CFO 估计 (实测残余 ~4Hz, 已经够) ---
+            % 当前使用四次幂 FFT 方法。它属于非数据辅助 FFT-based CFO 估计,
+            % 与官方 CoarseFrequencyCompensator 的思想相近, 但不是官方 OQPSK
+            % 的完整双谱峰算法。
+            %
+            % 官方 OQPSK 粗频偏补偿器理论上可用, 但直接替换后曾出现
+            % CFO 估计准确而帧锁失败的情况。因此当前先保留已验证链路。
             Lfft = min(length(rxWaveform), 2^17);
             Nfft = 2^nextpow2(Lfft);
             win  = hamming(Lfft);
@@ -420,7 +557,13 @@ function [res, ctx] = runOneShot(opt)
                 fineLoopBW = 0.01;
             end
 
-            if contains(modStr,'APSK')
+            if contains(modStr,'4D-8PSK-TCM')
+                carrierSync = comm.CarrierSynchronizer( ...
+                    'Modulation','8PSK', ...
+                    'SamplesPerSymbol',1, ...
+                    'DampingFactor',1/sqrt(2), ...
+                    'NormalizedLoopBandwidth',fineLoopBW);
+            elseif contains(modStr,'APSK')
                 carrierSync = comm.CarrierSynchronizer( ...
                     'Modulation','QPSK', ...
                     'SamplesPerSymbol',1, ...
@@ -457,7 +600,7 @@ function [res, ctx] = runOneShot(opt)
 
     % ===== 计算所有指标 =====
     isGMSKMod = contains(upper(string(modStr)),'GMSK');
-    if isGMSKMod
+    if isGMSKMod || isPCMPhaseMod
         refConst = [];
     else
         refConst = getReferenceConstellation(modStr);
@@ -503,7 +646,11 @@ function [res, ctx] = runOneShot(opt)
         [evm_post, mer_post] = computeGMSKIQRoughMetrics(fineSyncedAligned);
         snr_est = mer_post;
     else
-        fineSyncedAligned = fineSynced * exp(1j*bestRot);
+        metricPhase = 0;
+        if exist('fineSyncedMetricPhase','var') && ~isempty(fineSyncedMetricPhase)
+            metricPhase = fineSyncedMetricPhase;
+        end
+        fineSyncedAligned = fineSynced * exp(1j*(metricPhase + bestRot));
         [evm_post, mer_post] = computeEVM(fineSyncedAligned, refConst);
         snr_est              = computeSNRest(fineSyncedAligned, refConst);
     end
@@ -523,6 +670,11 @@ function [res, ctx] = runOneShot(opt)
     res.PAPR_dB     = papr_dB;
     res.LockRate    = lockRate;
     res.Fs          = Fs;
+    res.HEnabled    = hInfo.Enabled;
+    res.HMode       = char(hInfo.Mode);
+    res.HNumTaps    = hInfo.NumTaps;
+    res.HEffectiveTaps = hInfo.EffectiveTaps;
+    res.HGain_dB    = hInfo.Gain_dB;
     
 
     %传给前端
@@ -547,11 +699,147 @@ function v = getf(s, name, defv)
     if isfield(s,name) && ~isempty(s.(name)), v = double(s.(name)); else, v = defv; end
 end
 
+function [yOut, hInfo] = applyHChannelDamage(xIn, opt)
+    % H 信道损伤入口。
+    % 当前主链路仍然是单发单收/单路接收, 所以这里先支持 SISO 多径 FIR:
+    %   H = [h0 h1 h2 ...]
+    % 表示:
+    %   y[n] = h0*x[n] + h1*x[n-1] + h2*x[n-2] + ...
+    % 后续如果要做 SIMO/MIMO, 可以在这里继续扩展, 主接收链路不用改。
+    xIn = xIn(:);
+
+    hInfo = struct( ...
+        'Enabled', false, ...
+        'Mode', "", ...
+        'NumTaps', 0, ...
+        'EffectiveTaps', 0, ...
+        'Gain_dB', 0);
+
+    if ~isfield(opt,'enableHChannel') || ~logical(opt.enableHChannel)
+        yOut = xIn;
+        return;
+    end
+
+    if ~isfield(opt,'H') || isempty(opt.H)
+        yOut = xIn;
+        return;
+    end
+
+    H = opt.H;
+    if isstruct(H) && isfield(H,'real') && isfield(H,'imag')
+        H = double(H.real) + 1j*double(H.imag);
+    else
+        H = double(H);
+    end
+
+    mode = "auto";
+    if isfield(opt,'HMode') && ~isempty(opt.HMode)
+        mode = lower(string(opt.HMode));
+    end
+    if mode == "auto"
+        mode = "siso_multipath";
+    end
+
+    switch mode
+        case "siso_multipath"
+            h = H(:).';
+            y = filter(h, 1, xIn);
+
+        otherwise
+            error('Unsupported HMode: %s', mode);
+    end
+
+    inPower = mean(abs(xIn).^2) + eps;
+    outPower = mean(abs(y).^2) + eps;
+    gain_dB = 10*log10(outPower / inPower);
+
+    if ~isfield(opt,'normalizeHChannel') || logical(opt.normalizeHChannel)
+        y = y / sqrt(outPower) * sqrt(inPower);
+    end
+
+    yOut = y(:);
+    hInfo.Enabled = true;
+    hInfo.Mode = mode;
+    hInfo.NumTaps = numel(H);
+    hInfo.EffectiveTaps = nnz(abs(H(:)) > 1e-12);
+    hInfo.Gain_dB = gain_dB;
+end
+
 % 参考星座点
+function yOut = applyKnownHMMSEEqualizer(yIn, opt, snrForReg_dB, defaultEnable)
+    yOut = yIn(:);
+    enableEq = logical(defaultEnable);
+    if isfield(opt,'enableEqualizer') && ~isempty(opt.enableEqualizer)
+        enableEq = logical(opt.enableEqualizer);
+    end
+    if ~enableEq || ~isfield(opt,'enableHChannel') || ~logical(opt.enableHChannel) || ...
+            ~isfield(opt,'H') || isempty(opt.H)
+        return;
+    end
+
+    H = opt.H;
+    if isstruct(H) && isfield(H,'real') && isfield(H,'imag')
+        h = double(H.real(:)) + 1j*double(H.imag(:));
+    else
+        h = double(H(:));
+    end
+    if isempty(h) || nnz(abs(h) > 1e-12) <= 1
+        return;
+    end
+
+    mode = "mmse";
+    if isfield(opt,'equalizerMode') && ~isempty(opt.equalizerMode)
+        mode = lower(string(opt.equalizerMode));
+    end
+    if ~any(strcmp(mode, ["mmse", "zf", "knownh", "known-h"]))
+        return;
+    end
+
+    n = length(yOut);
+    nfft = 2^nextpow2(n + numel(h) + 1024);
+    Hf = fft(h, nfft);
+    Yf = fft(yOut, nfft);
+
+    switch mode
+        case "zf"
+            reg = 1e-4;
+        otherwise
+            reg = 10.^(-double(snrForReg_dB)/10);
+    end
+    if isfield(opt,'equalizerReg') && ~isempty(opt.equalizerReg)
+        reg = max(0, double(opt.equalizerReg));
+    end
+
+    Xhat = ifft(Yf .* conj(Hf) ./ (abs(Hf).^2 + reg), nfft);
+    yEq = Xhat(1:n);
+
+    if ~isfield(opt,'normalizeEqualizerOutput') || logical(opt.normalizeEqualizerOutput)
+        inPower = mean(abs(yOut).^2) + eps;
+        outPower = mean(abs(yEq).^2) + eps;
+        yEq = yEq / sqrt(outPower) * sqrt(inPower);
+    end
+
+    if isfield(opt,'debugEqualizer') && logical(opt.debugEqualizer)
+        fprintf('   [Known-H EQ] mode=%s, taps=%d, reg=%.4g\n', mode, numel(h), reg);
+    end
+
+    yOut = yEq(:);
+end
+
 function refConst = getReferenceConstellation(modStr)
     s = upper(string(modStr));
     if contains(s,'BPSK')
         refConst = pskmod((0:1).', 2);
+    elseif contains(s,'4D-8PSK-TCM')
+        refConst = [ ...
+            1+0j; ...
+            (1+1j)/sqrt(2); ...
+            0+1j; ...
+            (-1+1j)/sqrt(2); ...
+            -1+0j; ...
+            (-1-1j)/sqrt(2); ...
+            0-1j; ...
+            (1-1j)/sqrt(2)];
     elseif contains(s,'8PSK')
         refConst = pskmod((0:7).', 8, pi/8, 'gray');
     elseif contains(s,'OQPSK') || contains(s,'QPSK')
@@ -582,6 +870,52 @@ function [evm_pct, mer_dB] = computeEVM(rxSym, refConst)
     err   = rxSym - ideal;
     evm_pct = sqrt(mean(abs(err).^2) / mean(abs(refConst).^2)) * 100;
     mer_dB  = -20*log10(evm_pct/100 + eps);
+end
+
+function [evm_pct, mer_dB, snr_est, bestTheta] = computeEVMPhaseAligned(rxSym, refConst)
+    % 4D-TCM timing search 用的 EVM 计算。
+    % 4D 分支在搜索抽样点时可能还存在固定相位旋转, 直接算 EVM 会误判。
+    % 这里在一个小相位网格里找最小 EVM, 再返回对应相位补偿角。
+    if isempty(rxSym) || isempty(refConst)
+        evm_pct = NaN;
+        mer_dB = NaN;
+        snr_est = NaN;
+        bestTheta = 0;
+        return;
+    end
+
+    rxSym = rxSym(:);
+    L = min(length(rxSym), 5000);
+    rxSym = rxSym(end-L+1:end);
+    rxSym = rxSym ./ sqrt(mean(abs(rxSym).^2) + eps);
+
+    refConst = refConst(:);
+    refConst = refConst ./ sqrt(mean(abs(refConst).^2) + eps);
+
+    thetaGrid = linspace(-pi/8, pi/8, 181);
+    bestEVM = inf;
+    bestTheta = 0;
+    bestErr = [];
+    bestIdeal = [];
+
+    for ii = 1:numel(thetaGrid)
+        theta = thetaGrid(ii);
+        z = rxSym * exp(1j*theta);
+        [~, idx] = min(abs(z - refConst.'), [], 2);
+        ideal = refConst(idx);
+        err = z - ideal;
+        evmNow = sqrt(mean(abs(err).^2) / mean(abs(refConst).^2)) * 100;
+        if evmNow < bestEVM
+            bestEVM = evmNow;
+            bestTheta = theta;
+            bestErr = err;
+            bestIdeal = ideal;
+        end
+    end
+
+    evm_pct = bestEVM;
+    mer_dB = -20*log10(evm_pct/100 + eps);
+    snr_est = 10*log10(mean(abs(bestIdeal).^2) / (mean(abs(bestErr).^2) + eps));
 end
 
 function [evm_pct, mer_dB] = computeGMSKIQRoughMetrics(rxSym)
@@ -616,10 +950,14 @@ function [berVal, lockRate, bestRot] = computeBER(fineSynced, validTxFrames, mod
         if contains(tmCodeKey,{'turbo'}), return; end
 
         % --- 解算载波相位 M 重模糊：试每个等价旋转，挑帧匹配最多的 ---
-        if contains(tmMod,'BPSK')
+        if HelperCCSDSTMPCMDemodulator.supports(tmMod)
+            rotations = [1, -1];
+        elseif contains(tmMod,'BPSK')
             rotations = [1, -1];
         elseif contains(tmMod,'8PSK')
-            rotations = exp(1j*pi/4 * (0:7));
+            % 8PSK 的 CCSDS 自定义映射和接收端载波同步之间常见一个 -45 度等价相位。
+            % 优先测试 -45 度和 0 度, 可以让 ideal/RS/H 等常见 case 更快命中并早停。
+            rotations = exp(1j*pi/4 * [-1 0 1 2 3 4 -3 -2]);
         elseif contains(tmMod,'GMSK')
             % GMSK 内部 exp(-j*pi/2*n) 去自旋的起始 n 受符号定时器漂移影响,
             % 任意 0~3 的偏移都可能,等价于乘 exp(j*pi/2*k); 必须 4 重枚举
@@ -657,6 +995,11 @@ function [berVal, lockRate, bestRot] = computeBER(fineSynced, validTxFrames, mod
                     bitsComparedBest = bitsComp;
 %                     bestShift = shiftBits;
                 end
+                % 如果已经找到完美候选, 后面的等价旋转没有必要继续跑。
+                % 这对 4D-8PSK-TCM 特别重要, 因为每个候选都会触发一次 4D Viterbi 解调。
+                if ber == 0 && lock >= 0.999 && bitsComp > 0
+                    break;
+                end
             else
                 % 如果还没有找到可靠候选，则暂时保留 lock 最高的
                 if isinf(bestBer) && lock > bestLock
@@ -690,11 +1033,80 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
     berVal = 0.5; lockRate = 0;
     errs = 0;
     bitsComp = 0;
-    numBytesTF = 1151;
+    numBytesTF = 1115;
     if isfield(opt,'NumBytesInTransferFrame') && ~isempty(opt.NumBytesInTransferFrame)
         numBytesTF = double(opt.NumBytesInTransferFrame);
     end
-    if strcmp(tmMod,'OQPSK')
+
+    enable4DGroupSearch = isfield(opt,'tcmSearchAll') && logical(opt.tcmSearchAll);
+
+    if enable4DGroupSearch && contains(tmMod,'4D-8PSK-TCM') && ...
+            (~isfield(opt,'tcmSkipInternal') || ~logical(opt.tcmSkipInternal))
+        if isfield(opt,'tcmSymbolSkip') && ~isempty(opt.tcmSymbolSkip)
+            symbolSkips = max(0, min(3, round(double(opt.tcmSymbolSkip))));
+        else
+            symbolSkips = 0:3;
+            % 4D-TCM Viterbi 每 4 个 8PSK 符号组成一个分支。
+            % 前端同步可能只差 0..3 个符号的组起点, 星座 EVM 仍然很好,
+            % 但组边界错了会导致 Viterbi 输出接近随机, 所以这里单独搜索。
+            symbolSkips = 0:3;
+        end
+
+        bestLocalBer = inf;
+        bestLocalLock = -1;
+        bestLocalErrs = 0;
+        bestLocalBits = 0;
+        bestLocalSkip = 0;
+        optLocal = opt;
+        optLocal.tcmSkipInternal = true;
+
+        for iSkip = 1:numel(symbolSkips)
+            symSkip = symbolSkips(iSkip);
+            if symSkip > 0
+                rxCandidate = fineSynced(symSkip+1:end);
+            else
+                rxCandidate = fineSynced;
+            end
+
+            [candBer, candLock, candErrs, candBits] = tryOneRotation( ...
+                rxCandidate, validTxFrames, tmMod, tmCode, optLocal, ...
+                hasRandomizer, hasASM, btVal, numWarmUp);
+
+            fprintf('      [4D group] symSkip=%d, BER=%.4g, Lock=%.1f%%, Err=%d, Bits=%d\n', ...
+                symSkip, candBer, candLock*100, candErrs, candBits);
+
+            if candLock >= 0.80 && candBits > 0
+                if candBer < bestLocalBer
+                    bestLocalBer = candBer;
+                    bestLocalLock = candLock;
+                    bestLocalErrs = candErrs;
+                    bestLocalBits = candBits;
+                    bestLocalSkip = symSkip;
+                end
+                if candBer == 0 && candLock >= 0.999
+                    break;
+                end
+            elseif isinf(bestLocalBer) && candLock > bestLocalLock
+                bestLocalBer = candBer;
+                bestLocalLock = candLock;
+                bestLocalErrs = candErrs;
+                bestLocalBits = candBits;
+                bestLocalSkip = symSkip;
+            end
+        end
+
+        fprintf('      [4D group] selected symSkip=%d\n', bestLocalSkip);
+        berVal = bestLocalBer;
+        lockRate = max(bestLocalLock, 0);
+        errs = bestLocalErrs;
+        bitsComp = bestLocalBits;
+        return;
+    end
+
+    if HelperCCSDSTMPCMDemodulator.supports(tmMod)
+        demodData = real(fineSynced(:));
+
+    elseif strcmp(tmMod,'OQPSK')
         % ===== OQPSK 新路径: 官方 comm.OQPSKDemodulator (MF + timing + soft LLR) =====
         % 输入 fineSynced 在这里是 sps=sps 复信号 (不再是 1 sps).
         % OQPSKDemodulator 内部做 RRC 匹配滤波 + I/Q 半符号对齐 + 定时恢复 + 软 LLR 输出,
@@ -739,10 +1151,59 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
     elseif contains(tmMod,'GMSK')
         demodobj = HelperCCSDSTMDemodulator('Modulation',tmMod,'ChannelCoding',tmCode,'BandwidthTimeProduct',btVal);
         demodData = demodobj(fineSynced);
+        debugGMSK = isfield(opt,'debugGMSK') && logical(opt.debugGMSK);
+        if ~debugGMSK
+            codeKeyDbg = lower(string(tmCode));
+            debugGMSK = contains(codeKeyDbg,'rs') || contains(codeKeyDbg,'ldpc') || ...
+                contains(codeKeyDbg,'convolutional');
+        end
+        if debugGMSK
+            hard0 = demodData(:) < 0;
+            fprintf('   [GMSK DEBUG] demodData len=%d, mean=%+.3f, std=%.3f, min=%+.3f, max=%+.3f, ones=%.1f%%\n', ...
+                numel(demodData), mean(demodData(:)), std(demodData(:)), ...
+                min(demodData(:)), max(demodData(:)), 100*mean(hard0));
+        end
         demodData = real(demodData);
     else
-        demodobj = HelperCCSDSTMDemodulator('Modulation',tmMod,'ChannelCoding',tmCode);
+        demodArgs = {'Modulation',tmMod,'ChannelCoding',tmCode};
+        if contains(tmMod,'4D-8PSK-TCM')
+            demodArgs = [demodArgs, {'ModulationEfficiency', getf(opt,'ModulationEfficiency',2)}];
+        end
+        demodobj = HelperCCSDSTMDemodulator(demodArgs{:});
         demodData = demodobj(fineSynced);
+    end
+
+    if contains(tmMod,'4D-8PSK-TCM') && isfield(opt,'debug4D') && logical(opt.debug4D)
+        fprintf('   [4D DEBUG] rxSymbols=%d, demodSoftBits=%d, ModulationEfficiency=%.2f\n', ...
+            length(fineSynced), length(demodData), double(getf(opt,'ModulationEfficiency',2)));
+        if evalin('base','exist(''debug4D_tx_modin'',''var'')')
+            txModIn = evalin('base','debug4D_tx_modin');
+            rxHard = int8(demodData(:) > 0);
+            Ldbg = min(numel(rxHard), numel(txModIn));
+            dbgErr = nnz(rxHard(1:Ldbg) ~= int8(txModIn(1:Ldbg)));
+            firstErr = find(rxHard(1:Ldbg) ~= int8(txModIn(1:Ldbg)), 1, 'first');
+            if isempty(firstErr), firstErr = 0; end
+            fprintf('   [4D DEBUG] demod-vs-txModIn err=%d/%d, firstErr=%d, txModInLen=%d\n', ...
+                dbgErr, Ldbg, firstErr, numel(txModIn));
+            maxOffset = min(200, max(0, numel(txModIn) - numel(rxHard)));
+            bestOffset = 0;
+            bestOffsetErr = inf;
+            bestOffsetLen = 0;
+            for offBits = 0:maxOffset
+                Loff = min(numel(rxHard), numel(txModIn) - offBits);
+                if Loff <= 0
+                    continue;
+                end
+                errOff = nnz(rxHard(1:Loff) ~= int8(txModIn(offBits+1:offBits+Loff)));
+                if errOff < bestOffsetErr
+                    bestOffsetErr = errOff;
+                    bestOffset = offBits;
+                    bestOffsetLen = Loff;
+                end
+            end
+            fprintf('   [4D DEBUG] best txModIn bit offset=%d, aligned err=%d/%d\n', ...
+                bestOffset, bestOffsetErr, bestOffsetLen);
+        end
     end
 
 %     decArgs = {'ChannelCoding',tmCode,'Modulation',tmMod, ...
@@ -751,7 +1212,9 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
     isLDPCOnSMTF = contains(lower(string(tmCode)),'ldpc') && isfield(opt,'IsLDPCOnSMTF') && logical(opt.IsLDPCOnSMTF);
     decArgs = {'ChannelCoding',tmCode,'Modulation',tmMod, ...
                'HasRandomizer',hasRandomizer,'HasASM',hasASM};
-    if ~contains(lower(string(tmCode)),'ldpc') || isLDPCOnSMTF
+    tmCodeKey = lower(string(tmCode));
+    usesTransferFrameBytes = any(strcmp(tmCodeKey, ["none", "convolutional"])) || isLDPCOnSMTF;
+    if usesTransferFrameBytes
         decArgs = [decArgs, {'NumBytesInTransferFrame',numBytesTF}];
     end
     decArgs = appendRSArgs(decArgs, opt);
@@ -780,18 +1243,96 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
     decoderobj = HelperCCSDSTMDecoder(decArgs{:});
     decodedBits = decoderobj(demodData);
 
-    if contains(tmMod,'GMSK') && length(decodedBits)>100
-        check = decodedBits(40:140);
-        if sum(check)/length(check) > 0.9, decodedBits = ~decodedBits; end
-    end
-
     bitsPerFrame = length(validTxFrames{1});
     txMap = containers.Map('KeyType','double','ValueType','any');
     for k=1:length(validTxFrames)
         fr = validTxFrames{k}; id = bi2de(fr(1:8)','left-msb'); txMap(id)=fr;
     end
 
+    if contains(tmMod,'GMSK') && length(decodedBits) >= bitsPerFrame
+        debugGMSKPolarity = isfield(opt,'debugGMSK') && logical(opt.debugGMSK);
+        if ~debugGMSKPolarity
+            codeKeyDbg = lower(string(tmCode));
+            debugGMSKPolarity = contains(codeKeyDbg,'rs') || contains(codeKeyDbg,'ldpc') || ...
+                contains(codeKeyDbg,'convolutional');
+        end
+        [match0, run0] = scoreFrameIds(decodedBits, bitsPerFrame, txMap);
+        [match1, run1] = scoreFrameIds(~decodedBits, bitsPerFrame, txMap);
+        if match1 > match0 || (match1 == match0 && run1 > run0)
+            decodedBits = ~decodedBits;
+            if debugGMSKPolarity
+                fprintf('   [GMSK DEBUG] inverted decodedBits by frame-ID score: orig matched=%d/run=%d, inv matched=%d/run=%d\n', ...
+                    match0, run0, match1, run1);
+            end
+        elseif debugGMSKPolarity
+            fprintf('   [GMSK DEBUG] kept decodedBits by frame-ID score: orig matched=%d/run=%d, inv matched=%d/run=%d\n', ...
+                match0, run0, match1, run1);
+        end
+    end
+
     numRx = floor(length(decodedBits)/bitsPerFrame);
+
+    debugGMSKFrames = contains(tmMod,'GMSK') && isfield(opt,'debugGMSK') && logical(opt.debugGMSK);
+    if contains(tmMod,'GMSK') && ~debugGMSKFrames
+        codeKeyDbg = lower(string(tmCode));
+        debugGMSKFrames = contains(codeKeyDbg,'rs') || contains(codeKeyDbg,'ldpc') || ...
+            contains(codeKeyDbg,'convolutional');
+    end
+    if debugGMSKFrames
+        sample = min(12, numRx);
+        ids = nan(1, sample);
+        for jj = 1:sample
+            rxFr_dbg = double(decodedBits((jj-1)*bitsPerFrame+1:jj*bitsPerFrame));
+            ids(jj) = bi2de(rxFr_dbg(1:8)','left-msb');
+        end
+
+        maxShift = min(64, max(0, bitsPerFrame-1));
+        bestShiftDbg = 0;
+        bestMatchedDbg = -1;
+        bestRunDbg = -1;
+        bestFirstIdsDbg = [];
+        for sh = 0:maxShift
+            nShiftRx = floor((length(decodedBits)-sh)/bitsPerFrame);
+            matchedShift = 0;
+            runShift = 0;
+            maxRunShift = 0;
+            lastIdShift = [];
+            idsShift = nan(1, min(8, nShiftRx));
+            for jj = 1:nShiftRx
+                idx0 = sh + (jj-1)*bitsPerFrame + 1;
+                rxFr_dbg = double(decodedBits(idx0:idx0+bitsPerFrame-1));
+                rxId_dbg = bi2de(rxFr_dbg(1:8)','left-msb');
+                if jj <= numel(idsShift)
+                    idsShift(jj) = rxId_dbg;
+                end
+                if isKey(txMap, rxId_dbg)
+                    matchedShift = matchedShift + 1;
+                    if isempty(lastIdShift) || rxId_dbg == mod(lastIdShift + 1, 256)
+                        runShift = runShift + 1;
+                    else
+                        runShift = 1;
+                    end
+                    maxRunShift = max(maxRunShift, runShift);
+                    lastIdShift = rxId_dbg;
+                else
+                    runShift = 0;
+                    lastIdShift = [];
+                end
+            end
+            if matchedShift > bestMatchedDbg || ...
+                    (matchedShift == bestMatchedDbg && maxRunShift > bestRunDbg)
+                bestMatchedDbg = matchedShift;
+                bestRunDbg = maxRunShift;
+                bestShiftDbg = sh;
+                bestFirstIdsDbg = idsShift;
+            end
+        end
+
+        fprintf('   [GMSK DEBUG] decodedBits len=%d, bitsPerFrame=%d, numRx=%d, first IDs=[%s]\n', ...
+            length(decodedBits), bitsPerFrame, numRx, num2str(ids));
+        fprintf('   [GMSK DEBUG] best bit shift=%d, matched=%d, maxConsec=%d, first IDs@shift=[%s]\n', ...
+            bestShiftDbg, bestMatchedDbg, bestRunDbg, num2str(bestFirstIdsDbg));
+    end
 
     % DEBUG: OQPSK 锁不住时, 打印解码后的头 12 个帧 ID, 帮判断 Viterbi 输出是
     % (a) 完全随机 (~uniform 0~255), (b) 全 0 / 全 255 (LLR 卡死),
@@ -865,7 +1406,19 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
     if numRx < 3
         lockRate = 0;
     else
-        lockRate = framesMatched / numRx;
+        lockDenom = numRx;
+        lockedFrames = framesMatched;
+        codeKeyForLock = lower(string(tmCode));
+        if contains(codeKeyForLock,'convolutional') || contains(codeKeyForLock,'concatenated')
+            % 卷积码译码器前几帧会受 traceback / ASM 缓冲影响, 常表现为开头若干帧
+            % 没有可用 frame ID。它们不代表稳态锁帧失败, 因此从第一个匹配帧开始计算 lock。
+            firstMatched = find(~isnan(perFrameBER), 1, 'first');
+            if ~isempty(firstMatched)
+                lockDenom = max(1, numRx - firstMatched + 1);
+                lockedFrames = sum(~isnan(perFrameBER(firstMatched:end)));
+            end
+        end
+        lockRate = min(1, lockedFrames / lockDenom);
     end
 
     % --- 诊断：打印各帧 BER（仅当本次旋转匹配率 > 50%，避免误判旋转的帧）---
@@ -898,6 +1451,31 @@ end
 %     fprintf(' Frame Lock   : %6.2f %%\n', res.LockRate*100);
 %     fprintf('==================================\n\n');
 % end
+function [matched, maxRun] = scoreFrameIds(bits, bitsPerFrame, txMap)
+    matched = 0;
+    maxRun = 0;
+    runLen = 0;
+    lastId = [];
+    numRx = floor(length(bits) / bitsPerFrame);
+    for j = 1:numRx
+        rxFr = double(bits((j-1)*bitsPerFrame+1:j*bitsPerFrame));
+        rxId = bi2de(rxFr(1:8)', 'left-msb');
+        if isKey(txMap, rxId)
+            matched = matched + 1;
+            if isempty(lastId) || rxId == mod(lastId + 1, 256)
+                runLen = runLen + 1;
+            else
+                runLen = 1;
+            end
+            maxRun = max(maxRun, runLen);
+            lastId = rxId;
+        else
+            runLen = 0;
+            lastId = [];
+        end
+    end
+end
+
 function printMetrics(res, opt)
     isGMSK = contains(upper(string(res.modType)), 'GMSK');
 
@@ -924,6 +1502,10 @@ function printMetrics(res, opt)
 
     fprintf(' PAPR (Tx)    : %6.2f dB\n', res.PAPR_dB);
     fprintf(' Frame Lock   : %6.2f %%\n', res.LockRate*100);
+    if isfield(res,'HEnabled') && res.HEnabled
+        fprintf(' H channel    : %s, taps=%d, effective taps=%d, gain=%+.2f dB\n', ...
+            res.HMode, res.HNumTaps, res.HEffectiveTaps, res.HGain_dB);
+    end
     fprintf('==================================\n\n');
 end
 
@@ -1406,7 +1988,7 @@ function fe = buildFrontendArrays(ctx, res) %#ok<INUSD>
         coef = polyfit(n, ph, 1);
         fe.residCFO   = coef(1) * fSym / (2*pi);
         fe.residPhase = rad2deg(coef(2));
-    elseif ~isempty(s) && length(s) > 50
+    elseif ~isempty(s) && length(s) > 50 && isfield(ctx,'refConst') && ~isempty(ctx.refConst)
         L = min(length(s), 5000);
         s_use = s(end-L+1:end);
         refC  = ctx.refConst(:).';
@@ -1462,6 +2044,7 @@ function [res, ctx] = runFACMOneShot(opt, fSym, sps)
     simParams.DisableDoppler = true;
     simParams.DisablePhaseNoise = true;
     simParams.DisableRFImpairments = false;
+    simParams.DisableAWGN = true;
     simParams.InitalSyncFrames = getf(opt,'facmWarmupFrames',7);
     simParams.NumFramesForBER = getf(opt,'facmBERFrames',100);
     simParams.NumPLFrames = simParams.InitalSyncFrames + simParams.NumFramesForBER;
@@ -1479,9 +2062,13 @@ function [res, ctx] = runFACMOneShot(opt, fSym, sps)
         rxWaveform = rxWaveform .* exp(1j*deg2rad(phase_deg));
     end
 
+    [rxWaveform, hInfo] = applyHChannelDamage(rxWaveform, opt);
+    rxWaveform = awgn(rxWaveform, snr_val - 10*log10(sps), 'measured');
+    rxWaveform = applyKnownHMMSEEqualizer(rxWaveform, opt, snr_val - 10*log10(sps), true);
+
     Fs = fSym*sps;
     [fineSynced, payloadSym, decodedTFBits, rxWork, syncSym, decodedFrames, snrFrame] = ...
-        facmReceiveAndDecode(rxWaveform, cfg, rxParams, phyParams, simParams, fSym, acmFmt);
+        facmReceiveAndDecode(rxWaveform, cfg, rxParams, phyParams, simParams, fSym, acmFmt, opt);
 
     refConst = HelperCCSDSFACMReferenceConstellation(acmFmt);
     refConst = refConst(:) / sqrt(mean(abs(refConst(:)).^2));
@@ -1516,6 +2103,11 @@ function [res, ctx] = runFACMOneShot(opt, fSym, sps)
     res.PAPR_dB = papr_dB;
     res.LockRate = lockRate;
     res.Fs = Fs;
+    res.HEnabled = hInfo.Enabled;
+    res.HMode = char(hInfo.Mode);
+    res.HNumTaps = hInfo.NumTaps;
+    res.HEffectiveTaps = hInfo.EffectiveTaps;
+    res.HGain_dB = hInfo.Gain_dB;
 
     ctx.txWaveform = txWaveform;
     ctx.rxWaveform = rxWaveform;
@@ -1529,7 +2121,7 @@ function [res, ctx] = runFACMOneShot(opt, fSym, sps)
     ctx.bestRot = 0;
 end
 
-function [fineSynced, payloadAll, decodedTFBits, filteredRx, syncSym, decodedFrames, snrMean] = facmReceiveAndDecode(rxWaveform, cfg, rxParams, phyParams, simParams, fSym, acmFmt)
+function [fineSynced, payloadAll, decodedTFBits, filteredRx, syncSym, decodedFrames, snrMean] = facmReceiveAndDecode(rxWaveform, cfg, rxParams, phyParams, simParams, fSym, acmFmt, opt)
     sps = cfg.SamplesPerSymbol;
     rrcfilt = comm.RaisedCosineReceiveFilter( ...
         'RolloffFactor', cfg.RolloffFactor, ...
@@ -1578,6 +2170,7 @@ function [fineSynced, payloadAll, decodedTFBits, filteredRx, syncSym, decodedFra
         cfoEst = HelperCCSDSFACMFMFrequencyEstimate(fllOut(1:256), rxParams.RefFM, fSym);
         fineCFOSync.FrequencyOffset = -cfoEst;
         cfoCorrected = fineCFOSync(fllOut);
+        cfoCorrected = facmFrameMarkerEqualize(cfoCorrected, rxParams.RefFM, opt, acmFmt);
 
         frameSNR = HelperCCSDSFACMSNREstimate(cfoCorrected(1:256), rxParams.RefFM);
         if ~isfinite(frameSNR) || frameSNR <= 0
@@ -1663,6 +2256,116 @@ function y = compensateFACMFrameMarkerPhase(x, refFM)
     Tm1 = angle(sum(x(241:256).*conj(refFM(end-15:end))));
     phases = wrapToPi(Tm0 + (wrapToPi(Tm1-Tm0)/257)*(1:length(x)));
     y = x(:).*exp(-1j*phases(:));
+end
+
+function y = facmFrameMarkerEqualize(x, refFM, opt, acmFmt)
+    y = x(:);
+    useEq = isfield(opt,'enableHChannel') && logical(opt.enableHChannel);
+    if isfield(opt,'enableFACMEqualizer') && ~isempty(opt.enableFACMEqualizer)
+        useEq = logical(opt.enableFACMEqualizer);
+    end
+    if ~useEq || length(y) < 256 || isempty(refFM)
+        return;
+    end
+
+    nTaps = 7;
+    if isfield(opt,'facmEqualizerTaps') && ~isempty(opt.facmEqualizerTaps)
+        nTaps = max(3, round(double(opt.facmEqualizerTaps)));
+    end
+    if mod(nTaps, 2) == 0
+        nTaps = nTaps + 1;
+    end
+    mu = 1e-3;
+    if isfield(opt,'facmEqualizerReg') && ~isempty(opt.facmEqualizerReg)
+        mu = max(0, double(opt.facmEqualizerReg));
+    end
+    mode = "frame-ls";
+    if isfield(opt,'facmEqualizerMode') && ~isempty(opt.facmEqualizerMode)
+        mode = lower(string(opt.facmEqualizerMode));
+    elseif isfield(opt,'equalizerMode') && ~isempty(opt.equalizerMode)
+        eqMode = lower(string(opt.equalizerMode));
+        if any(strcmp(eqMode, ["dd16apsk", "rde16apsk", "cma16apsk", "frame-ls"]))
+            mode = eqMode;
+        end
+    end
+
+    dly = floor(nTaps/2);
+    trainLen = min(256, length(refFM));
+    rows = trainLen - nTaps + 1;
+    if rows < 32
+        return;
+    end
+
+    X = zeros(rows, nTaps);
+    d = zeros(rows, 1);
+    for r = 1:rows
+        center = r + dly;
+        X(r,:) = y(center + dly : -1 : center - dly).';
+        d(r) = refFM(center);
+    end
+    w = (X' * X + mu * eye(nTaps)) \ (X' * d);
+
+    if any(strcmp(mode, ["dd16apsk", "rde16apsk", "cma16apsk"]))
+        refConst = HelperCCSDSFACMReferenceConstellation(acmFmt);
+        refConst = refConst(:) ./ sqrt(mean(abs(refConst(:)).^2) + eps);
+        yNorm = y ./ sqrt(mean(abs(y).^2) + eps);
+        w = facmDecisionDirectedEqualizer(yNorm, w, refConst, nTaps, opt);
+        yEq = filter(w, 1, yNorm);
+    else
+        yEq = filter(w, 1, y);
+    end
+    if dly > 0
+        yEq = [yEq(dly+1:end); repmat(yEq(end), dly, 1)];
+    end
+    pwr = mean(abs(yEq).^2);
+    if isfinite(pwr) && pwr > 0
+        y = yEq ./ sqrt(pwr);
+    else
+        y = yEq;
+    end
+
+    if isfield(opt,'debugFACM') && logical(opt.debugFACM)
+        preErr = mean(abs(y(1:trainLen) - refFM(1:trainLen)).^2);
+        postErr = mean(abs(yEq(1:trainLen) - refFM(1:trainLen)).^2);
+        fprintf('   [FACM EQ] mode=%s, taps=%d, train=%d, preMSE=%.4g, postMSE=%.4g\n', ...
+            mode, nTaps, trainLen, preErr, postErr);
+    end
+end
+
+function w = facmDecisionDirectedEqualizer(y, w0, refConst, nTaps, opt)
+    y = y(:);
+    w = w0(:);
+    dly = floor(nTaps/2);
+    mu = 2e-4;
+    if isfield(opt,'ddEqualizerStep') && ~isempty(opt.ddEqualizerStep)
+        mu = max(0, double(opt.ddEqualizerStep));
+    elseif isfield(opt,'cmaStep') && ~isempty(opt.cmaStep)
+        mu = max(0, double(opt.cmaStep));
+    end
+    nPass = 2;
+    if isfield(opt,'ddEqualizerPasses') && ~isempty(opt.ddEqualizerPasses)
+        nPass = max(1, round(double(opt.ddEqualizerPasses)));
+    end
+    startIdx = 257 + dly;
+    if isfield(opt,'ddEqualizerStart') && ~isempty(opt.ddEqualizerStart)
+        startIdx = max(dly+1, round(double(opt.ddEqualizerStart)));
+    end
+    stopIdx = length(y) - dly;
+    if stopIdx <= startIdx
+        return;
+    end
+
+    for pass = 1:nPass
+        for n = startIdx:stopIdx
+            xv = y(n+dly:-1:n-dly);
+            z = w.' * xv;
+            [~, idx] = min(abs(z - refConst));
+            dHat = refConst(idx);
+            err = z - dHat;
+            normX = real(xv' * xv) + 1e-6;
+            w = w - (mu / normX) * conj(err) * conj(xv);
+        end
+    end
 end
 
 function [berVal, lockRate] = computeFACMBER(decodedTFBits, txBits, simParams, decodedFrames)

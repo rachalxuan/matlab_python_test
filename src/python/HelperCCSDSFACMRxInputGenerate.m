@@ -70,7 +70,11 @@ else
     sroOut = txOut;
 end
 
-rxIn = awgn(sroOut(:), simParams.EsNodB - 10*log10(sps), 'measured');
+if isfield(simParams,'DisableAWGN') && logical(simParams.DisableAWGN)
+    rxIn = sroOut(:);
+else
+    rxIn = awgn(sroOut(:), simParams.EsNodB - 10*log10(sps), 'measured');
+end
 
 % Receiver parameters generation
 numBlks = 15;

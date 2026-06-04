@@ -90,6 +90,10 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         pLDPCCodewordLength
         pLDPCMessageLength
         pLDPCMaxIterations = 5
+        pTurboDecoder
+        pTurboCodewordLength
+        pTurboMessageLength
+        pTurboInputIndices
     end
 
     methods
@@ -329,6 +333,35 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 obj.pFrameLength = length(asm) + obj.pPRNSequenceLength;
             end
 
+            if strcmp(obj.ChannelCoding, "turbo")
+                invr = getInverseCodeRate(obj);
+                kReq = double(obj.NumBitsInInformationBlock);
+                syncLen = length(obj.pASM)*obj.HasASM;
+
+                obj.pTurboMessageLength = kReq;
+                mask = logical(obj.pTurboPuncturePattern(:));
+                obj.pTurboCodewordLength = nnz(mask);
+
+                idxFull = getTurboIOIndices(kReq, 4, 4);
+                assert(length(idxFull) == length(mask), ...
+                    'Turbo IO index length mismatch: idxFull=%d, punctureMask=%d.', ...
+                    length(idxFull), length(mask));
+                obj.pTurboInputIndices = idxFull(mask);
+                obj.pTurboDecoder = comm.TurboDecoder( ...
+                    'TrellisStructure', obj.TurboTrellis, ...
+                    'InterleaverIndices', obj.pTurboInterleaverIndices, ...
+                    'InputIndicesSource', 'Property', ...
+                    'InputIndices', obj.pTurboInputIndices, ...
+                    'NumIterations', 6);
+
+                obj.pFullInputBufferLength = obj.pTurboCodewordLength + syncLen;
+                obj.pFrameLength = obj.pFullInputBufferLength;
+
+                fprintf('[Turbo setup] k=%d, invr=%d, syncLen=%d, cwLen=%d, fullFrame=%d\n', ...
+                    obj.pTurboMessageLength, invr, syncLen, ...
+                    obj.pTurboCodewordLength, obj.pFullInputBufferLength);
+            end
+
             if strcmp(obj.ChannelCoding, "LDPC")
                 invr = getInverseCodeRate(obj);
                 kReq = double(obj.NumBitsInInformationBlock);
@@ -419,6 +452,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 if obj.HasRandomizer
                                     tempy = bitxor(int8(u>0),obj.pPRNSequence);
                                     y = tempy(:);
+                                elseif strcmpi(string(obj.Modulation), "GMSK")
+                                    y = int8(u(:)<0);
                                 else
                                     y = int8(u(:)>0);
                                 end
@@ -545,6 +580,44 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 y = zeros(obj.pTFLen*8, 1, 'int8');
                                 % valid = false;
                             end
+                        case "turbo"
+                            fprintf('[Turbo step] frames=%dx%d, syncLen=%d, cwLen=%d, msgLen=%d\n', ...
+                                size(frames,1), size(frames,2), ...
+                                length(obj.pASM)*obj.HasASM, ...
+                                obj.pTurboCodewordLength, obj.pTurboMessageLength);
+
+                            if n
+                                cwSoft = u(1:obj.pTurboCodewordLength, :);
+                                numWords = size(cwSoft, 2);
+                                y = zeros(obj.pTurboMessageLength*numWords, 1, 'int8');
+
+                                for iWord = 1:numWords
+                                    llr = double(cwSoft(:, iWord));
+                                    if strcmpi(string(obj.Modulation), "GMSK")
+                                        % GMSK 的非相干差分判决目前符号很稳，但软幅度不是严格
+                                        % Turbo LLR。对 Turbo 先保留符号、统一置信度，避免迭代译码
+                                        % 被近零或幅度失真的 soft metric 带偏。
+                                        llrHard = 5 * sign(llr);
+                                        llrHard(llr == 0) = 0;
+                                        llr = llrHard;
+                                    end
+
+                                    if obj.HasRandomizer
+                                        basePRN = obj.pPRNSequence(:);
+                                        repNum = ceil(obj.pTurboCodewordLength / length(basePRN));
+                                        prn = repmat(basePRN, repNum, 1);
+                                        prn = prn(1:obj.pTurboCodewordLength);
+                                        llr(logical(prn)) = -llr(logical(prn));
+                                    end
+
+                                    reset(obj.pTurboDecoder);
+                                    msg = obj.pTurboDecoder(llr);
+                                    y((iWord-1)*obj.pTurboMessageLength+1:iWord*obj.pTurboMessageLength) = int8(msg(:));
+                                end
+                            else
+                                y = zeros(obj.pTFLen*8, 1, 'int8');
+                            end
+
                         case "LDPC"
                             % frames 是已经 frameSynchronize 后的一帧或多帧 soft coded frame
                             % 如果 HasASM=true，前 32 bits 是 ASM，后面是 LDPC codeword
@@ -652,6 +725,22 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 else
                     tempInputBuffer = obj.pInputBuffer;
                     resetImpl(obj);
+                    if strcmpi(string(obj.Modulation), "GMSK") && strcmpi(string(obj.ChannelCoding), "turbo")
+                        tempFrames = [reshape(frames(:,iFrame:end),[],1); tempInputBuffer];
+                        [newFrames, obj.pInputBuffer] = buffer(tempFrames(pos:end), obj.pFullInputBufferLength);
+                        if isempty(newFrames)
+                            syncFailed = true;
+                            v = zeros(obj.pFullInputBufferLength, 0);
+                        else
+                            syncFailed = false;
+                            if PhaseIndex == 2
+                                v = -newFrames;
+                            else
+                                v = newFrames;
+                            end
+                        end
+                        return;
+                    end
                     syncFailed = true;
                     % Adjust the next frame accordingly
                     tempFrames = [reshape(frames(:,iFrame:end),[],1);tempInputBuffer];
@@ -869,6 +958,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             if ~isempty(obj.pDec)
                 reset(obj.pDec);
             end
+            if ~isempty(obj.pTurboDecoder)
+                reset(obj.pTurboDecoder);
+            end
 %             reset(obj.pDec);
             obj.pFirstTimeStepCalling = true;
             obj.pInputBuffer = [];
@@ -880,6 +972,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             % Release resources, such as file handles
             if ~isempty(obj.pDec)
                 release(obj.pDec);
+            end
+            if ~isempty(obj.pTurboDecoder)
+                release(obj.pTurboDecoder);
             end
         end
 

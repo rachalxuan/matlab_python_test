@@ -1,0 +1,7 @@
+Case,Coding,BER,LockRate_pct,Status
+PCM/PSK/PM none ideal,none,0,100,PASS
+PCM/PSK/PM RS damaged,RS,0,100,PASS
+PCM/PSK/PM conv damaged,convolutional,0,100,PASS
+PCM/PM/biphase-L none ideal,none,0,100,PASS
+PCM/PM/biphase-L RS damaged,RS,0,100,PASS
+PCM/PM/biphase-L conv damaged,convolutional,0,100,PASS
