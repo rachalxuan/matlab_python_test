@@ -9,6 +9,7 @@ import {
 import {
   Card,
   Form,
+  Input,
   InputNumber,
   Select,
   Button,
@@ -45,7 +46,7 @@ import "./index.scss";
 const { Option } = Select;
 const RS_PRESETS = {
   "rs-255-223-i5": {
-    label: "RS(255,223), I=5, TF=1115",
+    label: "RS(223,255), I=5, TF=1115",
     RSMessageLength: 223,
     RSInterleavingDepth: 5,
     IsRSMessageShortened: false,
@@ -53,7 +54,7 @@ const RS_PRESETS = {
     NumBytesInTransferFrame: 1115,
   },
   "rs-255-239-i5": {
-    label: "RS(255,239), I=5, TF=1195",
+    label: "RS(239,255), I=5, TF=1195",
     RSMessageLength: 239,
     RSInterleavingDepth: 5,
     IsRSMessageShortened: false,
@@ -61,7 +62,7 @@ const RS_PRESETS = {
     NumBytesInTransferFrame: 1195,
   },
   "rs-255-223-i1": {
-    label: "RS(255,223), I=1, TF=223",
+    label: "RS(223,255), I=1, TF=223",
     RSMessageLength: 223,
     RSInterleavingDepth: 1,
     IsRSMessageShortened: false,
@@ -69,13 +70,97 @@ const RS_PRESETS = {
     NumBytesInTransferFrame: 223,
   },
   "rs-255-239-i1": {
-    label: "RS(255,239), I=1, TF=239",
+    label: "RS(239,255), I=1, TF=239",
     RSMessageLength: 239,
     RSInterleavingDepth: 1,
     IsRSMessageShortened: false,
     RSShortenedMessageLength: 239,
     NumBytesInTransferFrame: 239,
   },
+};
+
+const TCM_FRAME_PRESETS = {
+  2: 1115,
+  2.25: 1112,
+  2.5: 1116,
+  2.75: 1118,
+};
+
+const getRecommendedTCMFrameBytes = (eff) =>
+  TCM_FRAME_PRESETS[Number(eff)] || TCM_FRAME_PRESETS[2];
+
+const parsePiExpression = (value) => {
+  const text = String(value || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .toLowerCase();
+
+  if (!text) return 0;
+  if (!text.includes("pi")) {
+    const numeric = Number(text);
+    return Number.isFinite(numeric) ? numeric : 0;
+  }
+
+  const sign = text.startsWith("-") ? -1 : 1;
+  const unsigned = text.replace(/^[+-]/, "");
+  const [numeratorText, denominatorText] = unsigned.split("/");
+  const multiplierText = numeratorText.replace("*pi", "").replace("pi", "");
+  const multiplier =
+    multiplierText === "" ? 1 : Number(multiplierText.replace("*", ""));
+  const denominator = denominatorText ? Number(denominatorText) : 1;
+
+  return (
+    sign *
+    Math.PI *
+    (Number.isFinite(multiplier) ? multiplier : 1) /
+    (Number.isFinite(denominator) && denominator !== 0 ? denominator : 1)
+  );
+};
+
+const parseComplexTap = (token) => {
+  const text = String(token || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .toLowerCase();
+
+  if (!text) return { re: 0, im: 0 };
+
+  const expMatch = text.match(/^(?:(.+)\*)?exp\(([+-]?)(?:1j|j|1i|i)\*?(.+)\)$/);
+  if (expMatch) {
+    const scaleText = expMatch[1];
+    const angleSign = expMatch[2] === "-" ? -1 : 1;
+    const angle = angleSign * parsePiExpression(expMatch[3]);
+    const scale =
+      scaleText === undefined || scaleText === "" ? 1 : Number(scaleText);
+    const mag = Number.isFinite(scale) ? scale : 1;
+    return { re: mag * Math.cos(angle), im: mag * Math.sin(angle) };
+  }
+
+  const imagOnly = text.match(/^([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\*?(?:j|i)$/);
+  if (imagOnly) return { re: 0, im: Number(imagOnly[1]) };
+
+  const complex = text.match(
+    /^([-+]?\d*\.?\d+(?:e[-+]?\d+)?)([-+]\d*\.?\d+(?:e[-+]?\d+)?)\*?(?:j|i)$/,
+  );
+  if (complex) return { re: Number(complex[1]), im: Number(complex[2]) };
+
+  const real = Number(text);
+  return { re: Number.isFinite(real) ? real : 0, im: 0 };
+};
+
+const parseComplexVector = (value) => {
+  if (!value) return { real: [], imag: [] };
+  if (typeof value !== "string") return value;
+
+  const taps = value
+    .split(",")
+    .map(parseComplexTap)
+    .filter((tap) => Number.isFinite(tap.re) && Number.isFinite(tap.im));
+
+  return {
+    real: taps.map((tap) => tap.re),
+    imag: taps.map((tap) => tap.im),
+  };
 };
 
 const isFiniteNumber = (value) =>
@@ -173,7 +258,7 @@ const getEvmSummary = (evmPercent) => {
 };
 
 const getGMSKEvmSummary = () =>
-  "GMSK 是一种连续相位调制，因此该数值仅作为 IQ 或包络的粗略指示，而非标准的星座图 EVM。在评估 GMSK 的信号质量时，建议优先参考 BER（误码率）、LockRate（锁定率）、PAPR（峰均功率比）、相位轨迹、相位差以及 PSD（功率谱密度）";
+  "GMSK 是一种连续相位调制，因此该数值仅作为 IQ 或包络的粗略指示，而非标准的星座图 EVM。在评估 GMSK 的信号质量时，建议优先参考 BER（误码率）、LockRate（锁定率）、PAPR（峰均功率比）、相位轨迹、相位差以及 PSD（功率谱密度）。";
 
 const normalizeSimulationResult = (raw) => {
   if (!raw) return null;
@@ -214,7 +299,27 @@ const normalizeSimulationResult = (raw) => {
         InputCFO: raw.cfo_in,
         InputPhase: raw.phase_in,
         InputDelay: raw.delay_in,
-        // 残余损伤 (同步链路压制后剩余,理想值接近 0)
+        BestTCMSkip: isFiniteNumber(raw.BestTCMSkip)
+          ? raw.BestTCMSkip
+          : isFiniteNumber(raw.bestTCMSkip)
+          ? raw.bestTCMSkip
+          : null,
+        BestTCMSampleOffset: isFiniteNumber(raw.BestTCMSampleOffset)
+          ? raw.BestTCMSampleOffset
+          : isFiniteNumber(raw.bestTCMSampleOffset)
+          ? raw.bestTCMSampleOffset
+          : null,
+        BestTCMBitSkip: isFiniteNumber(raw.BestTCMBitSkip)
+          ? raw.BestTCMBitSkip
+          : isFiniteNumber(raw.bestTCMBitSkip)
+          ? raw.bestTCMBitSkip
+          : null,
+        BestRotDeg: isFiniteNumber(raw.BestRot_deg)
+          ? raw.BestRot_deg
+          : isFiniteNumber(raw.bestRot_deg)
+          ? raw.bestRot_deg
+          : null,
+        // 残余损伤（同步链路压制后的剩余，理想值接近 0）
         ResidCFOHz: isFiniteNumber(raw.residCFO_Hz) ? raw.residCFO_Hz : null,
         ResidPhaseDeg: isFiniteNumber(raw.residPhase_deg)
           ? raw.residPhase_deg
@@ -228,7 +333,7 @@ const normalizeSimulationResult = (raw) => {
 };
 
 const CCSDSPlatform = () => {
-  //创建Form实例， 用于管理所有数据状态
+  // 创建 Form 实例，用于管理所有数据状态
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [simResult, setSimResult] = useState(null);
@@ -245,6 +350,7 @@ const CCSDSPlatform = () => {
 
   // 码率常量
   const TURBO_RATES = ["1/2", "1/3", "1/4", "1/6"];
+  const TURBO_INFO_BLOCKS = [1784, 3568, 7136, 8920];
   const LDPC_RATES = ["1/2", "2/3", "4/5", "7/8"];
   const LDPC_INFO_BLOCKS = [1024, 4096, 16384, 7136];
   const CONVOLUTIONAL_RATES = ["1/2", "2/3", "3/4", "5/6", "7/8"];
@@ -271,6 +377,13 @@ const CCSDSPlatform = () => {
         NumBytesInTransferFrame: Number(values.NumBytesInTransferFrame ?? 1151),
       };
 
+      if (payload.modType === "4D-8PSK-TCM") {
+        payload.ModulationEfficiency = Number(payload.ModulationEfficiency ?? 2);
+        payload.NumBytesInTransferFrame = getRecommendedTCMFrameBytes(
+          payload.ModulationEfficiency,
+        );
+      }
+
       if (
         payload.channelCoding === "convolutional" ||
         payload.channelCoding === "concatenated"
@@ -286,6 +399,13 @@ const CCSDSPlatform = () => {
         payload.LDPCCodeblockSize = Number(payload.LDPCCodeblockSize ?? 1);
       }
 
+      if (payload.channelCoding === "Turbo") {
+        payload.NumBitsInInformationBlock = Number(
+          payload.NumBitsInInformationBlock ?? 1784,
+        );
+        payload.CodeRate = payload.CodeRate || "1/2";
+      }
+
       if (
         payload.channelCoding === "RS" ||
         payload.channelCoding === "concatenated"
@@ -293,6 +413,20 @@ const CCSDSPlatform = () => {
         const preset =
           RS_PRESETS[payload.rsPreset] || RS_PRESETS["rs-255-223-i5"];
         Object.assign(payload, preset);
+      }
+
+      payload.enableHChannel = Boolean(payload.enableHChannel);
+      payload.normalizeHChannel = Boolean(payload.normalizeHChannel);
+      payload.enableEqualizer = Boolean(payload.enableEqualizer);
+      payload.normalizeEqualizerOutput = Boolean(
+        payload.normalizeEqualizerOutput,
+      );
+      payload.enableFACMEqualizer = Boolean(payload.enableFACMEqualizer);
+      payload.ddEqualizerStep = Number(payload.ddEqualizerStep ?? 2e-4);
+      payload.ddEqualizerPasses = Number(payload.ddEqualizerPasses ?? 2);
+
+      if (payload.enableHChannel && typeof payload.H === "string") {
+        payload.H = parseComplexVector(payload.H);
       }
 
       console.log("正在通过 HTTP 请求仿真...", payload);
@@ -304,7 +438,7 @@ const CCSDSPlatform = () => {
         setSimResult(normalizedRes);
         renderCharts(normalizedRes);
 
-        //  保存到 localStorage
+        // 保存到 localStorage
         localStorage.setItem("latestSimResult", JSON.stringify(normalizedRes));
 
         if (normalizedRes.stats?.ElapsedTime) {
@@ -320,6 +454,7 @@ const CCSDSPlatform = () => {
       setLoading(false);
     }
   };
+
   // === 新增功能 A: 点击保存按钮 ===
   const handleSave = async () => {
     // 防御性编程：如果没有结果，就不让存
@@ -339,7 +474,7 @@ const CCSDSPlatform = () => {
       });
 
       if (res && res.success) {
-        message.success("✅ 保存成功！");
+        message.success("保存成功！");
       }
     } catch (error) {
       console.error(error);
@@ -349,17 +484,12 @@ const CCSDSPlatform = () => {
 
   // === 新增功能 B: 打开历史记录列表 ===
   const openHistory = async () => {
-    setHistoryVisible(true); // 打开抽屉
+    setHistoryVisible(true);
     try {
-      // 获取列表
       const res = await getHistoryList();
-      // 这里要注意：如果你的 request 封装直接返回 data，就直接用 res
-      // 如果返回的是 axios 对象，可能需要 res.data
-      // 假设你的 request 封装比较标准：
       if (Array.isArray(res)) {
         setHistoryList(res);
       } else {
-        // 防止后端报错导致前端崩溃
         setHistoryList([]);
       }
     } catch (error) {
@@ -371,47 +501,39 @@ const CCSDSPlatform = () => {
   const loadHistoryItem = async (id) => {
     const hide = message.loading("正在加载历史数据...", 0);
     try {
-      // 1. 请求完整数据
       const res = await getRecordDetail(id);
 
       if (res && res.success && res.data) {
         const { config, result } = res.data;
         const normalizedResult = normalizeSimulationResult(result);
 
-        // 2. 核心操作：把存的数据“填”回去
-
-        // 2.1 填表单
         form.setFieldsValue(config);
-
-        // 2.2 恢复 React 状态（这会让界面上的数字变化）
         setSimResult(normalizedResult);
-
-        // 2.3 这一步最关键：重新根据数据画图
-        // React 的 state 更新是异步的，为了保险，直接把 result 传给画图函数
         renderCharts(normalizedResult);
 
-        message.success("已加载历史记录");
-        setHistoryVisible(false); // 关掉抽屉
+        message.success("\u5df2\u52a0\u8f7d\u5386\u53f2\u8bb0\u5f55");
+        setHistoryVisible(false);
       }
     } catch (error) {
       console.error(error);
-      message.error("加载失败");
+      message.error("\u52a0\u8f7d\u5931\u8d25");
     } finally {
       hide();
     }
   };
+
   const drawConstellation = (domRef, title, data) => {
     const dom = domRef.current;
 
     if (!dom || !data) return;
 
-    // 销毁旧实例
+    // Dispose previous chart instance.
     const oldChart = echarts.getInstanceByDom(dom);
     if (oldChart) oldChart.dispose();
 
     const chart = echarts.init(dom);
 
-    // 构造 ECharts 数据格式
+    // Build ECharts point data.
     const points = data.i.map((v, k) => [v, data.q[k]]);
 
     chart.setOption({
@@ -445,58 +567,43 @@ const CCSDSPlatform = () => {
   };
   // === 新增算法：计算宽带信号的中心频率 ===
   const calculateCenterFreq = (freqs, powers) => {
-    // 1. 找到峰值及其索引
     const maxPower = Math.max(...powers);
-
-    // 2. 设定阈值：选择峰值向下 X dB 的范围
-    // 建议设为 10dB ~ 20dB。
-    // 为什么要这么深？因为对于 QPSK/GMSK，频谱的“裙边”（斜坡）是非常陡峭且对称的。
-    // 包含斜坡数据能极大地“锁住”中心位置，防止在平顶上漂移。
     const threshold = maxPower - 15;
 
     let sumFreqTimesEnergy = 0;
     let sumEnergy = 0;
 
     powers.forEach((p_db, i) => {
-      // 只计算有效信号范围内的点
       if (p_db > threshold) {
-        // === 关键步骤 ===
-        // 将 dB (对数) 还原为 线性能量 (Linear Power)
-        // 公式：Energy = 10 ^ (dB / 10)
-        // 这样高峰值的点权重极大，底噪权重大幅降低，重心非常稳
         const energy = Math.pow(10, p_db / 10);
-
         sumFreqTimesEnergy += freqs[i] * energy;
         sumEnergy += energy;
       }
     });
 
-    // 防止全黑洞异常
     if (sumEnergy === 0) return freqs[powers.indexOf(maxPower)];
-
-    // 重心公式：Σ(f * E) / ΣE
     return sumFreqTimesEnergy / sumEnergy;
   };
+
   const renderCharts = (data) => {
     if (!data) return;
-    // 1. 画修复前的图
+
     if (data.constellation_raw) {
       drawConstellation(
         rawConstellationRef,
-        "❌ 修复前 (信道损伤)",
+        "修复前 (信道损伤)",
         data.constellation_raw,
       );
     }
 
-    // 2. 画修复后的图
     if (data.constellation_synced) {
       drawConstellation(
         syncedConstellationRef,
-        "✅ 修复后 (接收机同步)",
+        "修复后 (接收机同步)",
         data.constellation_synced,
       );
     }
-    // 3. 频谱图（增强版：添加峰值标记线）
+
     if (spectrumRef.current && data.spectrum) {
       const domSpe = spectrumRef.current;
       let instance = echarts.getInstanceByDom(domSpe);
@@ -508,42 +615,15 @@ const CCSDSPlatform = () => {
       }
 
       const { f, p_rx, p_tx } = data.spectrum;
-
-      // === 关键修改：使用新算法计算中心频率 ===
-      // 注意：MATLAB传来的 f 是 Hz，p 是 dB
       const rxCenterFreqHz = calculateCenterFreq(f, p_rx);
       const txCenterFreqHz = calculateCenterFreq(f, p_tx);
-
-      // 转单位
       const rxFreqMHz = rxCenterFreqHz / 1e6;
       const txFreqMHz = txCenterFreqHz / 1e6;
-
-      // 计算频偏 (kHz)
-      const freqOffset = (rxCenterFreqHz - txCenterFreqHz) / 1e3;
 
       chart.setOption({
         backgroundColor: "#fff",
         title: {
           text: "功率谱密度 (PSD)",
-          // 标题里也显示一下计算结果
-          //   subtext: `{label|智能估算频偏}  {value|${Math.abs(freqOffset).toFixed(2)} kHz}  {arrow|${
-          //     freqOffset > 0 ? "⮕ (右偏)" : freqOffset < 0 ? "⬅ (左偏)" : "✔"
-          //   }}`,
-          subtextStyle: {
-            rich: {
-              label: { color: "#999", fontSize: 12 },
-              value: {
-                color: "#333",
-                fontSize: 14,
-                fontWeight: "bold",
-                padding: [0, 5],
-              },
-              arrow: {
-                color: Math.abs(freqOffset) > 1 ? "#ff4d4f" : "#52c41a",
-                fontWeight: "bold",
-              },
-            },
-          },
           left: "center",
           top: 10,
         },
@@ -591,11 +671,7 @@ const CCSDSPlatform = () => {
                 shadowColor: "rgba(0,0,0,0.2)",
               },
               lineStyle: { type: "solid", color: "#ff4d4f", width: 2 },
-              data: [
-                // 注意：这里xAxis必须对应 xAxis data 里的字符串值，或者用 coord 坐标
-                // 为了保险，我们找一下最接近的 index
-                { xAxis: f.findIndex((val) => val === rxCenterFreqHz) },
-              ],
+              data: [{ xAxis: f.findIndex((val) => val === rxCenterFreqHz) }],
             },
           },
           {
@@ -629,6 +705,7 @@ const CCSDSPlatform = () => {
       });
     }
   };
+
 
   const renderEvaluationInsights = () => {
     if (!simResult?.stats) return null;
@@ -777,10 +854,25 @@ const CCSDSPlatform = () => {
                 <Descriptions.Item label="MATLAB耗时">
                   {formatMetricValue(simResult.stats.ElapsedTime, 3)} s
                 </Descriptions.Item>
-                <Descriptions.Item label="结论">
+                {isFiniteNumber(simResult.stats.BestTCMSampleOffset) && (
+                  <Descriptions.Item label="4D sample offset">
+                    {simResult.stats.BestTCMSampleOffset}
+                  </Descriptions.Item>
+                )}
+                {isFiniteNumber(simResult.stats.BestTCMSkip) && (
+                  <Descriptions.Item label="4D TCM skip">
+                    {simResult.stats.BestTCMSkip}
+                  </Descriptions.Item>
+                )}
+                {isFiniteNumber(simResult.stats.BestTCMBitSkip) && (
+                  <Descriptions.Item label="4D TCM bit skip">
+                    {simResult.stats.BestTCMBitSkip}
+                  </Descriptions.Item>
+                )}
+                <Descriptions.Item label={"\u7ed3\u8bba"}>
                   {simResult.stats.LockStatus
-                    ? "链路已锁定，可结合 BER / EVM / MER 判断质量"
-                    : "优先检查同步链是否稳定锁定"}
+                    ? "\u94fe\u8def\u5df2\u9501\u5b9a\uff0c\u53ef\u7ed3\u5408 BER / EVM / MER \u5224\u65ad\u8d28\u91cf"
+                    : "\u4f18\u5148\u68c0\u67e5\u540c\u6b65\u94fe\u8def\u662f\u5426\u7a33\u5b9a\u9501\u5b9a"}
                 </Descriptions.Item>
               </Descriptions>
             </Col>
@@ -797,7 +889,7 @@ const CCSDSPlatform = () => {
                 : "warning"
             }
             showIcon
-            message="评估解读"
+            message={"\u8bc4\u4f30\u89e3\u8bfb"}
             description={`${getBerSummary(simResult.ber)} ${
               isGMSK
                 ? getGMSKEvmSummary()
@@ -811,27 +903,27 @@ const CCSDSPlatform = () => {
 
   return (
     <div className="ccsds-platform">
-      {/* 顶部 Header */}
+      {/* Top header */}
       <div className="platform-header">
         <div className="title-area">
           <RocketOutlined className="icon" />
-          <span className="title">CCSDS 遥测仿真控制台</span>
+          <span className="title">{"CCSDS \u9065\u6d4b\u4eff\u771f\u63a7\u5236\u53f0"}</span>
         </div>
         <div className="status-area">
           <Space size="middle">
-            {/* 只有当有结果时，保存按钮才亮起 */}
-            <Tooltip title="将当前参数和结果存入数据库">
+            {/* Only enabled when a result exists. */}
+            <Tooltip title={"\u5c06\u5f53\u524d\u53c2\u6570\u548c\u7ed3\u679c\u5b58\u5165\u6570\u636e\u5e93"}>
               <Button
                 icon={<SaveOutlined />}
                 onClick={handleSave}
                 disabled={!simResult}
               >
-                保存结果
+                {"\u4fdd\u5b58\u7ed3\u679c"}
               </Button>
             </Tooltip>
 
             <Button icon={<HistoryOutlined />} onClick={openHistory}>
-              历史记录
+              {"\u5386\u53f2\u8bb0\u5f55"}
             </Button>
 
             <Divider type="vertical" />
@@ -850,7 +942,7 @@ const CCSDSPlatform = () => {
       </div>
 
       <div className="content-wrapper">
-        {/* 1. 顶部：参数配置区 */}
+        {/* 1. Top: parameter configuration */}
         <Card className="config-panel" bordered={false}>
           <Form
             form={form}
@@ -877,17 +969,42 @@ const CCSDSPlatform = () => {
               RSInterleavingDepth: 5,
               IsRSMessageShortened: false,
               RSShortenedMessageLength: 223,
+              enableHChannel: false,
+              HMode: "siso_multipath",
+              H: "1,0,0.25*exp(1j*pi/3),0,0.10*exp(-1j*pi/4)",
+              normalizeHChannel: true,
+              enableEqualizer: false,
+              equalizerMode: "mmse",
+              normalizeEqualizerOutput: true,
+              enableFACMEqualizer: false,
+              facmEqualizerMode: "frame-ls",
+              ddEqualizerStep: 2e-4,
+              ddEqualizerPasses: 2,
             }}
           >
             <Row gutter={24} align="bottom">
               <Col span={4}>
-                <Form.Item name="modType" label="调制方式">
-                  <Select>
+                <Form.Item name="modType" label={"\u8c03\u5236\u65b9\u5f0f"}>
+                  <Select
+                    onChange={(mod) => {
+                      if (mod === "4D-8PSK-TCM") {
+                        const eff = Number(
+                          form.getFieldValue("ModulationEfficiency") ?? 2,
+                        );
+                        form.setFieldsValue({
+                          ModulationEfficiency: eff,
+                          NumBytesInTransferFrame:
+                            getRecommendedTCMFrameBytes(eff),
+                        });
+                      }
+                    }}
+                  >
                     <Option value="BPSK">BPSK</Option>
                     <Option value="QPSK">QPSK</Option>
                     <Option value="8PSK">8PSK</Option>
                     <Option value="GMSK">GMSK</Option>
                     <Option value="OQPSK">OQPSK</Option>
+                    <Option value="4D-8PSK-TCM">4D-8PSK-TCM</Option>
                     <Option value="16APSK">16APSK</Option>
                     <Option value="32APSK">32APSK</Option>
                     <Option value="PCM/PSK/PM">PCM/PSK/PM</Option>
@@ -895,7 +1012,7 @@ const CCSDSPlatform = () => {
                 </Form.Item>
               </Col>
               <Col span={4}>
-                <Form.Item name="symbolRate" label="符号率 (sps)">
+                <Form.Item name="symbolRate" label={"\u7b26\u53f7\u7387 (sps)"}>
                   <InputNumber
                     style={{ width: "100%" }}
                     min={1000}
@@ -907,27 +1024,26 @@ const CCSDSPlatform = () => {
                 </Form.Item>
               </Col>
               <Col span={3}>
-                <Form.Item name="snr" label="信噪比 (SNR)">
+                <Form.Item name="snr" label={"\u4fe1\u566a\u6bd4 (SNR)"}>
                   <InputNumber min={0} max={100} style={{ width: "100%" }} />
                 </Form.Item>
               </Col>
               <Col span={3}>
-                <Form.Item name="sps" label="采样/符号 (SPS)">
+                <Form.Item name="sps" label={"\u91c7\u6837/\u7b26\u53f7 (SPS)"}>
                   <InputNumber min={4} max={32} style={{ width: "100%" }} />
                 </Form.Item>
               </Col>
-              {/* === 动态渲染：调制参数联动区 === */}
+              {/* Dynamic modulation parameter controls */}
               <Form.Item noStyle dependencies={["modType"]}>
                 {({ getFieldValue }) => {
                   const mod = getFieldValue("modType");
 
-                  // 1. APSK (16/32) - FACM 模式
                   if (mod === "16APSK" || mod === "32APSK") {
                     return (
                       <Col span={4}>
                         <Form.Item
                           name="acmFormat"
-                          label="ACM 格式"
+                          label={"ACM \u683c\u5f0f"}
                           initialValue={mod === "16APSK" ? 14 : 21}
                         >
                           <Select>
@@ -945,16 +1061,22 @@ const CCSDSPlatform = () => {
                       </Col>
                     );
                   }
-                  // 2. 4D-8PSK-TCM
-                  else if (mod === "4D-8PSK-TCM") {
+                  if (mod === "4D-8PSK-TCM") {
                     return (
                       <Col span={4}>
                         <Form.Item
                           name="ModulationEfficiency"
-                          label="调制效率"
+                          label={"\u8c03\u5236\u6548\u7387"}
                           initialValue={2.0}
                         >
-                          <Select>
+                          <Select
+                            onChange={(eff) => {
+                              form.setFieldsValue({
+                                NumBytesInTransferFrame:
+                                  getRecommendedTCMFrameBytes(eff),
+                              });
+                            }}
+                          >
                             <Option value={2.0}>2.0</Option>
                             <Option value={2.25}>2.25</Option>
                             <Option value={2.5}>2.5</Option>
@@ -964,13 +1086,12 @@ const CCSDSPlatform = () => {
                       </Col>
                     );
                   }
-                  // 3. GMSK
-                  else if (mod === "GMSK") {
+                  if (mod === "GMSK") {
                     return (
                       <Col span={4}>
                         <Form.Item
                           name="BandwidthTimeProduct"
-                          label="BT 值 (GMSK)"
+                          label={"BT \u503c (GMSK)"}
                           initialValue={0.5}
                         >
                           <Select>
@@ -981,14 +1102,13 @@ const CCSDSPlatform = () => {
                       </Col>
                     );
                   }
-                  // 4. PCM/PSK/PM (子载波调制)
-                  else if (mod === "PCM/PSK/PM") {
+                  if (mod === "PCM/PSK/PM") {
                     return (
                       <>
                         <Col span={3}>
                           <Form.Item
                             name="ModulationIndex"
-                            label="调制指数 (Rad)"
+                            label={"\u8c03\u5236\u6307\u6570 (Rad)"}
                             initialValue={1.0}
                           >
                             <InputNumber
@@ -1002,65 +1122,58 @@ const CCSDSPlatform = () => {
                         <Col span={3}>
                           <Form.Item
                             name="SubcarrierWaveform"
-                            label="副载波波形"
+                            label={"\u526f\u8f7d\u6ce2\u6ce2\u5f62"}
                             initialValue="sine"
                           >
                             <Select>
-                              <Option value="sine">正弦波</Option>
-                              <Option value="square">方波</Option>
+                              <Option value="sine">{"\u6b63\u5f26\u6ce2"}</Option>
+                              <Option value="square">{"\u65b9\u6ce2"}</Option>
                             </Select>
                           </Form.Item>
                         </Col>
                       </>
                     );
                   }
-                  // 5. PSK/QPSK/OQPSK (标准 RRC 调制)
-                  else {
-                    return (
-                      <>
-                        <Col span={3}>
-                          <Form.Item
-                            name="RolloffFactor"
-                            label="滚降系数 (α)"
-                            // initialValue={0.35}
-                          >
-                            <InputNumber
-                              step={0.05}
-                              min={0.1}
-                              max={1.0}
-                              style={{ width: "100%" }}
-                            />
-                          </Form.Item>
-                        </Col>
-
-                        <Col span={3}>
-                          <Form.Item
-                            name="FilterSpanInSymbols"
-                            label="滤波器长度 (符号)"
-                            initialValue={10}
-                          >
-                            <InputNumber
-                              min={4}
-                              max={64}
-                              style={{ width: "100%" }}
-                            />
-                          </Form.Item>
-                        </Col>
-                      </>
-                    );
-                  }
+                  return (
+                    <>
+                      <Col span={3}>
+                        <Form.Item
+                          name="RolloffFactor"
+                          label={"\u6eda\u964d\u7cfb\u6570 (alpha)"}
+                        >
+                          <InputNumber
+                            step={0.05}
+                            min={0.1}
+                            max={1.0}
+                            style={{ width: "100%" }}
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col span={3}>
+                        <Form.Item
+                          name="FilterSpanInSymbols"
+                          label={"\u6ee4\u6ce2\u5668\u957f\u5ea6 (\u7b26\u53f7)"}
+                          initialValue={10}
+                        >
+                          <InputNumber min={4} max={64} style={{ width: "100%" }} />
+                        </Form.Item>
+                      </Col>
+                    </>
+                  );
                 }}
               </Form.Item>
             </Row>
 
             <Row gutter={16} align="bottom">
               <Col span={5}>
-                <Form.Item name="channelCoding" label="信道编码">
+                <Form.Item name="channelCoding" label={"\u4fe1\u9053\u7f16\u7801"}>
                   <Select
                     onChange={(value) => {
-                      // 当编码类型改变时，重置 CodeRate 字段
                       if (value === "Turbo") {
-                        form.setFieldsValue({ CodeRate: "1/2" });
+                        form.setFieldsValue({
+                          CodeRate: "1/2",
+                          NumBitsInInformationBlock: 1784,
+                        });
                       } else if (value === "LDPC") {
                         form.setFieldsValue({
                           CodeRate: "1/2",
@@ -1072,7 +1185,6 @@ const CCSDSPlatform = () => {
                         form.setFieldsValue({ CodeRate: "N/A" });
                       }
 
-                      // 重置卷积码率
                       if (
                         value === "convolutional" ||
                         value === "concatenated"
@@ -1086,8 +1198,7 @@ const CCSDSPlatform = () => {
                     }}
                   >
                     <Option value="convolutional">Convolutional</Option>
-                    {/* <Option value="concatenated">concatenated</Option> */}
-                    <Option value="RS">RS码</Option>
+                    <Option value="RS">{"RS \u7801"}</Option>
                     <Option value="concatenated">Concatenated</Option>
                     <Option value="LDPC">LDPC</Option>
                     <Option value="Turbo">Turbo</Option>
@@ -1096,25 +1207,24 @@ const CCSDSPlatform = () => {
                 </Form.Item>
               </Col>
               <Col span={3}>
-                <Form.Item label="频偏 (Hz)" name="cfo" initialValue={0}>
+                <Form.Item label={"\u9891\u504f (Hz)"} name="cfo" initialValue={0}>
                   <InputNumber style={{ width: "100%" }} />
                 </Form.Item>
               </Col>
               <Col span={3}>
-                <Form.Item name="phaseOffset" label="相位偏移 (°)">
+                <Form.Item name="phaseOffset" label={"\u76f8\u4f4d\u504f\u79fb (deg)"}>
                   <InputNumber min={0} max={360} style={{ width: "100%" }} />
                 </Form.Item>
               </Col>
               <Col span={4}>
                 <Form.Item
-                  label="定时偏差 (Samples)"
+                  label={"\u5b9a\u65f6\u504f\u5dee (Samples)"}
                   name="delay"
                   initialValue={0}
                 >
                   <InputNumber step={0.1} style={{ width: "100%" }} />
                 </Form.Item>
               </Col>
-
               <Form.Item
                 noStyle
                 dependencies={[
@@ -1125,15 +1235,17 @@ const CCSDSPlatform = () => {
               >
                 {({ getFieldValue }) => {
                   const coding = getFieldValue("channelCoding");
-                  const ldpcK = Number(
-                    getFieldValue("NumBitsInInformationBlock") ?? 1024,
+                  const infoBlock = Number(
+                    getFieldValue("NumBitsInInformationBlock") ??
+                      (coding === "Turbo" ? 1784 : 1024),
                   );
+                  const ldpcK = infoBlock;
                   const showConvRate =
                     coding === "convolutional" || coding === "concatenated";
                   const showRS = coding === "RS" || coding === "concatenated";
                   const isApplicable = coding === "Turbo" || coding === "LDPC";
 
-                  // 分别计算各自的默认值和选项
+                  // Calculate defaults and options for each coding mode.
                   let convDefaultRate = "5/6";
                   let convRateOptions = CONVOLUTIONAL_RATES;
 
@@ -1151,12 +1263,12 @@ const CCSDSPlatform = () => {
 
                   return (
                     <>
-                      {/* A. 卷积码率 */}
+                      {/* A. Convolutional code rate */}
                       {showConvRate && (
                         <Col span={4}>
                           <Form.Item
                             name="ConvolutionalCodeRate"
-                            label="卷积码率"
+                            label={"\u5377\u79ef\u7801\u7387"}
                             initialValue={convDefaultRate}
                           >
                             <Select>
@@ -1170,7 +1282,7 @@ const CCSDSPlatform = () => {
                         </Col>
                       )}
 
-                      {/* B. RS 交织深度 */}
+                      {/* B. RS configuration */}
                       {/* {showConvRate && (
                         <Col span={4}>
                           <Form.Item
@@ -1207,7 +1319,7 @@ const CCSDSPlatform = () => {
                         <Col span={5}>
                           <Form.Item
                             name="rsPreset"
-                            label="RS 配置"
+                            label={"RS \u914d\u7f6e"}
                             initialValue="rs-255-223-i5"
                           >
                             <Select
@@ -1239,24 +1351,31 @@ const CCSDSPlatform = () => {
                           </Form.Item>
                         </Col>
                       )}
+                      )}
 
-                      {/* C. Turbo/LDPC 码率 */}
+                      {/* C. Turbo/LDPC code rate */}
 
-                      {coding === "LDPC" && (
+                      {(coding === "Turbo" || coding === "LDPC") && (
                         <Col span={4}>
                           <Form.Item
                             name="NumBitsInInformationBlock"
-                            label="LDPC k"
-                            initialValue={1024}
+                            label={coding === "Turbo" ? "Turbo k" : "LDPC k"}
+                            initialValue={coding === "Turbo" ? 1784 : 1024}
                           >
                             <Select
                               onChange={(k) => {
-                                form.setFieldsValue({
-                                  CodeRate: Number(k) === 7136 ? "7/8" : "1/2",
-                                });
+                                if (coding === "LDPC") {
+                                  form.setFieldsValue({
+                                    CodeRate:
+                                      Number(k) === 7136 ? "7/8" : "1/2",
+                                  });
+                                }
                               }}
                             >
-                              {LDPC_INFO_BLOCKS.map((k) => (
+                              {(coding === "Turbo"
+                                ? TURBO_INFO_BLOCKS
+                                : LDPC_INFO_BLOCKS
+                              ).map((k) => (
                                 <Option key={k} value={k}>
                                   {k} bits
                                 </Option>
@@ -1269,7 +1388,7 @@ const CCSDSPlatform = () => {
                       <Col span={4}>
                         <Form.Item
                           name="CodeRate"
-                          label="Turbo/LDPC 码率"
+                          label={"Turbo/LDPC \u7801\u7387"}
                           key={coding}
                           initialValue={turboLdpcDefaultRate}
                         >
@@ -1294,7 +1413,7 @@ const CCSDSPlatform = () => {
                   valuePropName="checked"
                   initialValue={false}
                 >
-                  <Checkbox>启用加扰 (Randomizer)</Checkbox>
+                  <Checkbox>{"\u542f\u7528\u52a0\u6270 (Randomizer)"}</Checkbox>
                 </Form.Item>
               </Col>
               <Col span={6}>
@@ -1303,12 +1422,88 @@ const CCSDSPlatform = () => {
                   valuePropName="checked"
                   initialValue={false}
                 >
-                  <Checkbox>插入同步头 (ASM)</Checkbox>
+                  <Checkbox>{"\u63d2\u5165\u540c\u6b65\u5934 (ASM)"}</Checkbox>
                 </Form.Item>
               </Col>
               <Col span={10}>
                 <Form.Item name="hasPilots" valuePropName="checked">
-                  <Checkbox>插入导频 (Distributed Pilots)</Checkbox>
+                  <Checkbox>{"\u63d2\u5165\u5bfc\u9891 (Distributed Pilots)"}</Checkbox>
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={4}>
+                <Form.Item name="enableHChannel" valuePropName="checked">
+                  <Checkbox>{"H \u4fe1\u9053"}</Checkbox>
+                </Form.Item>
+              </Col>
+              <Col span={4}>
+                <Form.Item name="normalizeHChannel" valuePropName="checked">
+                  <Checkbox>{"\u5f52\u4e00\u5316 H"}</Checkbox>
+                </Form.Item>
+              </Col>
+              <Col span={5}>
+                <Form.Item name="enableEqualizer" valuePropName="checked">
+                  <Checkbox>{"\u5df2\u77e5 H \u5747\u8861"}</Checkbox>
+                </Form.Item>
+              </Col>
+              <Col span={5}>
+                <Form.Item
+                  name="normalizeEqualizerOutput"
+                  valuePropName="checked"
+                >
+                  <Checkbox>{"\u5747\u8861\u8f93\u51fa\u5f52\u4e00\u5316"}</Checkbox>
+                </Form.Item>
+              </Col>
+              <Col span={5}>
+                <Form.Item name="enableFACMEqualizer" valuePropName="checked">
+                  <Checkbox>{"FACM \u5e27\u5747\u8861"}</Checkbox>
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={4}>
+                <Form.Item name="HMode" label={"H \u6a21\u5f0f"}>
+                  <Select>
+                    <Option value="siso_multipath">siso_multipath</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="H" label={"H taps"}>
+                  <Input placeholder="1,0,0.25*exp(1j*pi/3),0,0.10*exp(-1j*pi/4)" />
+                </Form.Item>
+              </Col>
+              <Col span={4}>
+                <Form.Item name="equalizerMode" label={"\u5747\u8861\u6a21\u5f0f"}>
+                  <Select>
+                    <Option value="mmse">mmse</Option>
+                    <Option value="zf">zf</Option>
+                    <Option value="dd16apsk">dd16apsk</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={4}>
+                <Form.Item
+                  name="facmEqualizerMode"
+                  label={"FACM \u5747\u8861"}
+                >
+                  <Select>
+                    <Option value="frame-ls">frame-ls</Option>
+                    <Option value="dd16apsk">dd16apsk</Option>
+                    <Option value="rde16apsk">rde16apsk</Option>
+                    <Option value="cma16apsk">cma16apsk</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={2}>
+                <Form.Item name="ddEqualizerStep" label={"DD step"}>
+                  <InputNumber min={0} step={1e-4} style={{ width: "100%" }} />
+                </Form.Item>
+              </Col>
+              <Col span={2}>
+                <Form.Item name="ddEqualizerPasses" label={"DD pass"}>
+                  <InputNumber min={1} step={1} style={{ width: "100%" }} />
                 </Form.Item>
               </Col>
             </Row>
@@ -1323,7 +1518,7 @@ const CCSDSPlatform = () => {
                     icon={<GatewayOutlined />}
                     size="large"
                   >
-                    {loading ? "计算中..." : "开始仿真"}
+                    {loading ? "\u8ba1\u7b97\u4e2d..." : "\u5f00\u59cb\u4eff\u771f"}
                   </Button>
                 </Form.Item>
               </Col>
@@ -1331,22 +1526,23 @@ const CCSDSPlatform = () => {
           </Form>
         </Card>
 
+
         {/* 2. 底部：图表展示区 */}
         <div className="charts-row">
-          {/* 第一行：星座图对比 (左右各占 12/24) */}
+          {/* First row: constellation comparison */}
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
             {/* 左上：修复前 */}
             <Col span={12}>
               <Card
                 title={
                   <>
-                    <RadarChartOutlined /> 修复前 (Before)
+                    <RadarChartOutlined /> {"\u4fee\u590d\u524d (Before)"}
                   </>
                 }
                 bordered={false}
               >
                 <div className="square-container">
-                  {/* 绑定 rawConstellationRef */}
+                  {/* Bind rawConstellationRef */}
                   <div
                     ref={rawConstellationRef}
                     // style={{ width: "100%", height: "400px" }}
@@ -1361,13 +1557,13 @@ const CCSDSPlatform = () => {
               <Card
                 title={
                   <>
-                    <RadarChartOutlined /> 修复后 (After)
+                    <RadarChartOutlined /> {"\u4fee\u590d\u540e (After)"}
                   </>
                 }
                 bordered={false}
               >
                 <div className="square-container">
-                  {/* 🆕 绑定 syncedConstellationRef */}
+                  {/* Bind syncedConstellationRef */}
                   <div
                     ref={syncedConstellationRef}
                     className="chart-box"
@@ -1378,7 +1574,7 @@ const CCSDSPlatform = () => {
             </Col>
           </Row>
 
-          {/* 第二行：频谱图 + 统计 (占满整行 24/24) */}
+          {/* Second row: PSD and statistics */}
           <Row gutter={[16, 16]}>
             <Col span={24}>
               <Card
@@ -1390,7 +1586,7 @@ const CCSDSPlatform = () => {
                 bordered={false}
               >
                 <div className="rect-container" style={{ height: 350 }}>
-                  {/* 频谱图通常宽一点好看，高度可以稍微给低一点 */}
+                  {/* PSD is usually clearer with a wide, shorter panel. */}
                   <div ref={spectrumRef} className="chart-box" />
                 </div>
 
@@ -1519,6 +1715,23 @@ const CCSDSPlatform = () => {
                                 )}{" "}
                                 s
                               </Descriptions.Item>
+                              {isFiniteNumber(
+                                simResult.stats.BestTCMSampleOffset,
+                              ) && (
+                                <Descriptions.Item label="4D sample offset">
+                                  {simResult.stats.BestTCMSampleOffset}
+                                </Descriptions.Item>
+                              )}
+                              {isFiniteNumber(simResult.stats.BestTCMSkip) && (
+                                <Descriptions.Item label="4D TCM skip">
+                                  {simResult.stats.BestTCMSkip}
+                                </Descriptions.Item>
+                              )}
+                              {isFiniteNumber(simResult.stats.BestTCMBitSkip) && (
+                                <Descriptions.Item label="4D TCM bit skip">
+                                  {simResult.stats.BestTCMBitSkip}
+                                </Descriptions.Item>
+                              )}
                             </Descriptions>
                           </Col>
 
@@ -1607,7 +1820,7 @@ const CCSDSPlatform = () => {
         )}
       </div>
       <Drawer
-        title="📚 仿真历史档案"
+        title="仿真历史档案"
         placement="right"
         onClose={() => setHistoryVisible(false)}
         open={historyVisible}
@@ -1625,7 +1838,7 @@ const CCSDSPlatform = () => {
                   size="small"
                   onClick={() => loadHistoryItem(item.id)}
                 >
-                  📥 加载此配置并回放
+                  加载此配置并回放
                 </Button>,
               ]}
               style={{ padding: "12px 0", borderBottom: "1px solid #f0f0f0" }}

@@ -8,6 +8,8 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
         pIsGMSK
         pIsOQPSK
         pIs4D8PSKTCM
+        pIsQAM
+        pQAMOrder
     end
     
     properties(Access = private)
@@ -38,7 +40,15 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             obj.pIsGMSK = contains(string(obj.Modulation), 'GMSK');
             obj.pIsOQPSK = strcmp(obj.Modulation, 'OQPSK');
             obj.pIs4D8PSKTCM = strcmp(obj.Modulation, '4D-8PSK-TCM');
-            
+
+            obj.pIsQAM = contains(string(obj.Modulation), 'QAM');
+            if strcmp(obj.Modulation, '16QAM')
+                obj.pQAMOrder = 16;
+            elseif strcmp(obj.Modulation, '32QAM')
+                obj.pQAMOrder = 32;
+            else
+                obj.pQAMOrder = 0;
+            end
             if strcmp(obj.Modulation, 'QPSK')
                 obj.pDemod = comm.PSKDemodulator( ...
                     'PhaseOffset',pi/4, ...
@@ -61,6 +71,8 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                 obj.pDemod = comm.PSKDemodulator('PhaseOffset', pi/8, 'ModulationOrder', 8, ...
                     'BitOutput', true, 'DecisionMethod', "Approximate log-likelihood ratio", ...
                     'SymbolMapping', 'Custom', 'CustomSymbolMapping', [0 4 6 2 3 7 5 1]); 
+            elseif obj.pIsQAM
+                obj.pDemod = [];
             elseif obj.pIs4D8PSKTCM
                 % 4D-8PSK-TCM uses a custom hard-decision 4-symbol mapper below.
             elseif obj.pIsGMSK
@@ -191,7 +203,52 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                 hardBits = y0 > 0;
                 y = -5 * ones(size(hardBits));
                 y(hardBits) = 5;
-                y = double(y);    
+                y = double(y);  
+            elseif obj.pIsQAM
+                % =========================================================
+                % 16QAM / 32QAM soft demod
+                % 输入 u 应该已经完成：
+                % coarse CFO + RRC + timing sync + carrier sync + 功率归一
+                %
+                % 输出约定：
+                %   bit 0 -> positive soft value
+                %   bit 1 -> negative soft value
+                % 这个方向和 HelperCCSDSTMDecoder 期望一致
+                % =========================================================
+
+                rxQAM = u(:);
+
+                % 再保险：QAM 解调前做一次单位平均功率归一
+                if ~isempty(rxQAM)
+                    pwr = mean(abs(rxQAM).^2);
+                    if pwr > 0
+                        rxQAM = rxQAM / sqrt(pwr);
+                    end
+                end
+
+                M = obj.pQAMOrder;
+                bitsPerSym = log2(M);
+
+                % 这里无法直接知道真实 SNR，先给一个温和默认值。
+                % 对 Viterbi/CCSDS 解码来说，LLR 尺度不是绝对关键，但不能太离谱。
+                noiseVar = 0.01;
+
+                llrRaw = qamdemod(rxQAM, M, ...
+                    'OutputType','approxllr', ...
+                    'UnitAveragePower',true, ...
+                    'NoiseVariance',noiseVar);
+
+                if isvector(llrRaw)
+                    y = double(llrRaw(:));
+                elseif size(llrRaw,1) == numel(rxQAM) && size(llrRaw,2) == bitsPerSym
+                    y = double(reshape(llrRaw.', [], 1));
+                else
+                    y = double(llrRaw(:));
+                end
+
+                % 关键：实测 MATLAB qamdemod 的 LLR 极性和当前 CCSDS decoder 期望相反
+                % 你之前 QAM 扩展脚本中显示 Soft polarity = inverted LLR
+                y = -y;
             elseif strcmp(obj.Modulation, 'BPSK')
                 y = double(real(u));
                 if strcmp(obj.PCMFormat,'NRZ-M') && ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'}))

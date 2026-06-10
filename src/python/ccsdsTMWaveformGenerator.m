@@ -391,6 +391,18 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         obj.pNumBitsInpModInputBuffer = 0;
                         obj.pMod = comm.PSKModulator(8,pi/4,'SymbolMapping','Custom',...
                             'BitInput',true,'CustomSymbolMapping',[0 4 6 2 3 7 5 1]);
+                     % additional 16QAM
+                     case '16QAM'
+                         bitsPerSymbol = 4;
+                         obj.pNumModInBits = temp - mod(temp,bitsPerSymbol);
+                         obj.pModInputBuffer = zeros(obj.pNumModInBits,1,'int8');
+                         obj.pNumBitsInpModInputBuffer = 0;
+                     % additional 32QAM
+                    case '32QAM'
+                        bitsPerSymbol = 5;
+                        obj.pNumModInBits = temp - mod(temp,bitsPerSymbol);
+                        obj.pModInputBuffer = zeros(obj.pNumModInBits,1,'int8');
+                        obj.pNumBitsInpModInputBuffer = 0;
                     case '4D-8PSK-TCM'
                         obj.pNumModInBits = temp - mod(temp,4*double(obj.ModulationEfficiency));
                         obj.pModInputBuffer = zeros(obj.pNumModInBits,1,'int8');
@@ -904,6 +916,12 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         m = 2;
                     case '8PSK'
                         m = 3;
+                     % additional 16QAM
+                    case '16QAM'
+                        m = 4;
+                     % additional 32QAM
+                    case '32QAM'
+                        m = 5;
                     case '4D-8PSK-TCM'
                         m = double(obj.ModulationEfficiency);
                     case 'OQPSK'
@@ -1231,10 +1249,57 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         end
                         waveform(symIdx(:,iSlice)) = obj.pMod(double(tbits));
                     end
+                % additional 16QAM
+                case '16QAM'
+                    bLen = length(modin);
+                    bitsPerSymbol = 4;
+                    qamM = 16;
+
+                    temp = 1:bLen;
+                    indices = reshape(temp,obj.pNumModInBits,n);
+
+                    waveform = complex(zeros(bLen/bitsPerSymbol,1));
+                    symIdx = reshape(1:bLen/bitsPerSymbol, ...
+                        obj.pNumModInBits/bitsPerSymbol,n);
+
+                    for iSlice = 1:n
+                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && strcmp(obj.PCMFormat,'NRZ-M')
+                            tbits = obj.pDiffEnc(modin(indices(:,iSlice)));
+                        else
+                            tbits = modin(indices(:,iSlice));
+                        end
+
+                        waveform(symIdx(:,iSlice)) = qammod(double(tbits), qamM, ...
+                            'InputType','bit', ...
+                            'UnitAveragePower',true);
+                    end
+
+                    % additional 32QAM
+                case '32QAM'
+                    bLen = length(modin);
+                    bitsPerSymbol = 5;
+                    qamM = 32;
+
+                    temp = 1:bLen;
+                    indices = reshape(temp,obj.pNumModInBits,n);
+
+                    waveform = complex(zeros(bLen/bitsPerSymbol,1));
+                    symIdx = reshape(1:bLen/bitsPerSymbol, ...
+                        obj.pNumModInBits/bitsPerSymbol,n);
+
+                    for iSlice = 1:n
+                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && strcmp(obj.PCMFormat,'NRZ-M')
+                            tbits = obj.pDiffEnc(modin(indices(:,iSlice)));
+                        else
+                            tbits = modin(indices(:,iSlice));
+                        end
+
+                        waveform(symIdx(:,iSlice)) = qammod(double(tbits), qamM, ...
+                            'InputType','bit', ...
+                            'UnitAveragePower',true);
+                    end
                 case '4D-8PSK-TCM'
                     if coder.target('MATLAB')
-                        %% 
-                         %% 
                          if evalin('base','exist(''DEBUG_4D_TX_MODIN'',''var'') && logical(DEBUG_4D_TX_MODIN)')
                              assignin('base','debug4D_tx_modin', int8(modin(:)));
                              assignin('base','debug4D_tx_eff', double(obj.ModulationEfficiency));

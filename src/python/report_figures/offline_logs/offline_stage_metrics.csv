@@ -1,0 +1,4 @@
+mod,stage,ifmhz,ber,evm,mer,snrest,lock,recovery
+8PSK,Clean,1000.0,0.0,7.1576,22.905,22.905,100.0,none
+8PSK,Damaged,1000.0,0.0,12.794,17.86,17.86,100.0,none
+8PSK,Recovered,1000.0,0.0,7.3639,22.658,22.658,100.0,known-H MMSE

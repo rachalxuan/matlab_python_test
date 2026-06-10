@@ -149,6 +149,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                         asm = [1;1;0;1;0;1;0;1;1;1;0;0;0;0;0;1;0;...
                             1;1;1;1;1;1;0;0;0;0;1;0;1;0;0;0;1;0;1;0;1];
                         obj.pDec.PuncturePattern = [1;1;0;1];
+                        % 理论上，6 个输入 bit 会产生：6 input bits × 2 = 12 mother coded bits
+                        % 然后按 [1 1 0 1] 打孔，12 个 mother bits 里大约保留 9 个。
+                        % 经验多跳 1 bit，保留 38-bit ASM 模板
                         obj.pASMOffsetLength = 10;
                         obj.pFullInputBufferLength = 3*(obj.pPRNSequenceLength + 32)/2; % Note that obj.pPRNSequenceLength is always an even number. So, division by 2 is always an integer value
                     case '3/4'
@@ -202,7 +205,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                         % 如果 CADU 长度不能被 5 整除，说明 CADU 边界和卷积编码块边界会漂移。
                         % 这时不要在 Viterbi 前做 coded ASM 同步。
                         obj.pSkipPreViterbiASMSync = false;
-
+%                         这个 offset 是因为卷积码有记忆，ASM 的前若干编码输出会受前面状态影响，所以同步时不是简单拿完整编码 ASM 直接匹配，而是取稳定后的部分。
                         obj.pASMOffsetLength = 9;
 
                         % Build coded ASM template for frame synchronization.

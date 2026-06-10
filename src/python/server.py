@@ -5,6 +5,9 @@ import os
 import sys
 import json
 import time
+import threading
+import queue
+import uuid
 
 import sqlite3
 import datetime
@@ -25,6 +28,129 @@ print(f"✅ [Server] MATLAB 引擎启动完毕！耗时: {time.time() - t_start:
 
 app = Flask(__name__)
 CORS(app)  # ✅ 2. 新增这行：开启跨域许可
+
+task_queue = queue.Queue()
+tasks = {}
+tasks_lock = threading.Lock()
+
+
+def _task_snapshot(task_id):
+    with tasks_lock:
+        task = tasks.get(task_id)
+        if not task:
+            return None
+        public_keys = [
+            "taskId", "status", "position", "createdAt", "startedAt",
+            "finishedAt", "result", "error", "summary",
+        ]
+        return {key: task.get(key) for key in public_keys if key in task}
+
+
+def _set_task(task_id, **updates):
+    with tasks_lock:
+        if task_id in tasks:
+            tasks[task_id].update(updates)
+
+
+def _queue_position(task_id):
+    with tasks_lock:
+        queued_ids = [
+            item.get("taskId")
+            for item in list(task_queue.queue)
+            if item.get("taskId") in tasks and tasks[item.get("taskId")].get("status") == "queued"
+        ]
+    try:
+        return queued_ids.index(task_id) + 1
+    except ValueError:
+        return 0
+
+
+def _worker_loop():
+    while True:
+        item = task_queue.get()
+        task_id = item["taskId"]
+        params_json = item["paramsJson"]
+
+        with tasks_lock:
+            task = tasks.get(task_id)
+            if not task:
+                task_queue.task_done()
+                continue
+            if task.get("cancelRequested"):
+                task.update({
+                    "status": "cancelled",
+                    "finishedAt": datetime.datetime.now().isoformat(timespec="seconds"),
+                })
+                task_queue.task_done()
+                continue
+            task.update({
+                "status": "running",
+                "startedAt": datetime.datetime.now().isoformat(timespec="seconds"),
+                "position": 0,
+            })
+
+        future = None
+        try:
+            print(f"▶️ [Task {task_id}] 开始 MATLAB 仿真")
+            future = eng.run_ccsds_tm_evaluation(params_json, nargout=1, background=True)
+
+            while not future.done():
+                with tasks_lock:
+                    cancel_requested = tasks.get(task_id, {}).get("cancelRequested", False)
+                if cancel_requested:
+                    try:
+                        future.cancel()
+                    except Exception as cancel_err:
+                        print(f"⚠️ [Task {task_id}] MATLAB cancel 请求失败: {cancel_err}")
+                    _set_task(task_id, status="cancelling")
+                    break
+                time.sleep(0.2)
+
+            result_json = future.result()
+            with tasks_lock:
+                cancel_requested = tasks.get(task_id, {}).get("cancelRequested", False)
+
+            if cancel_requested:
+                _set_task(
+                    task_id,
+                    status="cancelled",
+                    finishedAt=datetime.datetime.now().isoformat(timespec="seconds"),
+                )
+                print(f"⏹️ [Task {task_id}] 已停止")
+            else:
+                result_data = json.loads(result_json)
+                _set_task(
+                    task_id,
+                    status="completed",
+                    result=result_data,
+                    finishedAt=datetime.datetime.now().isoformat(timespec="seconds"),
+                )
+                print(f"✅ [Task {task_id}] 完成")
+        except Exception as e:
+            with tasks_lock:
+                cancel_requested = tasks.get(task_id, {}).get("cancelRequested", False)
+            if cancel_requested:
+                _set_task(
+                    task_id,
+                    status="cancelled",
+                    finishedAt=datetime.datetime.now().isoformat(timespec="seconds"),
+                    error=str(e),
+                )
+                print(f"⏹️ [Task {task_id}] 已停止: {e}")
+            else:
+                _set_task(
+                    task_id,
+                    status="failed",
+                    error=str(e),
+                    finishedAt=datetime.datetime.now().isoformat(timespec="seconds"),
+                )
+                print(f"❌ [Task {task_id}] 失败: {e}")
+        finally:
+            task_queue.task_done()
+
+
+worker_thread = threading.Thread(target=_worker_loop, daemon=True)
+worker_thread.start()
 
 # 初始化数据库
 
@@ -96,21 +222,72 @@ def run_simulation():
         }
         print("[Server] 参数摘要:", json.dumps(debug_params, ensure_ascii=False))
 
-        result_json = eng.run_ccsds_tm_evaluation(params_json, nargout=1)
-        # result_json = eng.run_ccsds_tm_modulation(params_json, nargout=1)
+        task_id = uuid.uuid4().hex
+        now = datetime.datetime.now().isoformat(timespec="seconds")
+        with tasks_lock:
+            tasks[task_id] = {
+                "taskId": task_id,
+                "status": "queued",
+                "position": task_queue.qsize() + 1,
+                "createdAt": now,
+                "summary": debug_params,
+                "cancelRequested": False,
+            }
+        task_queue.put({"taskId": task_id, "paramsJson": params_json})
 
-        # 3. 解析结果并返回
-        result_data = json.loads(result_json)
-
-        if 'stats' in result_data and 'matlabTime' in result_data['stats']:
-            print(
-                f"⚡ [Server] MATLAB 计算耗时: {result_data['stats']['matlabTime']:.4f} 秒")
-
-        return jsonify(result_data)
+        return jsonify({
+            "success": True,
+            "taskId": task_id,
+            "status": "queued",
+            "position": _queue_position(task_id),
+        })
 
     except Exception as e:
         print(f"❌ [Server] 发生错误: {str(e)}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/task_status/<task_id>', methods=['GET'])
+def get_task_status(task_id):
+    task = _task_snapshot(task_id)
+    if not task:
+        return jsonify({"success": False, "error": "任务不存在"}), 404
+
+    if task.get("status") == "queued":
+        task["position"] = _queue_position(task_id)
+    task["success"] = True
+    return jsonify(task)
+
+
+@app.route('/cancel_task/<task_id>', methods=['POST'])
+def cancel_task(task_id):
+    with tasks_lock:
+        task = tasks.get(task_id)
+        if not task:
+            return jsonify({"success": False, "error": "任务不存在"}), 404
+
+        status = task.get("status")
+        if status in ("completed", "failed", "cancelled"):
+            return jsonify({
+                "success": True,
+                "taskId": task_id,
+                "status": status,
+                "message": "任务已经结束",
+            })
+
+        task["cancelRequested"] = True
+        if status == "queued":
+            task["status"] = "cancelled"
+            task["finishedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
+        elif status == "running":
+            task["status"] = "cancelling"
+        new_status = task.get("status")
+
+    return jsonify({
+        "success": True,
+        "taskId": task_id,
+        "status": new_status,
+    })
 
 
 # 存入数据库接口
@@ -216,4 +393,4 @@ def get_record_detail():
 
 if __name__ == '__main__':
     # 启动 HTTP 服务
-    app.run(host='127.0.0.1', port=5000, use_reloader=False)
+    app.run(host='127.0.0.1', port=5000, use_reloader=False, threaded=True)
