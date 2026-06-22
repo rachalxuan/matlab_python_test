@@ -21,3 +21,13 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Python/MATLAB temporary files
+__pycache__/
+*.py[cod]
+*.asv
+
+# Local extraction/runtime scratch folders
+/tmp_mlx_extract/
+/temp/facm_mlx_extract/
+/temp/CCSDSFACMBitErrorRateExample.zip

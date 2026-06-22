@@ -19,9 +19,11 @@ t_start = time.time()
 # 启动引擎
 eng = matlab.engine.start_matlab()
 
-# 添加当前目录到路径
+# 添加当前目录到路径，并放到 MATLAB path 最前面。
+# 这样前端服务会优先使用本项目里改过的 ccsdsTMWaveformGenerator 和 +satcom 包。
 current_dir = os.path.dirname(os.path.abspath(__file__))
-eng.addpath(current_dir, nargout=0)
+eng.addpath(current_dir, '-begin', nargout=0)
+eng.eval("rehash; clear classes;", nargout=0)
 
 print(f"✅ [Server] MATLAB 引擎启动完毕！耗时: {time.time() - t_start:.2f} 秒")
 # ----------------------------------------

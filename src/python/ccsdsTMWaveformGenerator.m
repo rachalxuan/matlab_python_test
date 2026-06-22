@@ -364,7 +364,10 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                             obj.TurboTrellis, 'TerminationMethod', 'Terminated');
                         obj.pConvEnc2 = comm.ConvolutionalEncoder('TrellisStructure',...
                             obj.TurboTrellis, 'TerminationMethod', 'Terminated');
-                    otherwise % case 'LDPC'
+                    case 'TPC'
+                        % TPC uses the teacher (64,57)^2 product-code
+                        % encoder through ccsdsTPCEncodeBits.
+                    case 'LDPC'
                         invr = obj.pInverseCodeRate;
                         k = obj.NumBitsInInformationBlock;
                         m = double(obj.LDPCCodeblockSize);
@@ -409,6 +412,18 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         obj.pNumBitsInpModInputBuffer = 0;
                         obj.pConvEncState = zeros(6,1,'int8');
                         obj.pDiffEncState = zeros(3,1,'int8');
+                    case 'UQPSK'
+                        rRatio = 2;
+                        bitsPerGroup = rRatio + 1;
+
+                        obj.pNumModInBits = temp - mod(temp, bitsPerGroup);
+                        obj.pModInputBuffer = zeros(obj.pNumModInBits,1,'int8');
+                        obj.pNumBitsInpModInputBuffer = 0;
+                    case 'FM'
+                        % FM 鎵╁睍璋冨埗锛? bit / symbol
+                        obj.pNumModInBits = temp;
+                        obj.pModInputBuffer = zeros(obj.pNumModInBits,1,'int8');
+                        obj.pNumBitsInpModInputBuffer = 0;
                     case 'GMSK'
                         btprod = double(obj.BandwidthTimeProduct);
                         if btprod == 0.5
@@ -439,11 +454,11 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 obj.pNumBitsInpModInputBuffer = 0;
             end
             
-            if strcmp(obj.PCMFormat,'NRZ-M')
+            if any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
                 obj.pDiffEnc = comm.DifferentialEncoder;
             end
             
-            if ~strcmp(obj.PulseShapingFilter,'none') && ~any(strcmp(obj.Modulation,{'GMSK','OQPSK','PCM/PSK/PM','PCM/PM/biphase-L'}))
+            if ~strcmp(obj.PulseShapingFilter,'none') && ~any(strcmp(obj.Modulation,{'GMSK','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'}))
                 obj.pTransmitFilter = comm.RaisedCosineTransmitFilter(...
                     'RolloffFactor', double(obj.RolloffFactor), 'FilterSpanInSymbols', ...
                     double(obj.FilterSpanInSymbols), 'OutputSamplesPerSymbol', ...
@@ -562,7 +577,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             end
             
             % Pass the symbols through filter
-            if strcmp(obj.PulseShapingFilter,"root raised cosine") && ~any(strcmp(obj.Modulation,{'GMSK','OQPSK','PCM/PSK/PM','PCM/PM/biphase-L'}))
+            if strcmp(obj.PulseShapingFilter,"root raised cosine") && ~any(strcmp(obj.Modulation,{'GMSK','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'}))
                 if ~isempty(symbols)
                     waveform = complex(obj.pTransmitFilter(symbols).*obj.pGain); % Here casting to complex is needed. Though "symbols" is coming as complex, after filtering, they are becoming real again
                 else
@@ -824,7 +839,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             elseif strcmp(prop,'Modulation')
                 flag = isFACM;
             elseif strcmp(prop,'PulseShapingFilter')
-                flag = any(strcmp(obj.Modulation,{'GMSK','OQPSK','PCM/PSK/PM','PCM/PM/biphase-L'})) && ~isFACM;
+                flag = any(strcmp(obj.Modulation,{'GMSK','FM','OQPSK','PCM/PSK/PM','PCM/PM/biphase-L'})) && ~isFACM;
             elseif strcmp(prop,'RolloffFactor')
                 if any(strcmp(obj.Modulation,{'GMSK','PCM/PSK/PM','PCM/PM/biphase-L','OQPSK'})) && ~isFACM
                     flag = true;
@@ -835,7 +850,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     flag = strcmp(obj.PulseShapingFilter,"none");
                 end
             elseif strcmp(prop,'SamplesPerSymbol')
-                if any(strcmp(obj.Modulation,{'GMSK','PCM/PSK/PM','PCM/PM/biphase-L','OQPSK'})) && ~isFACM
+                if any(strcmp(obj.Modulation,{'GMSK','PCM/PSK/PM','PCM/PM/biphase-L','FM','OQPSK'})) && ~isFACM
                     flag = false;
                 else
                     flag = strcmp(obj.PulseShapingFilter,"none");
@@ -910,6 +925,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     else
                         s.ActualCodeRate = double(obj.RSMessageLength)/obj.pRSParams.n;
                     end
+                elseif strcmp(obj.ChannelCoding,'TPC')
+                    s.ActualCodeRate = (57*57)/(64*64);
                 end
                 switch(obj.Modulation)
                     case 'QPSK'
@@ -922,10 +939,14 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                      % additional 32QAM
                     case '32QAM'
                         m = 5;
+                    case 'UQPSK'
+                        m = 1.5;
                     case '4D-8PSK-TCM'
                         m = double(obj.ModulationEfficiency);
                     case 'OQPSK'
                         m = 2;
+                    case 'FM'
+                        m = 1;
                     otherwise % case 'PCM/PM/biphase-L', 'PCM/PSK/PM', 'GMSK', 'BPSK'
                         m = 1;
                 end
@@ -1076,11 +1097,11 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     encodedTemp = int8(zeros(bLen*obj.pInverseCodeRate,1));
                     for iSlice = 1:numcw
                         tempbits = encin(indices(:,iSlice));
-                        if strcmp(obj.PCMFormat,'NRZ-M')
+                        if any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
                             % Refer section 3.3.3 of [1], which specifies
-                            % that NRZ-M should be done before
+                            % that differential PCM coding should be done before
                             % convolutional encoder.
-                            tfullcadu = obj.pDiffEnc(tempbits);
+                            tfullcadu = localPCMDifferentialEncode(obj.pDiffEnc, tempbits, obj.PCMFormat);
                         else % Case of NRZ-L
                             tfullcadu = tempbits;
                         end
@@ -1125,11 +1146,11 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     encodedTemp = int8(zeros(bLen*obj.pInverseCodeRate,1));
                     for iSlice = 1:numcw
                         tempbits = encin(indices(:,iSlice));
-                        if strcmp(obj.PCMFormat,'NRZ-M')
+                        if any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
                             % Refer section 3.3.3 of [1] which specifies
-                            % that NRZ-M should be done before
+                            % that differential PCM coding should be done before
                             % convolutional encoder.
-                            tfullcadu = obj.pDiffEnc(tempbits);
+                            tfullcadu = localPCMDifferentialEncode(obj.pDiffEnc, tempbits, obj.PCMFormat);
                         else % Case of NRZ-L
                             tfullcadu = tempbits;
                         end
@@ -1180,6 +1201,14 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         end
                         encoded((itf-1)*numBitsInCADU+1:itf*numBitsInCADU) = code;
                     end
+                case 'TPC'
+                    if obj.HasRandomizer
+                        prn = repmat(obj.pPRNSequence, ceil(numel(bits)/numel(obj.pPRNSequence)), 1);
+                        randomized = bitxor(bits, prn(1:numel(bits)));
+                    else
+                        randomized = bits;
+                    end
+                    encoded = ccsdsTPCEncodeBits(randomized, HasASM, obj.pASM);
                 case 'LDPC'
                     numBitsInCADU = obj.pInverseCodeRate*tfl+HasASM*length(obj.pASM);
                     encoded = zeros(numBitsInCADU*numTF,1,'int8');
@@ -1212,8 +1241,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     indices = reshape(temp,obj.pNumModInBits,n);
                     w = complex(zeros(bLen,1));
                     for iSlice = 1:n
-                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && strcmp(obj.PCMFormat,'NRZ-M')
-                            tbits = obj.pDiffEnc(modin(indices(:,iSlice)));
+                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
+                            tbits = localPCMDifferentialEncode(obj.pDiffEnc, modin(indices(:,iSlice)), obj.PCMFormat);
                         else
                             tbits = modin(indices(:,iSlice));
                         end
@@ -1227,8 +1256,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     waveform = complex(zeros(bLen/2,1));
                     symIdx = reshape(1:bLen/2,obj.pNumModInBits/2,n);
                     for iSlice = 1:n
-                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && strcmp(obj.PCMFormat,'NRZ-M')
-                            tbits = obj.pDiffEnc(modin(indices(:,iSlice)));
+                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
+                            tbits = localPCMDifferentialEncode(obj.pDiffEnc, modin(indices(:,iSlice)), obj.PCMFormat);
                         else
                             tbits = modin(indices(:,iSlice));
                         end
@@ -1242,8 +1271,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     waveform = complex(zeros(bLen/3,1));
                     symIdx = reshape(1:bLen/3,obj.pNumModInBits/3,n);
                     for iSlice = 1:n
-                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && strcmp(obj.PCMFormat,'NRZ-M')
-                            tbits = obj.pDiffEnc(modin(indices(:,iSlice)));
+                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
+                            tbits = localPCMDifferentialEncode(obj.pDiffEnc, modin(indices(:,iSlice)), obj.PCMFormat);
                         else
                             tbits = modin(indices(:,iSlice));
                         end
@@ -1263,8 +1292,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         obj.pNumModInBits/bitsPerSymbol,n);
 
                     for iSlice = 1:n
-                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && strcmp(obj.PCMFormat,'NRZ-M')
-                            tbits = obj.pDiffEnc(modin(indices(:,iSlice)));
+                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
+                            tbits = localPCMDifferentialEncode(obj.pDiffEnc, modin(indices(:,iSlice)), obj.PCMFormat);
                         else
                             tbits = modin(indices(:,iSlice));
                         end
@@ -1288,8 +1317,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         obj.pNumModInBits/bitsPerSymbol,n);
 
                     for iSlice = 1:n
-                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && strcmp(obj.PCMFormat,'NRZ-M')
-                            tbits = obj.pDiffEnc(modin(indices(:,iSlice)));
+                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
+                            tbits = localPCMDifferentialEncode(obj.pDiffEnc, modin(indices(:,iSlice)), obj.PCMFormat);
                         else
                             tbits = modin(indices(:,iSlice));
                         end
@@ -1298,6 +1327,51 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                             'InputType','bit', ...
                             'UnitAveragePower',true);
                     end
+                case 'UQPSK'
+                    bLen = length(modin);
+                    temp = 1:bLen;
+
+                    rRatio = 2;
+                    aRatio = 2;
+                    bitsPerGroup = rRatio + 1;   % 3 bit 涓€缁?
+                    indices = reshape(temp, obj.pNumModInBits, n);
+
+                    % 姣?3 bit -> 2 涓鍙凤紝鎵€浠ヨ緭鍑虹鍙锋暟 = bLen/3*2
+                    waveform = complex(zeros(bLen / bitsPerGroup * rRatio, 1));
+                    symIdx = reshape(1:(obj.pNumModInBits / bitsPerGroup * rRatio * n), ...
+                        obj.pNumModInBits / bitsPerGroup * rRatio, n);
+
+                    for iSlice = 1:n
+                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
+                            tbits = localPCMDifferentialEncode(obj.pDiffEnc, modin(indices(:,iSlice)), obj.PCMFormat);
+                        else
+                            tbits = modin(indices(:,iSlice));
+                        end
+
+                        waveform(symIdx(:,iSlice)) = uqpskMapBitsLocal(tbits, rRatio, aRatio);
+                    end
+                case 'FM'
+                    bLen = length(modin);
+                    temp = 1:bLen;
+                    indices = reshape(temp, obj.pNumModInBits, n);
+
+                    tbitsAll = zeros(bLen, 1, 'int8');
+                    for iSlice = 1:n
+                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
+                            tbits = localPCMDifferentialEncode(obj.pDiffEnc, modin(indices(:,iSlice)), obj.PCMFormat);
+                        else
+                            tbits = modin(indices(:,iSlice));
+                        end
+                        tbitsAll(indices(:,iSlice)) = int8(tbits(:));
+                    end
+                    fmParams = struct();
+                    fmParams.symbolRate = 1;
+                    fmParams.fs = double(obj.SamplesPerSymbol);
+                    fmParams.sps = double(obj.SamplesPerSymbol);
+                    fmParams.RolloffFactor = double(obj.RolloffFactor);
+                    fmParams.TZZS = 0.715;
+                    fmParams.fmPayloadBitsPerFrame = numel(tbitsAll);
+                    waveform = ccsdsFMModulateBits(tbitsAll, fmParams);
                 case '4D-8PSK-TCM'
                     if coder.target('MATLAB')
                          if evalin('base','exist(''DEBUG_4D_TX_MODIN'',''var'') && logical(DEBUG_4D_TX_MODIN)')
@@ -1365,8 +1439,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     waveform = complex(zeros(sps*bLen/2,1));
                     symIdx = reshape(1:bLen*sps/2,sps*obj.pNumModInBits/2,n);
                     for iSlice = 1:n
-                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && strcmp(obj.PCMFormat,'NRZ-M')
-                            tbits = obj.pDiffEnc(modin(indices(:,iSlice)));
+                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
+                            tbits = localPCMDifferentialEncode(obj.pDiffEnc, modin(indices(:,iSlice)), obj.PCMFormat);
                         else
                             tbits = modin(indices(:,iSlice));
                         end
@@ -1381,8 +1455,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         indices = reshape(temp,obj.pNumModInBits,n);
                         dbits = zeros(bLen,1);
                         for iSlice = 1:n % So that variable number of bits are not passed into differential encoder even if input size change
-                            if strcmp(obj.PCMFormat,'NRZ-M')
-                                dbits(indices(:,iSlice)) = obj.pDiffEnc(modin(indices(:,iSlice)));
+                            if any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
+                                dbits(indices(:,iSlice)) = localPCMDifferentialEncode(obj.pDiffEnc, modin(indices(:,iSlice)), obj.PCMFormat);
                             else
                                 dbits(indices(:,iSlice)) = modin(indices(:,iSlice));
                             end
@@ -1552,6 +1626,16 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             end
         end
     end
+end
+
+function encodedBits = localPCMDifferentialEncode(diffEnc, bits, pcmFormat)
+    bits = int8(bits(:));
+    if strcmp(pcmFormat,'NRZ-S')
+        diffIn = int8(~logical(bits));
+    else
+        diffIn = bits;
+    end
+    encodedBits = diffEnc(diffIn);
 end
 
 % LocalWords:  TMWAVEGEN TXWAVEFORM tm randi hasfilt csmlen LDPCSMTF nd altersymb Prev Symb LDPCG

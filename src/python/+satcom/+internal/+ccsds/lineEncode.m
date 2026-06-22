@@ -7,7 +7,7 @@ function out = lineEncode(bits,pcmFormat,varargin)
 %   OUT = satcom.internal.ccsds.lineEncode(BITS,PCMFORMAT) returns line
 %   coded signal for a specified PCM coding, PCMFORMAT, and information
 %   bits, BITS. OUT is a binary column vector. This internal function
-%   supports 'NRZ-L', NRZ-M' and 'Biphase-L' encoding.
+%   supports 'NRZ-L', NRZ-M', 'NRZ-S' and 'Biphase-L' encoding.
 %
 %   OUT = satcom.internal.ccsds.lineEncode(BITS,PCMFORMAT,SPS) returns the
 %   line coded signal for a given samples per symbol, SPS. The default
@@ -38,6 +38,20 @@ elseif strcmpi(pcmFormat,'NRZ-M')
     
     for ii = 2:length(bits)
         if bits(ii)== 1
+            out((ii-1)*sps+1:ii*sps) = -1*out(sps*(ii-1));
+        else
+            out((ii-1)*sps+1:ii*sps) = out(sps*(ii-1));
+        end
+    end
+    
+elseif strcmpi(pcmFormat,'NRZ-S')
+    out = -1*ones(sps*length(bits),1);
+    if bits(1)== 0
+        out(1:sps) = 1;
+    end
+    
+    for ii = 2:length(bits)
+        if bits(ii)== 0
             out((ii-1)*sps+1:ii*sps) = -1*out(sps*(ii-1));
         else
             out((ii-1)*sps+1:ii*sps) = out(sps*(ii-1));

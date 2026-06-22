@@ -6,6 +6,9 @@ import sys
 # 启动 MATLAB 引擎 (保持单例模式)
 # 注意：如果你的启动逻辑不一样，请保留你原来的启动代码，只修改 run_ccsds_tm 函数
 eng = matlab.engine.start_matlab()
+current_dir = os.path.dirname(os.path.abspath(__file__))
+eng.addpath(current_dir, '-begin', nargout=0)
+eng.eval("rehash; clear classes;", nargout=0)
 
 
 def run_ccsds_tm(params):
@@ -16,7 +19,7 @@ def run_ccsds_tm(params):
     try:
         # 1. 确保 MATLAB 能找到我们的 .m 文件
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        eng.addpath(current_dir, nargout=0)
+        eng.addpath(current_dir, '-begin', nargout=0)
 
         # 2. 将 Python 字典序列化为 JSON 字符串
         # MATLAB 处理 JSON 字符串比处理 Python 字典要灵活得多

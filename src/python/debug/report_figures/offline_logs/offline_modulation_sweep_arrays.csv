@@ -1,0 +1,71 @@
+modulation,note,snr,ber,evm,lock
+BPSK,TM convolutional 1/2,0,0,33.886,100
+BPSK,TM convolutional 1/2,2,0,27.434,100
+BPSK,TM convolutional 1/2,4,0,21.909,100
+BPSK,TM convolutional 1/2,6,0,17.602,100
+BPSK,TM convolutional 1/2,8,0,14.07,100
+BPSK,TM convolutional 1/2,10,0,11.368,100
+BPSK,TM convolutional 1/2,12,0,9.0778,100
+BPSK,TM convolutional 1/2,14,0,7.1904,97.652
+BPSK,TM convolutional 1/2,16,0,5.7211,100
+BPSK,TM convolutional 1/2,18,0,4.6154,100
+BPSK,TM convolutional 1/2,20,0,3.7319,100
+BPSK,TM convolutional 1/2,22,0,3.0375,100
+BPSK,TM convolutional 1/2,24,0,2.5294,100
+BPSK,TM convolutional 1/2,26,0,2.1309,100
+QPSK,TM convolutional 1/2,0,0,33.864,100
+QPSK,TM convolutional 1/2,2,0,27.824,100
+QPSK,TM convolutional 1/2,4,0,21.562,100
+QPSK,TM convolutional 1/2,6,0,17.552,100
+QPSK,TM convolutional 1/2,8,0,14.168,100
+QPSK,TM convolutional 1/2,10,0,11.192,100
+QPSK,TM convolutional 1/2,12,0,8.8995,98.652
+QPSK,TM convolutional 1/2,14,0,7.1345,100
+QPSK,TM convolutional 1/2,16,0,5.7211,100
+QPSK,TM convolutional 1/2,18,0,4.6113,100
+QPSK,TM convolutional 1/2,20,0,3.6896,100
+QPSK,TM convolutional 1/2,22,0,3.0109,100
+QPSK,TM convolutional 1/2,24,0,2.4799,100
+QPSK,TM convolutional 1/2,26,0,2.0434,100
+8PSK,TM convolutional 1/2,0,0.5,43.276,0
+8PSK,TM convolutional 1/2,2,0.5,35.567,0
+8PSK,TM convolutional 1/2,4,0,21.875,100
+8PSK,TM convolutional 1/2,6,0,17.524,100
+8PSK,TM convolutional 1/2,8,0,14.097,100
+8PSK,TM convolutional 1/2,10,0,11.156,100
+8PSK,TM convolutional 1/2,12,0,8.9345,100
+8PSK,TM convolutional 1/2,14,0,7.1451,100
+8PSK,TM convolutional 1/2,16,0,5.6795,100
+8PSK,TM convolutional 1/2,18,0,4.6093,100
+8PSK,TM convolutional 1/2,20,0,3.6819,100
+8PSK,TM convolutional 1/2,22,0,2.9575,100
+8PSK,TM convolutional 1/2,24,0,2.4478,100
+8PSK,TM convolutional 1/2,26,0,2.0667,100
+GMSK,TM convolutional 1/2,0,0.5,24.647,0
+GMSK,TM convolutional 1/2,2,0.50095,20.645,45.091
+GMSK,TM convolutional 1/2,4,0.5,16.963,52.174
+GMSK,TM convolutional 1/2,6,0.21415,13.724,56.522
+GMSK,TM convolutional 1/2,8,0,11.108,100
+GMSK,TM convolutional 1/2,10,0,9.1738,100
+GMSK,TM convolutional 1/2,12,0,7.8229,100
+GMSK,TM convolutional 1/2,14,0,6.5817,100
+GMSK,TM convolutional 1/2,16,0,5.6223,100
+GMSK,TM convolutional 1/2,18,0,5.0445,100
+GMSK,TM convolutional 1/2,20,0,4.5378,100
+GMSK,TM convolutional 1/2,22,0,4.2366,100
+GMSK,TM convolutional 1/2,24,0,3.9891,100
+GMSK,TM convolutional 1/2,26,0,3.8684,100
+16APSK,FACM ACM14,0,0.5,42.54,0
+16APSK,FACM ACM14,2,0.45726,35.38,100
+16APSK,FACM ACM14,4,0.47403,31.237,100
+16APSK,FACM ACM14,6,0.45892,29.693,100
+16APSK,FACM ACM14,8,0.42204,27.836,100
+16APSK,FACM ACM14,10,0.22726,25.554,100
+16APSK,FACM ACM14,12,0.0039396,22.707,100
+16APSK,FACM ACM14,14,0,19.507,100
+16APSK,FACM ACM14,16,0,16.3,100
+16APSK,FACM ACM14,18,0,13.262,100
+16APSK,FACM ACM14,20,0,10.674,100
+16APSK,FACM ACM14,22,0,8.5993,100
+16APSK,FACM ACM14,24,0,7.0003,100
+16APSK,FACM ACM14,26,0,5.7588,100

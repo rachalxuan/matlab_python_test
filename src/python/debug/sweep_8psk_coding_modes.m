@@ -1,13 +1,13 @@
-function results = sweep_32QAM_coding_modes(snrList)
-%SWEEP_32QAM_CODING_MODES Sweep coding modes with fixed 32QAM modulation.
+function results = sweep_UQPSK_coding_modes(snrList)
+%SWEEP_UQPSK_CODING_MODES Sweep coding modes with fixed UQPSK modulation.
 %
 % Run from MATLAB:
 %   cd E:\web_code\react\fft_project\react-fft\src\python
-%   results = sweep_32QAM_coding_modes;
+%   results = sweep_UQPSK_coding_modes;
 %
 % Optional:
-%   results = sweep_32QAM_coding_modes(0:2:16);
-%   results = sweep_32QAM_coding_modes(0:2:22);
+%   results = sweep_UQPSK_coding_modes(0:2:16);
+%   results = sweep_UQPSK_coding_modes(0:2:22);
 %
 % Coding modes:
 %   无编码, 卷积码 1/2, RS, LDPC 1/2, Turbo 1/2
@@ -25,13 +25,13 @@ function results = sweep_32QAM_coding_modes(snrList)
     cfg = localDefaultConfig(snrList);
 %     stamp = datestr(now,'yyyymmdd_HHMMSS');
 %     outDir = fileparts(mfilename('fullpath'));
-%     cfg.outputFile = fullfile(outDir, sprintf('sweep_32QAM_coding_modes_%s.csv', stamp));
-%     cfg.plotFile = fullfile(outDir, sprintf('sweep_32QAM_coding_modes_%s.png', stamp));
+%     cfg.outputFile = fullfile(outDir, sprintf('sweep_UQPSK_coding_modes_%s.csv', stamp));
+%     cfg.plotFile = fullfile(outDir, sprintf('sweep_UQPSK_coding_modes_%s.png', stamp));
 % 
     results = localRunSweep(cfg);
     localPlotResults(results, cfg);
 
-    fprintf('\n================ 32QAM CODING SWEEP SUMMARY ================\n');
+    fprintf('\n================ UQPSK CODING SWEEP SUMMARY ================\n');
     disp(results);
 %     fprintf('\nSaved CSV : %s\n', cfg.outputFile);
 %     fprintf('Saved Plot: %s\n', cfg.plotFile);
@@ -44,7 +44,7 @@ function cfg = localDefaultConfig(snrList)
     cfg.snrList = double(snrList(:).');
 
     cfg.base = struct( ...
-        'modType', '32QAM', ...
+        'modType', 'UQPSK', ...
         'symbolRate', infoRate/3, ...
         'sps', 8, ...
         'snr', 12, ...
@@ -89,8 +89,8 @@ function results = localRunSweep(cfg)
         'VariableNames', {'Modulation','Coding','InputSNR_dB','BER', ...
         'EVM_post_pct','SNR_est_dB','LockRate_pct','Success','ErrorMsg'});
 
-    fprintf('\n================ 32QAM CODING SWEEP ================\n');
-    fprintf('Mod=32QAM, SNR points=%s\n', mat2str(cfg.snrList));
+    fprintf('\n================ UQPSK CODING SWEEP ================\n');
+    fprintf('Mod=UQPSK, SNR points=%s\n', mat2str(cfg.snrList));
 
     for iCase = 1:numel(cfg.cases)
         c = cfg.cases(iCase);
@@ -98,11 +98,11 @@ function results = localRunSweep(cfg)
             p = localApplyCodingParams(cfg.base, c);
             p.snr = snrVal;
 
-            fprintf('\n[32QAM | %s | SNR %.1f dB]\n', c.Name, snrVal);
+            fprintf('\n[UQPSK | %s | SNR %.1f dB]\n', c.Name, snrVal);
             try
                 out = localDecodeOutput(run_ccsds_tm_evaluation(p));
                 row = table( ...
-                    "32QAM", string(c.Name), snrVal, ...
+                    "UQPSK", string(c.Name), snrVal, ...
                     localField(out,'BER',NaN), ...
                     localField(out,'EVM_post_pct',NaN), ...
                     localField(out,'SNR_est_dB',NaN), ...
@@ -111,7 +111,7 @@ function results = localRunSweep(cfg)
                     'VariableNames', results.Properties.VariableNames);
             catch ME
                 row = table( ...
-                    "32QAM", string(c.Name), snrVal, ...
+                    "UQPSK", string(c.Name), snrVal, ...
                     NaN, NaN, NaN, 0, false, string(ME.message), ...
                     'VariableNames', results.Properties.VariableNames);
             end
@@ -173,7 +173,7 @@ function localPlotResults(results, cfg)
     ];
     markers = {'o','s','^','d','v'};
 
-    fig = figure('Name','32QAM Coding Sweep', ...
+    fig = figure('Name','UQPSK Coding Sweep', ...
         'NumberTitle','off', 'Color',[0.94 0.94 0.94], ...
         'Position',[100 100 1500 470]);
     tiledlayout(1,3,'TileSpacing','compact','Padding','compact');
@@ -187,7 +187,7 @@ function localPlotResults(results, cfg)
     end
     grid on; box on;
     xlabel('输入 SNR (dB)'); ylabel('BER');
-    title('BER vs SNR'); ylim([1e-6 1]);
+    title('BER vs SNR'); ylim([1e-6 0.5]);
     legend(cellstr(codes), 'Location','southwest');
 
     nexttile; hold on;
@@ -214,7 +214,7 @@ function localPlotResults(results, cfg)
     title('Frame Lock vs SNR'); ylim([0 105]);
     legend(cellstr(codes), 'Location','southeast');
 
-    sgtitle('32QAM 编码方式对比 | 信息速率 300 Mbps | 中频 1000 MHz');
+    sgtitle('UQPSK 编码方式对比 | 信息速率 300 Mbps');
 %     exportgraphics(fig, cfg.plotFile, 'Resolution', 220);
 end
 

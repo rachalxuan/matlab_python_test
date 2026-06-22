@@ -59,12 +59,12 @@ classdef tmBase < matlab.System
         NumBytesInTransferFrame = 223
         %PCMFormat Pulse code modulation (PCM) format
         %   Specify the pulse code modulation format as one of "NRZ-L" |
-        %   "NRZ-M" to select the PCM coding used in the CCSDS TM waveform.
+        %   "NRZ-M" | "NRZ-S" to select the PCM coding used in the CCSDS TM waveform.
         %   This property applies when WaveformSource is set to
         %   "synchronization and channel coding" and Modulation is either
         %   "BPSK", "QPSK", "8PSK", "OQPSK", or "PCM/PSK/PM". The default
         %   is "NRZ-L".
-        PCMFormat (1, 1) string {matlab.system.mustBeMember(PCMFormat, {'NRZ-L','NRZ-M'})} = "NRZ-L"
+        PCMFormat (1, 1) string {matlab.system.mustBeMember(PCMFormat, {'NRZ-L','NRZ-M','NRZ-S'})} = "NRZ-L"
     end
     
     % Public, non-tunable properties in channel coding group
@@ -74,7 +74,7 @@ classdef tmBase < matlab.System
         %   "convolutional" | "concatenated" | "turbo" | "LDPC". This
         %   property applies when WaveformSource is "synchronization and
         %   channel coding". The default is "RS".
-        ChannelCoding (1, 1) string {matlab.system.mustBeMember(ChannelCoding, {'none','RS','convolutional','concatenated','turbo','LDPC'})} = "RS"
+        ChannelCoding (1, 1) string {matlab.system.mustBeMember(ChannelCoding, {'none','RS','convolutional','concatenated','turbo','LDPC','TPC'})} = "RS"
         %NumBitsInInformationBlock Number of bits in the turbo/LDPC message
         %   Specify the information block length (in bits) as one of 1784 |
         %   3568 | 7136 | 8920 when ChannelCoding is set to "turbo".
@@ -151,7 +151,7 @@ classdef tmBase < matlab.System
         %   "PCM/PM/biphase-L". This property is applicable when
         %   WaveformSource is set to "synchronization and channel coding".
         %   The default is "QPSK".
-        Modulation (1, 1) string {matlab.system.mustBeMember(Modulation, {'PCM/PSK/PM','PCM/PM/biphase-L','BPSK','QPSK','8PSK','16QAM','32QAM','4D-8PSK-TCM','GMSK','OQPSK'})} = "QPSK"
+        Modulation (1, 1) string {matlab.system.mustBeMember(Modulation, {'PCM/PSK/PM','PCM/PM/biphase-L','BPSK','QPSK','8PSK','16QAM','UQPSK','32QAM','4D-8PSK-TCM','GMSK','OQPSK','FM'})} = "QPSK"
         %PulseShapingFilter Pulse shaping filter
         %   Specify the pulse shaping filter as one of "root raised cosine"
         %   | "none". This property is applicable when WaveformSource is
@@ -335,12 +335,12 @@ classdef tmBase < matlab.System
     end
     
     properties(Constant, Hidden)
-        PCMFormat_Values ={'NRZ-L','NRZ-M'};
+        PCMFormat_Values ={'NRZ-L','NRZ-M','NRZ-S'};
         WaveformSource_Values = {'synchronization and channel coding','flexible advanced coding and modulation'};
-        ChannelCoding_Values = {'none','RS','convolutional','concatenated','turbo','LDPC'};
+        ChannelCoding_Values = {'none','RS','convolutional','concatenated','turbo','LDPC','TPC'};
         CodeRate_Values = {'1/2','2/3','7/8','4/5','1/3','1/4','1/6'};
         ConvolutionalCodeRate_Values = {'1/2','2/3','3/4','5/6','7/8'};
-        Modulation_Values = {'GMSK','BPSK','QPSK','8PSK','16QAM','32QAM','4D-8PSK-TCM','OQPSK','PCM/PSK/PM','PCM/PM/biphase-L'};
+        Modulation_Values = {'GMSK','BPSK','QPSK','8PSK','16QAM','32QAM','UQPSK','4D-8PSK-TCM','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'};
         SubcarrierWaveform_Values = {'sine','square'};
         PulseShapingFilter_Values = {'root raised cosine', 'none'};
         ConvolutionalCodesTrellis = poly2trellis(7, [171 133]); % Trellis structure for the convolutional encoder that is specified in
@@ -415,6 +415,9 @@ classdef tmBase < matlab.System
                                 numPatterns = numBitsAtOutputOfTurboEncoderBeforePuncturing/length(puncpat);
                                 obj.pTurboPuncturePattern = repmat(puncpat,numPatterns,1);
                         end
+                    case 'TPC'
+                        obj.pPRNSequenceLength = 64*64;
+                        obj.pASM = generateASM(obj);
                     otherwise % case 'LDPC'
                         n = round(invr*double(obj.NumBitsInInformationBlock));
                         obj.pLDPCCodeWordLength = n;
@@ -768,7 +771,7 @@ classdef tmBase < matlab.System
         function tflen = getNumBytesInTransferFrame(obj)
             obj.pRSParams = getRSParams(obj);
             if strcmp(obj.WaveformSource,'synchronization and channel coding')
-                if ~any(strcmp(obj.ChannelCoding,{'none','convolutional','LDPC'}))
+                if ~any(strcmp(obj.ChannelCoding,{'none','convolutional','LDPC','TPC'}))
                     if any(strcmp(obj.ChannelCoding,{'RS','concatenated'}))
                         if obj.IsRSMessageShortened
                             tflen = obj.pRSParams.s*obj.pRSParams.i;
@@ -778,13 +781,15 @@ classdef tmBase < matlab.System
                     else % Turbo code
                         tflen = double(obj.NumBitsInInformationBlock)/8; % In bytes
                     end
-                else % Channel coding is either none, convolutional, or LDPC
+                else % Channel coding is none, convolutional, LDPC, or TPC
                     if strcmp(obj.ChannelCoding,'LDPC')&&(~obj.IsLDPCOnSMTF)
                         if strcmp(obj.CodeRate,'7/8')
                             tflen = 892; % 7136 bits always. See section 7.3 of CCSDS 131.0-B-3
                         else
                             tflen = double(obj.NumBitsInInformationBlock)/8; % In bytes
                         end
+                    elseif strcmp(obj.ChannelCoding,'TPC')
+                        tflen = double(obj.NumBytesInTransferFrame);
                     else
                         tflen = double(obj.NumBytesInTransferFrame);
                     end

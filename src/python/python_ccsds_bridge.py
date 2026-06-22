@@ -14,7 +14,7 @@ def run_ccsds_tm(params):
     try:
         # 1. 确保 MATLAB 能找到我们的 .m 文件
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        eng.addpath(current_dir, nargout=0)
+        eng.addpath(current_dir, '-begin', nargout=0)
 
         # 2. 将 Python 字典序列化为 JSON 字符串
         # MATLAB 处理 JSON 字符串比处理 Python 字典要灵活得多
@@ -55,7 +55,8 @@ if __name__ == "__main__":
         print(
             f"MATLAB wasted time: {t_ready - t_start:.2f} seconds", file=sys.stderr)
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        eng.addpath(current_dir)
+        eng.addpath(current_dir, '-begin', nargout=0)
+        eng.eval("rehash; clear classes;", nargout=0)
 
         # 路由逻辑
         task_type = params.get('taskType', 'ccsds_tm')  # 默认为 CCSDS

@@ -43,32 +43,29 @@ function metrics = run_ccsds_uqpsk_extension_evaluation(params)
     rxWaveform = awgn(rxWaveform, opt.snr, 'measured');
 
     %% UQPSK receiver: coarse CFO, matched filter, timing sync, carrier sync
-    switch lower(string(opt.cfoCorrectionMode))
-        case "known"
-            cfoComp = comm.PhaseFrequencyOffset( ...
-                'FrequencyOffset', -opt.cfo, ...
-                'PhaseOffset', 0, ...
-                'SampleRate', txInfo.Fs);
-            coarseSynced = cfoComp(rxWaveform);
-            estCFO = opt.cfo;
-        case "qpsk-coarse"
-            coarseSync = comm.CoarseFrequencyCompensator( ...
-                'Modulation','QPSK', ...
-                'SampleRate', txInfo.Fs, ...
-                'FrequencyResolution', opt.coarseFrequencyResolution);
-            [coarseSynced, estCFO] = coarseSync(rxWaveform);
-        otherwise
-            coarseSynced = rxWaveform;
-            estCFO = 0;
+    coarseSynced = rxWaveform;
+    estCFO = 0;
+
+    if opt.enableUQPSKFFTCoarseCFO
+        [coarseSynced, estCFO] = uqpskFourthPowerFFTCoarseCFO( ...
+            rxWaveform, txInfo.Fs, opt.uqpskMaxCFOHz, opt.uqpskCFOFFTLen);
+
+        if opt.debugUQPSK
+            fprintf('   [UQPSK 4th-power CFO] estimated = %+.3f Hz, input = %+.3f Hz, error = %+.3f Hz\n', ...
+                estCFO, opt.cfo, estCFO - opt.cfo);
+        end
     end
 
-    rxFilterDecim = max(1, opt.sps/2);
+    rxFilterDecim = max(1, round(opt.sps/2));
     rxFilter = comm.RaisedCosineReceiveFilter( ...
         'Shape','Square root', ...
         'RolloffFactor', opt.RolloffFactor, ...
         'FilterSpanInSymbols', opt.FilterSpanInSymbols, ...
         'InputSamplesPerSymbol', opt.sps, ...
         'DecimationFactor', rxFilterDecim);
+
+
+    
     nDecimTrim = mod(numel(coarseSynced), rxFilterDecim);
     if nDecimTrim ~= 0
         coarseForFilter = coarseSynced(1:end-nDecimTrim);
@@ -87,18 +84,69 @@ function metrics = run_ccsds_uqpsk_extension_evaluation(params)
         'NormalizedLoopBandwidth', opt.timingLoopBandwidth);
     timeSynced = timingSync(filtered);
     timeSynced = trimBestDelay(timeSynced, txInfo.txSymbols, opt.FilterSpanInSymbols + 16);
+%     % =========================================================
+%     % UQPSK 粗频偏估计/补偿
+%     % 注意：这里使用 txInfo.txSymbols，是仿真调试版。
+%     % 真实接收机应改成 ASM/导频辅助估计。
+%     % =========================================================
+%     estCFO = 0;
+%     if opt.enableUQPSKCoarseCFO
+%         [timeSynced, estCFO] = uqpskKnownSymbolCFOComp( ...
+%             timeSynced, txInfo.txSymbols, opt.symbolRate, opt.uqpskCFOEstSymbols);
+% 
+%         if isfield(opt,'debugUQPSK') && opt.debugUQPSK
+%             fprintf('   [UQPSK CFO debug] estimated coarse CFO = %.3f Hz\n', estCFO);
+%         end
+%     end
 
-    carrierSync = comm.CarrierSynchronizer( ...
-        'Modulation','QPSK', ...
-        'SamplesPerSymbol', 1, ...
-        'DampingFactor', 1/sqrt(2), ...
-        'NormalizedLoopBandwidth', opt.carrierLoopBandwidth);
-    rxSymbols = carrierSync(timeSynced);
-    rxSymbols = trimBestDelay(rxSymbols, txInfo.txSymbols, opt.FilterSpanInSymbols + 16);
+
+%     carrierSync = comm.CarrierSynchronizer( ...
+%         'Modulation','QPSK', ...
+%         'SamplesPerSymbol', 1, ...
+%         'DampingFactor', 1/sqrt(2), ...
+%         'NormalizedLoopBandwidth', opt.carrierLoopBandwidth);
+%     rxSymbols = carrierSync(timeSynced);
+%     rxSymbols = trimBestDelay(rxSymbols, txInfo.txSymbols, opt.FilterSpanInSymbols + 16);
+%     rxSymbols = rxSymbols(1:min(numel(rxSymbols), numel(txInfo.txSymbols)));
+% 
+%     rxSymbols = decisionDirectedNormalize(rxSymbols, txInfo.refConst, opt.ddNormalizeIterations);
+%     [rxSymbols, phaseInfo] = resolveUQPSKAmbiguity(rxSymbols, txInfo);
+    % =========================================================
+    % UQPSK 载波恢复
+    % qpsk-sync       : 原来的 QPSK CarrierSynchronizer
+    % uqpsk-teacher   : 借老师 UQPSKDem.m 的相位误差公式
+    % =========================================================
+    switch lower(string(opt.carrierRecoveryMode))
+        case "qpsk-sync"
+            carrierSync = comm.CarrierSynchronizer( ...
+                'Modulation','QPSK', ...
+                'SamplesPerSymbol', 1, ...
+                'DampingFactor', 1/sqrt(2), ...
+                'NormalizedLoopBandwidth', opt.carrierLoopBandwidth);
+            rxSymbols = carrierSync(timeSynced);
+
+        case "uqpsk-teacher"
+            rxSymbols = uqpskCarrierRecoverTeacherStyle( ...
+                timeSynced, opt.ARatio, opt.uqpskCarrierLoopBW);
+
+        otherwise
+            rxSymbols = timeSynced;
+    end
+
+    % 先用相关性粗对齐
+    rxSymbols = trimBestDelay(rxSymbols, txInfo.txSymbols, opt.FilterSpanInSymbols + 64);
     rxSymbols = rxSymbols(1:min(numel(rxSymbols), numel(txInfo.txSymbols)));
 
+    % 幅度/相位归一
     rxSymbols = decisionDirectedNormalize(rxSymbols, txInfo.refConst, opt.ddNormalizeIterations);
+
+    % 相位/共轭模糊搜索
     [rxSymbols, phaseInfo] = resolveUQPSKAmbiguity(rxSymbols, txInfo);
+
+    if ~isfield(opt,'debugUQPSK') || opt.debugUQPSK
+        uqpskDelayDebug(rxSymbols, txInfo, 20);
+        uqpskPhaseDebug(rxSymbols, txInfo);
+    end
 
     %% UQPSK demapping and CCSDS TM decoding
     [rxSoftBits, hardBits] = uqpskDemapBits(rxSymbols, txInfo);
@@ -127,6 +175,8 @@ function metrics = run_ccsds_uqpsk_extension_evaluation(params)
     metrics.channelCoding = char(opt.channelCoding);
     metrics.BER = berVal;
     metrics.ber = berVal;
+    metrics.berWarmUpFrames = opt.berWarmUpFrames;
+    metrics.berFrames = opt.berFrames;
     metrics.NumErrors = errCount;
     metrics.NumBits = bitsCompared;
     metrics.EVM_post_pct = evmPct;
@@ -163,8 +213,6 @@ function metrics = run_ccsds_uqpsk_extension_evaluation(params)
             hardBER, hardErr, nHard);
         fprintf('   [UQPSK DEBUG] phase resolve = %s, BER=%.6g (%d/%d)\n', ...
             phaseInfo.name, phaseInfo.ber, phaseInfo.errors, phaseInfo.bits);
-        fprintf('   [UQPSK DEBUG] input CFO %.3f Hz, estimated %.3f Hz, error %.3f Hz\n', ...
-            opt.cfo, estCFO, estCFO - opt.cfo);
         fprintf('   [UQPSK DEBUG] decoder polarity = %s\n', decInfo.SelectedSoftPolarity);
     end
 
@@ -189,10 +237,10 @@ function opt = localDefaults(opt)
     opt = setDefault(opt, 'FilterSpanInSymbols', 10);
     opt = setDefault(opt, 'RRatio', 2);
     opt = setDefault(opt, 'ARatio', 2);
-    opt = setDefault(opt, 'cfoCorrectionMode', 'known');
-    opt = setDefault(opt, 'coarseFrequencyResolution', 1000);
     opt = setDefault(opt, 'timingLoopBandwidth', 0.01);
     opt = setDefault(opt, 'carrierLoopBandwidth', 0.005);
+    opt = setDefault(opt, 'carrierRecoveryMode', 'uqpsk-teacher');
+    opt = setDefault(opt, 'uqpskCarrierLoopBW', 0.002);
     opt = setDefault(opt, 'ddNormalizeIterations', 4);
     opt = setDefault(opt, 'hasASM', true);
     opt = setDefault(opt, 'hasRandomizer', false);
@@ -201,10 +249,18 @@ function opt = localDefaults(opt)
     opt = setDefault(opt, 'berFrames', 20);
     opt = setDefault(opt, 'showFigures', true);
     opt = setDefault(opt, 'debugUQPSK', true);
-
+    opt = setDefault(opt, 'enableUQPSKFFTCoarseCFO', false);
+    
     opt.channelCoding = canonicalChannelCodingLocal(opt.channelCoding);
     opt.symbolRate = double(opt.symbolRate);
     opt.sps = max(2, round(double(opt.sps)));
+    if ~isfield(opt,'uqpskMaxCFOHz') || isempty(opt.uqpskMaxCFOHz)
+        opt.uqpskMaxCFOHz = 0.01 * opt.symbolRate;   % 默认 ±1% 符号率
+    end
+    opt = setDefault(opt, 'uqpskCFOFFTLen', 2^17);
+    FsDefault = opt.symbolRate * opt.sps;
+    opt.uqpskMaxCFOHz = double(opt.uqpskMaxCFOHz);
+    opt.uqpskMaxCFOHz = min(opt.uqpskMaxCFOHz, 0.9 * FsDefault/8);
     opt.snr = double(opt.snr);
     opt.cfo = double(opt.cfo);
     opt.phaseOffset = double(opt.phaseOffset);
@@ -213,10 +269,10 @@ function opt = localDefaults(opt)
     opt.FilterSpanInSymbols = double(opt.FilterSpanInSymbols);
     opt.RRatio = max(1, round(double(opt.RRatio)));
     opt.ARatio = max(eps, double(opt.ARatio));
-    opt.cfoCorrectionMode = string(opt.cfoCorrectionMode);
-    opt.coarseFrequencyResolution = double(opt.coarseFrequencyResolution);
+%     opt.cfoCorrectionMode = 'none';
     opt.timingLoopBandwidth = double(opt.timingLoopBandwidth);
     opt.carrierLoopBandwidth = double(opt.carrierLoopBandwidth);
+    opt.uqpskCarrierLoopBW = double(opt.uqpskCarrierLoopBW);
     opt.ddNormalizeIterations = max(0, round(double(opt.ddNormalizeIterations)));
     opt.hasASM = logical(opt.hasASM);
     opt.hasRandomizer = logical(opt.hasRandomizer);
@@ -225,6 +281,9 @@ function opt = localDefaults(opt)
     opt.berFrames = max(1, round(double(opt.berFrames)));
     opt.showFigures = logical(opt.showFigures);
     opt.debugUQPSK = logical(opt.debugUQPSK);
+    opt.enableUQPSKFFTCoarseCFO = logical(opt.enableUQPSKFFTCoarseCFO);
+    opt.uqpskMaxCFOHz = double(opt.uqpskMaxCFOHz);
+    opt.uqpskCFOFFTLen = round(double(opt.uqpskCFOFFTLen));
 end
 
 function s = setDefault(s, name, value)
@@ -238,7 +297,7 @@ function [txWaveform, infoOut] = buildCCSDSTMUQPSKTx(opt)
 
     args = { ...
         'WaveformSource', 'synchronization and channel coding', ...
-        'Modulation', 'BPSK', ...
+        'Modulation', 'UQPSK', ...
         'ChannelCoding', opt.channelCoding, ...
         'SamplesPerSymbol', opt.sps, ...
         'RolloffFactor', opt.RolloffFactor, ...
@@ -286,8 +345,27 @@ function [txWaveform, infoOut] = buildCCSDSTMUQPSKTx(opt)
         validTxFrames{iFrame} = frameBits;
     end
 
-    [~, encodedBits] = tmWaveGen(msg);
+%     [~, encodedBits] = tmWaveGen(msg);
+%     encodedBits = int8(encodedBits(:));
+%     groupBits = opt.RRatio + 1;
+%     padBits = mod(-numel(encodedBits), groupBits);
+%     if padBits > 0
+%         encodedBitsPadded = [encodedBits; zeros(padBits, 1, 'int8')];
+%     else
+%         encodedBitsPadded = encodedBits;
+%     end
+% 
+%     txSymbols = uqpskMapBits(encodedBitsPadded, opt.RRatio, opt.ARatio);
+%     refConst = uqpskReferenceConstellation(opt.ARatio);
+% 
+%     rrc = rcosdesign(opt.RolloffFactor, opt.FilterSpanInSymbols, opt.sps, 'sqrt');
+%     txWaveform = upfirdn(txSymbols, rrc(:), opt.sps, 1);
+%     txWaveform = complex(txWaveform(:));
+
+    [txWaveform, encodedBits] = tmWaveGen(msg);
+    txWaveform = complex(txWaveform(:));
     encodedBits = int8(encodedBits(:));
+
     groupBits = opt.RRatio + 1;
     padBits = mod(-numel(encodedBits), groupBits);
     if padBits > 0
@@ -296,12 +374,11 @@ function [txWaveform, infoOut] = buildCCSDSTMUQPSKTx(opt)
         encodedBitsPadded = encodedBits;
     end
 
+    % 这里的 txSymbols 只作为仿真 debug / EVM / delay 对齐参考；
+    % 真正发送波形已经由 ccsdsTMWaveformGenerator 生成。
     txSymbols = uqpskMapBits(encodedBitsPadded, opt.RRatio, opt.ARatio);
     refConst = uqpskReferenceConstellation(opt.ARatio);
 
-    rrc = rcosdesign(opt.RolloffFactor, opt.FilterSpanInSymbols, opt.sps, 'sqrt');
-    txWaveform = upfirdn(txSymbols, rrc(:), opt.sps, 1);
-    txWaveform = complex(txWaveform(:));
 
     infoOut = struct();
     infoOut.Fs = Fs;
@@ -688,7 +765,8 @@ function plotUQPSKResults(m, txWaveform, rxWaveform)
 
     nexttile;
     rxSymbols = m.rxInfo.rxSymbols;
-    n0 = min(3000, max(1, floor(numel(rxSymbols)/4)));
+    totalFrames = m.berWarmUpFrames + m.berFrames;
+    n0 = max(1, round(numel(rxSymbols) * m.berWarmUpFrames / totalFrames));
     n1 = min(n0 + 1800, numel(rxSymbols));
     plot(real(rxSymbols(n0:n1)), imag(rxSymbols(n0:n1)), '.', ...
         'Color',[0 0.28 0.65], 'MarkerSize',5);
@@ -716,3 +794,199 @@ function plotUQPSKResults(m, txWaveform, rxWaveform)
     grid on;
     title('核心指标');
 end
+
+function uqpskDelayDebug(rxSymbols, txInfo, maxDelay)
+    rxSymbols = rxSymbols(:);
+    fprintf('\n   [UQPSK delay debug]\n');
+
+    for d = 0:maxDelay
+        y = rxSymbols(d+1:end);
+        [~, hardBits] = uqpskDemapBits(y, txInfo);
+
+        n = min([numel(hardBits), numel(txInfo.encodedBits), 100000]);
+        if n < 1000
+            continue;
+        end
+
+        err = sum(hardBits(1:n) ~= txInfo.encodedBits(1:n));
+        ber = err / n;
+
+        fprintf('      delay=%2d symbols, hardBER=%.6g (%d/%d)\n', ...
+            d, ber, err, n);
+    end
+end
+function uqpskPhaseDebug(rxSymbols, txInfo)
+    rxSymbols = rxSymbols(:);
+
+    cands = { ...
+        @(x)x, ...
+        @(x)-x, ...
+        @(x)1j*x, ...
+        @(x)-1j*x, ...
+        @(x)conj(x), ...
+        @(x)-conj(x), ...
+        @(x)1j*conj(x), ...
+        @(x)-1j*conj(x)};
+
+    names = {'x','-x','j*x','-j*x','conj(x)','-conj(x)','j*conj(x)','-j*conj(x)'};
+
+    fprintf('\n   [UQPSK phase debug]\n');
+
+    for k = 1:numel(cands)
+        y = cands{k}(rxSymbols);
+        [~, hardBits] = uqpskDemapBits(y, txInfo);
+
+        n = min([numel(hardBits), numel(txInfo.encodedBits), 100000]);
+        if n < 1000
+            continue;
+        end
+
+        err = sum(hardBits(1:n) ~= txInfo.encodedBits(1:n));
+        ber = err / n;
+
+        fprintf('      %-10s hardBER=%.6g (%d/%d)\n', ...
+            names{k}, ber, err, n);
+    end
+end
+function y = uqpskCarrierRecoverTeacherStyle(x, aRatio, loopBW)
+%UQPSKCARRIERRECOVERTEACHERSTYLE
+% 借鉴老师 UQPSKDem.m 的载波相位误差：
+%   e_theta = sign(I_est)*Q_est*ARatio - sign(Q_est)*I_est
+%
+% 输入：
+%   x      : 定时同步后的符号流
+%   aRatio : UQPSK Q路幅度压缩比
+%   loopBW : 环路带宽，建议先 0.001 ~ 0.01 之间试
+%
+% 输出：
+%   y      : 载波相位恢复后的符号流
+
+    x = x(:);
+    y = zeros(size(x));
+
+    if isempty(x)
+        return;
+    end
+
+    if nargin < 3 || isempty(loopBW)
+        loopBW = 0.002;
+    end
+
+    % 简单 PI 环路参数
+    Kp = loopBW;
+    Ki = loopBW^2 / 4;
+
+    theta = 0;
+    integ = 0;
+
+    for n = 1:numel(x)
+        % 去旋转
+        z = x(n) * exp(-1j*theta);
+        y(n) = z;
+
+        I = real(z);
+        Q = imag(z);
+
+        sI = sign(I);
+        sQ = sign(Q);
+
+        if sI == 0
+            sI = 1;
+        end
+        if sQ == 0
+            sQ = 1;
+        end
+
+        % 老师 UQPSK 相位误差公式
+        e = sI * Q * aRatio - sQ * I;
+
+        % PI 环路更新
+        integ = integ + Ki * e;
+        theta = theta + integ + Kp * e;
+
+        % 防止 theta 数值越积越大
+        if theta > pi
+            theta = theta - 2*pi;
+        elseif theta < -pi
+            theta = theta + 2*pi;
+        end
+    end
+end
+
+
+function [y, cfo_est] = uqpskFourthPowerFFTCoarseCFO(x, Fs, maxCFOHz, fftLen)
+%UQPSKFOURTHPOWERFFTCOARSECFO
+% UQPSK 非数据辅助 4次幂 FFT 粗频偏估计
+%
+% 思路：
+%   接收信号含 CFO：x(n) ≈ s(n)*exp(j*2*pi*f0*n/Fs)
+%   4次幂后：x(n)^4 ≈ s(n)^4 * exp(j*2*pi*4*f0*n/Fs)
+%   因此频谱峰大致出现在 4*f0，最后除以 4 得到 CFO。
+%
+% 注意：
+%   标准 QPSK 做 4次幂时数据调制消除更彻底；
+%   UQPSK 因为 I/Q 不等幅、不等速率，4次幂后仍有数据残留，
+%   但通常仍能形成可检测的 CFO 谱峰。
+
+    x = x(:);
+
+    if nargin < 3 || isempty(maxCFOHz)
+        maxCFOHz = Fs/16;
+    end
+
+    if nargin < 4 || isempty(fftLen)
+        fftLen = 2^17;
+    end
+
+    if isempty(x)
+        y = x;
+        cfo_est = 0;
+        return;
+    end
+
+    L = min(numel(x), fftLen);
+    if L < 1024
+        y = x;
+        cfo_est = 0;
+        return;
+    end
+
+    xUse = x(1:L);
+
+    % 去直流，避免 DC 峰影响
+    xUse = xUse - mean(xUse);
+
+    % 幅度归一，减轻 RRC 包络起伏对 4次幂的影响
+    mag = abs(xUse);
+    mag(mag < eps) = eps;
+    xUnit = xUse ./ mag;
+
+    sig4 = xUnit.^4;
+
+    Nfft = 2^nextpow2(L);
+    win = hamming(L);
+
+    X4 = fftshift(fft(sig4 .* win, Nfft));
+    fAx = (-Nfft/2:Nfft/2-1).' * (Fs/Nfft);
+
+    P4 = abs(X4).^2;
+
+    % 4次幂后峰在 4*CFO，所以搜索范围是 ±4*maxCFOHz
+    searchMask = abs(fAx) <= 4*maxCFOHz;
+    if ~any(searchMask)
+        y = x;
+        cfo_est = 0;
+        return;
+    end
+
+    P4(~searchMask) = 0;
+
+    [~, ip] = max(P4);
+    fPeak = fAx(ip);
+
+    cfo_est = fPeak / 4;
+
+    n = (0:numel(x)-1).';
+    y = x .* exp(-1j*2*pi*cfo_est/Fs*n);
+end
+

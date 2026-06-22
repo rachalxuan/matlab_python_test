@@ -7,13 +7,16 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
         pDemod
         pIsGMSK
         pIsOQPSK
+        pIsUQPSK
         pIs4D8PSKTCM
         pIsQAM
         pQAMOrder
+
     end
     
     properties(Access = private)
         pDreg % 差分寄存器
+        pPCMLineSoft % NRZ-M/NRZ-S 上一个线码 soft 符号
         pCount % 计数器
         pLastSymbol % GMSK 差分检测寄存器 (previous complex symbol)
         pTCMConvState
@@ -32,6 +35,7 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             
             % 初始化状态，必须和 Generator 匹配
             obj.pDreg = 1; 
+            obj.pPCMLineSoft = -1;
             obj.pCount = 0;
             obj.pLastSymbol = complex(0, 0); % 用于存储上一个复数符号
             obj.pTCMConvState = zeros(6, 1, 'int8');
@@ -40,7 +44,7 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             obj.pIsGMSK = contains(string(obj.Modulation), 'GMSK');
             obj.pIsOQPSK = strcmp(obj.Modulation, 'OQPSK');
             obj.pIs4D8PSKTCM = strcmp(obj.Modulation, '4D-8PSK-TCM');
-
+            obj.pIsUQPSK = strcmp(obj.Modulation, 'UQPSK');
             obj.pIsQAM = contains(string(obj.Modulation), 'QAM');
             if strcmp(obj.Modulation, '16QAM')
                 obj.pQAMOrder = 16;
@@ -72,6 +76,9 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                     'BitOutput', true, 'DecisionMethod', "Approximate log-likelihood ratio", ...
                     'SymbolMapping', 'Custom', 'CustomSymbolMapping', [0 4 6 2 3 7 5 1]); 
             elseif obj.pIsQAM
+                obj.pDemod = [];
+            elseif obj.pIsUQPSK
+                % UQPSK 使用自定义 soft demap，不需要 MATLAB 官方 demod 对象
                 obj.pDemod = [];
             elseif obj.pIs4D8PSKTCM
                 % 4D-8PSK-TCM uses a custom hard-decision 4-symbol mapper below.
@@ -204,6 +211,49 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                 y = -5 * ones(size(hardBits));
                 y(hardBits) = 5;
                 y = double(y);  
+            elseif obj.pIsUQPSK
+                % =========================================================
+                % UQPSK soft demap
+                %
+                % 固定结构：
+                %   RRatio = 2：每 2 个 UQPSK 符号为一组
+                %   ARatio = 2：Q 路幅度为 I 路的 1/2
+                %
+                % 映射关系：
+                %   每 3 bit -> 2 个符号
+                %   b1,b2 -> 两个连续符号的 I 路
+                %   b3    -> 两个符号共用的 Q 路
+                %
+                % 输出约定：
+                %   当前 extension 实测 decoder 需要 inverted UQPSK soft
+                %   所以这里直接输出翻号后的 soft bits
+                % =========================================================
+
+                rRatio = 2;
+                aRatio = 2;
+
+                rxUQPSK = u(:);
+
+                nGroups = floor(numel(rxUQPSK) / rRatio);
+                if nGroups <= 0
+                    y = zeros(0,1);
+                    return;
+                end
+
+                rxUQPSK = rxUQPSK(1:nGroups*rRatio);
+                symMat = reshape(rxUQPSK, rRatio, nGroups);
+
+                % I 路每个符号一个 bit
+                iSoft = real(symMat);
+
+                % Q 路每组共用一个 bit，两个符号的 Q 取平均后乘回 aRatio
+                qSoft = mean(imag(symMat), 1) * aRatio;
+
+                softMat = [iSoft; qSoft];
+                y = double(softMat(:));
+
+                % 关键：extension 中验证 decoder polarity = inverted UQPSK soft
+                y = -y;
             elseif obj.pIsQAM
                 % =========================================================
                 % 16QAM / 32QAM soft demod
@@ -251,11 +301,7 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                 y = -y;
             elseif strcmp(obj.Modulation, 'BPSK')
                 y = double(real(u));
-                if strcmp(obj.PCMFormat,'NRZ-M') && ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'}))
-                    y(2:end) = y(2:end).*sign(y(1:end-1));
-                    y(1) = y(1)*sign(real(obj.pDreg)); 
-                    obj.pDreg = y(end);
-                end
+
             else
                 y = obj.pDemod(u);
                  if any(strcmp(obj.Modulation, {'QPSK','8PSK'}))
@@ -268,11 +314,18 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                     % 4 重旋转搜索也救不回来（旋转只能 XOR 编码 bit，不改 LLR 整体偏置）。
                 end
             end
+
+            if any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'})) && ...
+                    ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && ...
+                    ~obj.pIsGMSK && ~obj.pIs4D8PSKTCM
+                [y, obj.pPCMLineSoft] = localPCMDifferentialSoftDecode(y, obj.pPCMLineSoft, obj.PCMFormat);
+            end
         end
         
         function resetImpl(obj)
             if ~isempty(obj.pDemod), reset(obj.pDemod); end
             obj.pDreg = 1; 
+            obj.pPCMLineSoft = -1;
             obj.pCount = 0;
             obj.pLastSymbol = complex(0, 0);
             obj.pTCMConvState = zeros(6, 1, 'int8');
@@ -294,7 +347,7 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             elseif strcmp(prop,'Modulation')
                 flag = isFACM;
             elseif strcmp(prop,'PCMFormat')
-                flag = ~any(strcmp(obj.Modulation,{'PCM/PSK/PM','BPSK','QPSK','8PSK','OQPSK'})) || isFACM;
+                flag = ~any(strcmp(obj.Modulation,{'PCM/PSK/PM','BPSK','QPSK','8PSK','OQPSK','UQPSK'})) || isFACM;
             % 允许 GMSK 模式下设置 BandwidthTimeProduct
             elseif strcmp(prop, 'BandwidthTimeProduct')
                 flag = ~contains(string(obj.Modulation), 'GMSK');
@@ -308,6 +361,18 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             end
         end
     end
+
+    methods(Static)
+        function [rxBits, rxSoft, info] = demodulateFM(rxWaveform, params, fmInfo)
+            if nargin < 2 || isempty(params)
+                params = struct();
+            end
+            if nargin < 3
+                fmInfo = [];
+            end
+            [rxBits, rxSoft, info] = ccsdsFMDemodulateWaveform(rxWaveform, params, fmInfo);
+        end
+    end
     
     methods(Access = protected, Static)
         function group = getPropertyGroupsImpl
@@ -315,6 +380,37 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             group = matlab.system.display.SectionGroup('PropertyList', genprops);
         end
     end
+end
+
+function [bitsSoft, lastLineSoft] = localPCMDifferentialSoftDecode(lineSoft, lastLineSoft, pcmFormat)
+% NRZ-M/NRZ-S soft differential decode for ordinary symbol demodulator outputs.
+% Positive soft values represent bit 1 in the CCSDS decoder path.
+    lineSoft = double(lineSoft(:));
+    if isempty(lineSoft)
+        bitsSoft = lineSoft;
+        return;
+    end
+
+    prevSign = sign(real(lastLineSoft));
+    if prevSign == 0
+        prevSign = 1;
+    end
+
+    bitsSoft = zeros(size(lineSoft));
+    bitsSoft(1) = -lineSoft(1) * prevSign;
+    if numel(lineSoft) > 1
+        bitsSoft(2:end) = -lineSoft(2:end) .* signNonzero(lineSoft(1:end-1));
+    end
+    if strcmp(pcmFormat,'NRZ-S')
+        bitsSoft = -bitsSoft;
+    end
+
+    lastLineSoft = lineSoft(end);
+end
+
+function s = signNonzero(x)
+    s = sign(real(x));
+    s(s == 0) = 1;
 end
 
 function [bitsOut, convState, diffState] = fourD8PSKTCMHardDemod(sym, rEff, convState, diffState)

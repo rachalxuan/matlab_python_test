@@ -11,7 +11,7 @@ Fs = 960	;	%采样率，单位MHz
 Fd = 300   	;	%I支路传输速率，单位MBd，范围30至300
 Fc = 240	;	%中频载波频率，单位MHz
 
-load('D:\Design\MatlabWorks\UQPSK_modem\ModSig.mat');
+load('ModSig.mat');
 % load('D:\Design\MatlabWorks\UQPSK_modem\ModSig_300MBd_20IQRatio.mat');
 %%
 %加噪

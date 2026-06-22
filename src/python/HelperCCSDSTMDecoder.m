@@ -72,6 +72,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         ViterbiWordLength = 8
         DisableFrameSynchronization = false
         DisablePhaseAmbiguityResolution = false
+        DebugPCMFormat = false
     end
 
     % Pre-computed constants
@@ -130,6 +131,13 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     "SoftInputWordLength",obj.ViterbiWordLength,...
                     "PuncturePatternSource","Property");
                 obj.pDifferentialDecoderBit = 0; % In practice, the initial value of this bit doesn't matter as initial few frames needs to be discarded for the synchronization algorithms to converge. So, by the time full frames are being taken, proper value in this property will be initialized
+                if any(strcmp(obj.PCMFormat, {'NRZ-M','NRZ-S'}))
+                    obj.pSkipPreViterbiASMSync = false;
+                    if obj.DebugPCMFormat
+                        fprintf('[PCM DEBUG] %s + %s: use differential-coded ASM sync before Viterbi, then differential decode after Viterbi.\n', ...
+                            obj.ChannelCoding, obj.PCMFormat);
+                    end
+                end
                 % Calculate buffer length
                 switch(obj.ConvolutionalCodeRate)
                     case '1/2'
@@ -231,6 +239,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             obj.pDec.PuncturePattern, obj.pASMOffsetLength, false);
                         
                 end
+                if any(strcmp(obj.PCMFormat, {'NRZ-M','NRZ-S'}))
+                    obj.pSkipPreViterbiASMSync = false;
+                end
             end
             
             if obj.DisablePhaseAmbiguityResolution
@@ -329,6 +340,25 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     obj.pRotatedASM = 2*asm(:)-1;
                     obj.pNumBitsPerSymbol = 1;
             end
+
+            if any(strcmp(obj.ChannelCoding, {'convolutional','concatenated'})) && ...
+                    any(strcmp(obj.PCMFormat, {'NRZ-M','NRZ-S'})) && ...
+                    any(strcmp(modscheme, {'BPSK','GMSK','QPSK','OQPSK','8PSK'}))
+                sync0 = localPCMBuildConvEncodedASMSync(obj.pASM, 0, obj.PCMFormat, ...
+                    obj.ViterbiTrellis, obj.pDec.PuncturePattern, ...
+                    obj.pASMOffsetLength, strcmp(obj.ConvolutionalCodeRate,'1/2'));
+                sync1 = localPCMBuildConvEncodedASMSync(obj.pASM, 1, obj.PCMFormat, ...
+                    obj.ViterbiTrellis, obj.pDec.PuncturePattern, ...
+                    obj.pASMOffsetLength, strcmp(obj.ConvolutionalCodeRate,'1/2'));
+                obj.pRotatedASM = [ ...
+                    localPCMBuildRotatedASMForMod(sync0, modscheme), ...
+                    localPCMBuildRotatedASMForMod(sync1, modscheme)];
+                if obj.DebugPCMFormat
+                    fprintf('[PCM DEBUG] pre-Viterbi sync templates: len=%d, columns=%d, offset=%d\n', ...
+                        size(obj.pRotatedASM,1), size(obj.pRotatedASM,2), obj.pASMOffsetLength);
+                end
+            end
+
             if any(strcmp(obj.ChannelCoding, {'concatenated', 'convolutional'}))
 %                 obj.pFrameLength = length(asm) + obj.pPRNSequenceLength*obj.pInverseCodeRate;
                 obj.pFrameLength = obj.pFullInputBufferLength - obj.pASMOffsetLength;
@@ -385,6 +415,13 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     obj.pLDPCMessageLength/obj.pLDPCCodewordLength, ...
                     obj.pFullInputBufferLength - obj.pLDPCCodewordLength, ...
                     obj.pFullInputBufferLength);
+            end
+            if strcmp(obj.ChannelCoding, "TPC")
+                syncLen = length(obj.pASM)*obj.HasASM;
+                obj.pFullInputBufferLength = 64*64 + syncLen;
+                obj.pFrameLength = obj.pFullInputBufferLength;
+                fprintf('[TPC setup] k=%d, n=%d, rate=%.6f, syncLen=%d, fullFrame=%d\n', ...
+                    57*57, 64*64, (57*57)/(64*64), syncLen, obj.pFullInputBufferLength);
             end
         end
 
@@ -495,6 +532,13 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             else
                                 tdecoded = decoded;
                             end
+                            if any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
+                                [tdecoded, obj.pDifferentialDecoderBit] = localPCMHardDifferentialDecode( ...
+                                    tdecoded, obj.pDifferentialDecoderBit, obj.PCMFormat);
+                                if obj.DebugPCMFormat
+                                    localPCMPrintDecodedDebug(obj, tdecoded, 'convolutional');
+                                end
+                            end
 %                             [ty,obj.pOutputBuffer] = buffer([obj.pOutputBuffer;tdecoded],obj.pPRNSequenceLength+asmlen);
 %                             n = size(ty,2);
 %                             if n
@@ -563,6 +607,13 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 obj.pFirstTimeStepCalling = false;
                             else
                                 tdecoded = decoded;
+                            end
+                            if any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
+                                [tdecoded, obj.pDifferentialDecoderBit] = localPCMHardDifferentialDecode( ...
+                                    tdecoded, obj.pDifferentialDecoderBit, obj.PCMFormat);
+                                if obj.DebugPCMFormat
+                                    localPCMPrintDecodedDebug(obj, tdecoded, 'concatenated');
+                                end
                             end
                             [ty,obj.pOutputBuffer] = buffer([obj.pOutputBuffer;tdecoded],obj.pPRNSequenceLength+asmlen);
                             n = size(ty,2);
@@ -663,6 +714,26 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                         
                                 y((iWord-1)*obj.pLDPCMessageLength+1:iWord*obj.pLDPCMessageLength) = msg(:);
                             end 
+                        case "TPC"
+                            codeLen = 64*64;
+                            infoLen = 57*57;
+                            if n
+                                cwSoft = u(1:codeLen, :);
+                                numWords = size(cwSoft, 2);
+                                y = zeros(infoLen*numWords, 1, 'int8');
+
+                                for iWord = 1:numWords
+                                    [msg, ~] = ccsdsTPCDecodeSoft(cwSoft(:,iWord));
+                                    y((iWord-1)*infoLen+1:iWord*infoLen) = msg(:);
+                                end
+
+                                if obj.HasRandomizer && ~isempty(y)
+                                    prn = repmat(obj.pPRNSequence, ceil(numel(y)/numel(obj.pPRNSequence)), 1);
+                                    y = bitxor(y, prn(1:numel(y)));
+                                end
+                            else
+                                y = zeros(0, 1, 'int8');
+                            end
                     end
                     
                 else
@@ -699,23 +770,24 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 
                 % Resolve phase ambiguity
                 if any(strcmp(obj.Modulation,{'QPSK','OQPSK'}))
-                    if PhaseIndex == 1
+                    basePhaseIndex = mod(PhaseIndex-1, 4) + 1;
+                    if basePhaseIndex == 1
                         derotated = frames(:,iFrame);
-                    elseif PhaseIndex == 2
+                    elseif basePhaseIndex == 2
                         reshapredFrame = reshape(frames(:,iFrame),2,[]);
                         temp = [reshapredFrame(2,:); -1*reshapredFrame(1,:)];
                         derotated = temp(:);
-                    elseif PhaseIndex == 3
+                    elseif basePhaseIndex == 3
                         derotated = -1*frames(:,iFrame);
-                    elseif PhaseIndex == 4
+                    elseif basePhaseIndex == 4
                         reshapredFrame = reshape(frames(:,iFrame),2,[]);
                         temp = [-1*reshapredFrame(2,:); reshapredFrame(1,:)];
                         derotated = temp(:);
                     end
                 elseif strcmp(obj.Modulation,["BPSK", "GMSK"])
-                    if PhaseIndex == 1
+                    if mod(PhaseIndex, 2) == 1
                         derotated = frames(:,iFrame);
-                    elseif PhaseIndex == 2
+                    else
                         derotated = -1*frames(:,iFrame);
                     end
                 else % Do not do phase ambiguity resolution
@@ -821,37 +893,71 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             % ---------------------------------------------------------
             % 搜索范围：
             % 不要只搜第一帧，也不要全局无脑搜到几十万 bit 后面。
-            % 先在前 2 个 CADU 范围内找 ASM，通常足够覆盖 traceback/同步偏移。
+            % 先在前几个 CADU 范围内找 ASM，通常足够覆盖 traceback/同步偏移。
+            % NRZ-M/S 在 Viterbi 后再差分译码，初始差分状态可能让前几帧
+            % 不适合锁定，因此搜索范围需要比普通后同步更长。
             % ---------------------------------------------------------
-            searchLen = min(length(stream), 2*caduLen);
+            if any(strcmp(obj.PCMFormat, {'NRZ-M','NRZ-S'}))
+                searchLen = min(length(stream), 6*caduLen);
+            else
+                searchLen = min(length(stream), 2*caduLen);
+            end
             maxPos = searchLen - asmLen + 1;
         
             bestPos = 1;
             bestMetric = inf;
-        
+            bestMeanMetric = inf;
+            bestNFrames = 0;
+            if any(strcmp(obj.PCMFormat, {'NRZ-M','NRZ-S'}))
+                maxASMErrors = 8;
+            else
+                maxASMErrors = 4;
+            end
+
             for pos = 1:maxPos
                 win = stream(pos:pos+asmLen-1);
                 metric = sum(win ~= asmBits);
-        
-                if metric < bestMetric
-                    bestMetric = metric;
+
+                if metric > maxASMErrors
+                    continue;
+                end
+
+                nCandFrames = floor((length(stream) - pos + 1) / caduLen);
+                if nCandFrames <= 0
+                    continue;
+                end
+
+                nCheckFrames = min(nCandFrames, 12);
+                candMetrics = zeros(1, nCheckFrames);
+                for k = 1:nCheckFrames
+                    asmStart = pos + (k-1)*caduLen;
+                    candMetrics(k) = sum(stream(asmStart:asmStart+asmLen-1) ~= asmBits);
+                end
+                meanMetric = mean(candMetrics);
+
+                isBetter = meanMetric < bestMeanMetric || ...
+                    (meanMetric == bestMeanMetric && nCandFrames > bestNFrames) || ...
+                    (meanMetric == bestMeanMetric && nCandFrames == bestNFrames && metric < bestMetric);
+
+                if isBetter
                     bestPos = pos;
+                    bestMetric = metric;
+                    bestMeanMetric = meanMetric;
+                    bestNFrames = nCandFrames;
                 end
             end
-        
-            fprintf('[PostVitASM align] bestPos=%d, bestMetric=%d\n', ...
-                bestPos, bestMetric);
-        
-            % 高 SNR 下如果 Viterbi 基本正确，ASM 误差应很小。
-            % 你现在看到 metric=4，所以这里先放宽到 4。
-            maxASMErrors = 4;
-        
-            if bestMetric > maxASMErrors
-                % 没找到可靠 ASM，保留最后一帧长度以内的尾巴。
+
+            if obj.DebugPCMFormat
+                fprintf('[PostVitASM align] bestPos=%d, bestMetric=%d, meanMetric=%.2f, nFrames=%d\n', ...
+                    bestPos, bestMetric, bestMeanMetric, bestNFrames);
+            end
+
+            if bestNFrames == 0 || bestMetric > maxASMErrors || bestMeanMetric > maxASMErrors
                 keepLen = min(length(stream), caduLen - 1);
                 obj.pOutputBuffer = stream(end-keepLen+1:end);
                 return;
             end
+        
         
             % ---------------------------------------------------------
             % 关键点：
@@ -876,8 +982,10 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 asmMetrics(k) = sum(cadu(1:asmLen,k) ~= asmBits);
             end
         
-            fprintf('[PostVitASM check] nFrames=%d, firstASMerr=%d, meanASMerr=%.2f\n', ...
-                nFrames, asmMetrics(1), mean(asmMetrics));
+            if obj.DebugPCMFormat
+                fprintf('[PostVitASM check] nFrames=%d, firstASMerr=%d, meanASMerr=%.2f\n', ...
+                    nFrames, asmMetrics(1), mean(asmMetrics));
+            end
         
             % 如果平均 ASM 错误太大，说明 bestPos 可能是假峰。
             if mean(asmMetrics) > maxASMErrors
@@ -1043,6 +1151,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 end
             elseif any(strcmp(prop,{'ConvolutionalCodeRate', 'ViterbiTraceBackDepth','ViterbiTrellis','ViterbiWordLength'}))
                 flag = ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) || isFACM;
+            elseif strcmp(prop,'DebugPCMFormat')
+                flag = false;
             elseif strcmp(prop,'CodeRate')
                 flag = ~any(strcmp(obj.ChannelCoding,{'turbo','LDPC'})) || isFACM;
             elseif strcmp(prop,'NumBitsInInformationBlock')
@@ -1083,6 +1193,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 'HasASM',...
                 'DisableFrameSynchronization',...
                 'DisablePhaseAmbiguityResolution',...
+                'DebugPCMFormat',...
                 'NumBytesInTransferFrame',...
                 'ConvolutionalCodeRate',...
                 'CodeRate',...
@@ -1145,4 +1256,195 @@ function tag = rateTagFromInverse(invr)
     else
         tag = sprintf('invr_%s', strrep(num2str(double(invr), '%.12g'), '.', 'p'));
     end
+end
+
+function syncASM = localPCMBuildConvEncodedASMSync(asmBits, initState, pcmFormat, trellis, puncturePattern, offsetLength, flipSecondBranch)
+    asmBits = int8(asmBits(:) ~= 0);
+    diffBits = zeros(size(asmBits), 'int8');
+    state = int8(initState ~= 0);
+
+    for k = 1:numel(asmBits)
+        inBit = asmBits(k);
+        if strcmp(pcmFormat,'NRZ-S')
+            inBit = int8(~logical(inBit));
+        end
+        state = int8(xor(logical(state), logical(inBit)));
+        diffBits(k) = state;
+    end
+
+    enc = comm.ConvolutionalEncoder('TrellisStructure', trellis);
+    motherBits = int8(enc(diffBits));
+
+    if flipSecondBranch
+        motherBits(2:2:end) = int8(~logical(motherBits(2:2:end)));
+    end
+
+    p = puncturePattern(:);
+    pp = repmat(p, ceil(length(motherBits)/length(p)), 1);
+    pp = pp(1:length(motherBits));
+
+    codedASM = motherBits(logical(pp));
+    offsetLength = min(offsetLength, length(codedASM)-1);
+    syncASM = int8(codedASM(offsetLength+1:end));
+end
+
+function rotatedASM = localPCMBuildRotatedASMForMod(asmBits, modscheme)
+    asmBits = int8(asmBits(:) ~= 0);
+    asmLen = numel(asmBits);
+
+    switch char(modscheme)
+        case {'BPSK','GMSK'}
+            rotatedASM = [2*asmBits(:)-1, 1-2*asmBits(:)];
+
+        case {'QPSK','OQPSK'}
+            rotationMap = [0, 1, 2, 3; ...
+                2, 0, 3, 1; ...
+                3, 2, 1, 0; ...
+                1, 3, 0, 2];
+            m = 2;
+            padLen = mod(m - mod(asmLen, m), m);
+            asmPadded = [asmBits(:); zeros(padLen, 1, 'int8')];
+            asmSymbols = comm.internal.utilities.bi2deLeftMSB( ...
+                double(reshape(asmPadded, m, []).'), 2);
+            rotatedASM = zeros(asmLen, 4);
+            for iRot = 1:4
+                temp = comm.internal.utilities.de2biBase2LeftMSB( ...
+                    rotationMap(iRot, asmSymbols+1).', m).';
+                temp = temp(:);
+                rotatedASM(:, iRot) = 2*temp(1:asmLen) - 1;
+            end
+
+        case '8PSK'
+            m = 3;
+            map = [0 4 6 2 3 7 5 1];
+            invMap = zeros(1, 8);
+            for k = 1:8
+                invMap(map(k) + 1) = k - 1;
+            end
+
+            padLen = mod(m - mod(asmLen, m), m);
+            asmPadded = [asmBits(:); zeros(padLen, 1, 'int8')];
+            asmLabels = comm.internal.utilities.bi2deLeftMSB( ...
+                double(reshape(asmPadded, m, []).'), 2);
+
+            asmSymIdx = zeros(size(asmLabels));
+            for k = 1:length(asmLabels)
+                asmSymIdx(k) = invMap(asmLabels(k) + 1);
+            end
+
+            rotatedASM = zeros(asmLen, 8);
+            for iRot = 1:8
+                rot = iRot - 1;
+                rotatedSymIdx = mod(asmSymIdx + rot, 8);
+                rotatedLabels = map(rotatedSymIdx + 1).';
+                rotatedBits = comm.internal.utilities.de2biBase2LeftMSB( ...
+                    rotatedLabels, m).';
+                rotatedBits = rotatedBits(:);
+                rotatedASM(:, iRot) = 2*rotatedBits(1:asmLen) - 1;
+            end
+
+        otherwise
+            rotatedASM = 2*asmBits(:)-1;
+    end
+end
+
+function [decodedBits, lastLineBit] = localPCMHardDifferentialDecode(lineBits, lastLineBit, pcmFormat)
+    lineBits = int8(lineBits(:) ~= 0);
+    if isempty(lineBits)
+        decodedBits = lineBits;
+        return;
+    end
+
+    prev = int8(lastLineBit ~= 0);
+    prevBits = [prev; lineBits(1:end-1)];
+    decodedBits = int8(xor(logical(lineBits), logical(prevBits)));
+
+    if strcmp(pcmFormat,'NRZ-S')
+        decodedBits = int8(~logical(decodedBits));
+    end
+
+    lastLineBit = lineBits(end);
+end
+
+function localPCMPrintDecodedDebug(obj, decodedBits, tag)
+    asmBits = int8(obj.pASM(:));
+    decodedBits = int8(decodedBits(:) ~= 0);
+    asmLen = numel(asmBits);
+    maxStart = min(numel(decodedBits) - asmLen + 1, 5*(obj.pPRNSequenceLength + asmLen));
+    bestPos = 0;
+    bestErr = asmLen;
+    invBestPos = 0;
+    invBestErr = asmLen;
+
+    if maxStart > 0
+        for iPos = 1:maxStart
+            errNow = nnz(decodedBits(iPos:iPos+asmLen-1) ~= asmBits);
+            if errNow < bestErr
+                bestErr = errNow;
+                bestPos = iPos;
+                if bestErr == 0
+                    break;
+                end
+            end
+
+            invErrNow = nnz(decodedBits(iPos:iPos+asmLen-1) == asmBits);
+            if invErrNow < invBestErr
+                invBestErr = invErrNow;
+                invBestPos = iPos;
+            end
+        end
+    end
+
+    fprintf('[PCM DEBUG] %s %s: Viterbi+PCM bits=%d, best ASM pos=%d, err=%d/%d, invASM pos=%d, err=%d/%d, diffState=%d\n', ...
+        tag, obj.PCMFormat, numel(decodedBits), bestPos, bestErr, asmLen, ...
+        invBestPos, invBestErr, asmLen, obj.pDifferentialDecoderBit);
+end
+
+function localPCMPrintASMCandidates(stream, asmBits, caduLen, maxPos, maxASMErrors)
+    asmLen = numel(asmBits);
+    cand = zeros(0, 4);
+
+    for pos = 1:maxPos
+        metric = sum(stream(pos:pos+asmLen-1) ~= asmBits);
+        if metric > maxASMErrors
+            continue;
+        end
+
+        nCandFrames = floor((length(stream) - pos + 1) / caduLen);
+        if nCandFrames <= 0
+            continue;
+        end
+
+        nCheckFrames = min(nCandFrames, 12);
+        candMetrics = zeros(1, nCheckFrames);
+        for k = 1:nCheckFrames
+            asmStart = pos + (k-1)*caduLen;
+            candMetrics(k) = sum(stream(asmStart:asmStart+asmLen-1) ~= asmBits);
+        end
+        cand(end+1,:) = [pos, metric, mean(candMetrics), nCandFrames]; %#ok<AGROW>
+    end
+
+    if isempty(cand)
+        fprintf('[PostVitASM candidates] none within threshold=%d, streamLen=%d, caduLen=%d\n', ...
+            maxASMErrors, length(stream), caduLen);
+        return;
+    end
+
+    [~, orderBySingle] = sortrows(cand, [2 1]);
+    [~, orderByMean] = sortrows(cand, [3 2 1]);
+    nShow = min(5, size(cand,1));
+
+    fprintf('[PostVitASM candidates single] ');
+    for ii = 1:nShow
+        c = cand(orderBySingle(ii),:);
+        fprintf('#%d pos=%d err=%d mean=%.2f frames=%d; ', ii, c(1), c(2), c(3), c(4));
+    end
+    fprintf('\n');
+
+    fprintf('[PostVitASM candidates periodic] ');
+    for ii = 1:nShow
+        c = cand(orderByMean(ii),:);
+        fprintf('#%d pos=%d err=%d mean=%.2f frames=%d; ', ii, c(1), c(2), c(3), c(4));
+    end
+    fprintf('\n');
 end
