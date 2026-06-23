@@ -9,6 +9,8 @@ function results = sweep_multipath_system(profile)
 % Optional:
 %   results = sweep_multipath_system("smoke"); % default
 %   results = sweep_multipath_system("equalizer");
+%   results = sweep_multipath_system("boundary-lite");
+%   results = sweep_multipath_system("boundary");
 %   results = sweep_multipath_system("full");
 %
 % The sweep checks whether representative modulation/coding modes survive
@@ -108,6 +110,9 @@ function results = sweep_multipath_system(profile)
     fprintf('\n================ MULTIPATH SWEEP SUMMARY ================\n');
     disp(groupsummary(results, "Verdict"));
     disp(results);
+    if localIsBoundaryProfile(profile)
+        localPrintBoundarySummary(results);
+    end
     fprintf('\nSaved CSV: %s\n', outCsv);
 end
 
@@ -139,6 +144,11 @@ function cases = localBuildCases(profile)
         'enableFACMEqualizer', false);
 
     cases = {};
+
+    if localIsBoundaryProfile(profile)
+        cases = localBuildBoundaryCases(base, profile);
+        return;
+    end
 
     if profile == "equalizer" || profile == "eq"
         modList = {
@@ -298,6 +308,17 @@ function hCases = localBuildHScenarios(profile)
     mediumH = [1, 0, 0.35*exp(1j*pi/3), 0, 0.22*exp(-1j*pi/4), 0, 0.12*exp(1j*pi/2)];
     strongH = [1, 0, 0.55*exp(1j*pi/3), 0, 0.35*exp(-1j*pi/4), 0, 0.20*exp(1j*pi/2)];
 
+    if localIsBoundaryProfile(profile)
+        hCases = {
+            localHCase("clean", false, false, cleanH)
+            localHCase("medium H, EQ off", true, false, mediumH)
+            localHCase("medium H, EQ on", true, true, mediumH)
+            localHCase("strong H, EQ off", true, false, strongH)
+            localHCase("strong H, EQ on", true, true, strongH)
+            };
+        return;
+    end
+
     if profile == "equalizer" || profile == "eq"
         hCases = {
             localHCase("clean", false, false, cleanH)
@@ -328,6 +349,134 @@ function hCases = localBuildHScenarios(profile)
             localHCase("strong H, EQ off", true, false, strongH)
             localHCase("strong H, EQ on", true, true, strongH)
             };
+    end
+end
+
+function tf = localIsBoundaryProfile(profile)
+    profile = lower(string(profile));
+    tf = any(profile == ["boundary", "edge", "boundary-lite", "edge-lite"]);
+end
+
+function cases = localBuildBoundaryCases(base, profile)
+    cases = {};
+    isLite = any(lower(string(profile)) == ["boundary-lite", "edge-lite"]);
+
+    if isLite
+        modDefs = {
+            "8PSK",   "convolutional", "TM conv1/2", [8 12 16 20], 1e-4, 85
+            "16QAM",  "convolutional", "TM conv1/2", [12 16 20 24], 1e-4, 85
+            "16APSK", "none",          "FACM ACM14", [16 20 24 28], 1e-4, 80
+            };
+        codingDefs = {
+            "8PSK", "LDPC", "8PSK LDPC1/2", [6 10 14 18], 1e-4, 80
+            "BPSK", "TPC",  "BPSK TPC",     [6 10 14 18], 1e-4, 80
+            };
+    else
+        modDefs = {
+            "BPSK",   "convolutional", "TM conv1/2", [4 8 12 16], 1e-5, 90
+            "QPSK",   "convolutional", "TM conv1/2", [4 8 12 16], 1e-5, 90
+            "8PSK",   "convolutional", "TM conv1/2", [8 12 16 20], 1e-4, 85
+            "GMSK",   "convolutional", "TM conv1/2", [4 8 12 16], 1e-4, 85
+            "16QAM",  "convolutional", "TM conv1/2", [12 16 20 24], 1e-4, 85
+            "32QAM",  "convolutional", "TM conv1/2", [16 20 24 28], 1e-4, 85
+            "16APSK", "none",          "FACM ACM14", [16 20 24 28], 1e-4, 80
+            "32APSK", "none",          "FACM ACM21", [20 24 28 32], 1e-4, 80
+            };
+        codingDefs = {
+            "8PSK", "none",          "8PSK none",       [10 14 18 22], 1e-4, 85
+            "8PSK", "LDPC",          "8PSK LDPC1/2",    [6 10 14 18],  1e-4, 80
+            "8PSK", "RS",            "8PSK RS",         [8 12 16 20],  1e-4, 80
+            "8PSK", "Turbo",         "8PSK Turbo1/2",   [8 12 16 20],  1e-4, 80
+            "BPSK", "TPC",           "BPSK TPC",        [6 10 14 18],  1e-4, 80
+            };
+    end
+
+    for i = 1:size(modDefs, 1)
+        modType = char(modDefs{i,1});
+        coding = char(modDefs{i,2});
+        label = char(modDefs{i,3});
+        snrList = modDefs{i,4};
+        passBER = modDefs{i,5};
+        passLock = modDefs{i,6};
+
+        for iSNR = 1:numel(snrList)
+            p = base;
+            p.modType = modType;
+            p.snr = snrList(iSNR);
+            p.channelCoding = coding;
+            p = localApplyCodingDefaults(p);
+            p = localApplyModDefaults(p);
+            cases{end+1} = localCase("Boundary modulation", ...
+                label, p, passBER, passLock); %#ok<AGROW>
+        end
+    end
+
+    for i = 1:size(codingDefs, 1)
+        modType = char(codingDefs{i,1});
+        coding = char(codingDefs{i,2});
+        label = char(codingDefs{i,3});
+        snrList = codingDefs{i,4};
+        passBER = codingDefs{i,5};
+        passLock = codingDefs{i,6};
+
+        for iSNR = 1:numel(snrList)
+            p = base;
+            p.modType = modType;
+            p.snr = snrList(iSNR);
+            p.channelCoding = coding;
+            p = localApplyCodingDefaults(p);
+            p = localApplyModDefaults(p);
+            cases{end+1} = localCase("Boundary coding", ...
+                label, p, passBER, passLock); %#ok<AGROW>
+        end
+    end
+end
+
+function p = localApplyModDefaults(p)
+    modType = upper(string(p.modType));
+
+    if contains(modType, "QAM")
+        p = localRemoveFields(p, {'PCMFormat'});
+    end
+
+    if modType == "GMSK"
+        p.RolloffFactor = 0.5;
+    end
+
+    if modType == "16APSK"
+        p.sps = 8;
+        p.channelCoding = 'none';
+        p.ACMFormat = 14;
+        p.acmFormat = 14;
+        p.hasPilots = true;
+        p.debugFACM = false;
+        p.facmWarmupFrames = 8;
+        p.facmBERFrames = 16;
+        p.facmNumIterations = 10;
+        p.facmEqualizerMode = 'pilot-ls';
+        p.facmEqualizerTaps = 11;
+        p.facmEqualizerReg = 1e-2;
+        p.pilotLSReg = 1e-2;
+    elseif modType == "32APSK"
+        p.sps = 8;
+        p.channelCoding = 'none';
+        p.ACMFormat = 21;
+        p.acmFormat = 21;
+        p.hasPilots = true;
+        p.debugFACM = false;
+        p.facmWarmupFrames = 8;
+        p.facmBERFrames = 16;
+        p.facmNumIterations = 10;
+        p.facmEqualizerMode = 'pilot-ls';
+        p.facmEqualizerTaps = 13;
+        p.facmEqualizerReg = 1e-2;
+        p.pilotLSReg = 1e-2;
+    end
+
+    if strcmpi(string(p.channelCoding), "TPC")
+        p.berWarmUpFrames = 0;
+        p.berFrames = 6;
+        p = localRemoveFields(p, {'ConvolutionalCodeRate','CodeRate','NumBitsInInformationBlock'});
     end
 end
 
@@ -502,6 +651,40 @@ function verdict = localVerdict(success, berVal, lockPct, passBER, passLock)
         verdict = "WARN";
     else
         verdict = "FAIL";
+    end
+end
+
+function localPrintBoundarySummary(results)
+    fprintf('\n================ BOUNDARY SUMMARY: MIN PASS SNR ================\n');
+    if isempty(results)
+        fprintf('No results.\n');
+        return;
+    end
+
+    key = strings(height(results), 1);
+    for i = 1:height(results)
+        key(i) = results.Category(i) + " | " + results.Name(i) + " | " + results.Modulation(i) + ...
+            " | " + results.Coding(i) + " | " + results.HScenario(i) + " | EQ=" + string(results.EnableEqualizer(i));
+    end
+
+    keys = unique(key, 'stable');
+    for iKey = 1:numel(keys)
+        mask = key == keys(iKey);
+        sub = results(mask, :);
+        passMask = sub.Verdict == "PASS";
+
+        if any(passMask)
+            passSNR = min(sub.InputSNR_dB(passMask));
+            passRows = sub(passMask & sub.InputSNR_dB == passSNR, :);
+            row = passRows(1, :);
+            fprintf('%-22s | %-24s | %-18s | EQ=%d | min PASS SNR=%5.1f dB | BER=%8.3g | Lock=%5.1f%% | EVM=%6.2f%%\n', ...
+                char(row.Modulation), char(row.Coding), char(row.HScenario), row.EnableEqualizer, ...
+                passSNR, row.BER, row.LockRate_pct, row.EVM_post_pct);
+        else
+            row = sub(1, :);
+            fprintf('%-22s | %-24s | %-18s | EQ=%d | no PASS in sweep range\n', ...
+                char(row.Modulation), char(row.Coding), char(row.HScenario), row.EnableEqualizer);
+        end
     end
 end
 

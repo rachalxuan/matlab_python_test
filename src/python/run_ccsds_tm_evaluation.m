@@ -1179,15 +1179,34 @@ function [berVal, lockRate, bestRot] = computeBER(fineSynced, validTxFrames, mod
             rotations = exp(1j*pi/2 * (0:3));
         end
 
+        phaseResolveMode = "asm";
+        if isfield(opt,'phaseResolveMode') && ~isempty(opt.phaseResolveMode)
+            phaseResolveMode = lower(string(opt.phaseResolveMode));
+        end
+
+        rotationOrder = 1:length(rotations);
+        asmResolveInfo = struct('enabled', false, 'selectedIdx', rotationOrder, ...
+            'fallbackToBER', false, 'message', "");
+        if phaseResolveMode ~= "ber"
+            [rotationOrder, asmResolveInfo] = selectRotationsByASM( ...
+                fineSynced, rotations, tmMod, tmCode, opt, btVal);
+            if asmResolveInfo.enabled
+                fprintf('   [ASM phase] %s\n', asmResolveInfo.message);
+            end
+        end
+
         bestBer = inf;
         bestLock = -1;
         bestRot = 0;
         bitErrorsBest = 0;
         bitsComparedBest = 0;
         bestShift = 0;
+        evaluated = false(size(rotations));
         
-        for ii = 1:length(rotations)
+        for iiOrder = 1:length(rotationOrder)
+            ii = rotationOrder(iiOrder);
             r = rotations(ii);
+            evaluated(ii) = true;
             rxRot = fineSynced * r;
         
             [ber, lock, errs, bitsComp] = tryOneRotation( ...
@@ -1225,6 +1244,49 @@ function [berVal, lockRate, bestRot] = computeBER(fineSynced, validTxFrames, mod
                 end
             end
         end
+
+        fallbackEnabled = ~isfield(opt,'phaseResolveFallback') || logical(opt.phaseResolveFallback);
+        fallbackBER = 1e-2;
+        if isfield(opt,'phaseResolveFallbackBER') && ~isempty(opt.phaseResolveFallbackBER)
+            fallbackBER = double(opt.phaseResolveFallbackBER);
+        end
+        needFallback = fallbackEnabled && phaseResolveMode ~= "ber" && ...
+            any(~evaluated) && (bestLock < 0.80 || bitsComparedBest <= 0 || bestBer >= fallbackBER);
+        if needFallback
+            fprintf('   [ASM phase] selected candidates failed; fallback to remaining rotations.\n');
+            for ii = find(~evaluated)
+                r = rotations(ii);
+                rxRot = fineSynced * r;
+
+                [ber, lock, errs, bitsComp] = tryOneRotation( ...
+                    rxRot, validTxFrames, tmMod, tmCode, ...
+                    opt, hasRandomizer, hasASM, btVal, numWarmUp);
+
+                fprintf('   [候选角度] rot=%+6.1f deg, BER=%.4g, Lock=%.1f%%, Err=%d, Bits=%d', ...
+                    rad2deg(angle(r)), ber, lock*100, errs, bitsComp);
+
+                if lock >= 0.80 && bitsComp > 0
+                    if ber < bestBer
+                        bestBer = ber;
+                        bestLock = lock;
+                        bestRot = angle(r);
+                        bitErrorsBest = errs;
+                        bitsComparedBest = bitsComp;
+                    end
+                    if ber == 0 && lock >= 0.999 && bitsComp > 0
+                        break;
+                    end
+                else
+                    if isinf(bestBer) && lock > bestLock
+                        bestBer = ber;
+                        bestLock = lock;
+                        bestRot = angle(r);
+                        bitErrorsBest = errs;
+                        bitsComparedBest = bitsComp;
+                    end
+                end
+            end
+        end
         
         berVal = bestBer;
         lockRate = max(bestLock, 0);
@@ -1237,6 +1299,167 @@ function [berVal, lockRate, bestRot] = computeBER(fineSynced, validTxFrames, mod
         if ~isempty(ME_BER.stack)
             for s = 1:min(3, length(ME_BER.stack))
                 fprintf(2,'   at %s (line %d)\n', ME_BER.stack(s).name, ME_BER.stack(s).line);
+            end
+        end
+    end
+end
+
+function [selectedIdx, info] = selectRotationsByASM(fineSynced, rotations, tmMod, tmCode, opt, btVal)
+    info = struct('enabled', false, 'selectedIdx', 1:length(rotations), ...
+        'fallbackToBER', false, 'message', "");
+    selectedIdx = 1:length(rotations);
+
+    if isempty(rotations) || isempty(fineSynced)
+        info.message = "empty input; use BER rotation search";
+        return;
+    end
+
+    maxErr = 6;
+    minGap = 4;
+    maxCandidates = 2;
+    maxSearchBits = 250000;
+    if isfield(opt,'phaseResolveASMMaxErr'), maxErr = double(opt.phaseResolveASMMaxErr); end
+    if isfield(opt,'phaseResolveASMMinGap'), minGap = double(opt.phaseResolveASMMinGap); end
+    if isfield(opt,'phaseResolveMaxCandidates'), maxCandidates = max(1, round(double(opt.phaseResolveMaxCandidates))); end
+    if isfield(opt,'phaseResolveASMSearchBits'), maxSearchBits = max(1024, round(double(opt.phaseResolveASMSearchBits))); end
+
+    asmBits = localTMASM();
+    scores = -inf(1, length(rotations));
+    bestErrs = inf(1, length(rotations));
+    bestPos = zeros(1, length(rotations));
+
+    for ii = 1:length(rotations)
+        try
+            demodData = localDemodForASM(fineSynced * rotations(ii), tmMod, tmCode, opt, btVal);
+            if isempty(demodData)
+                continue;
+            end
+            hardBits = int8(real(demodData(:)) > 0);
+            if numel(hardBits) > maxSearchBits
+                hardBits = hardBits(1:maxSearchBits);
+            end
+            [bestErrs(ii), bestPos(ii)] = localBestASMError(hardBits, asmBits);
+            scores(ii) = numel(asmBits) - bestErrs(ii);
+        catch
+            scores(ii) = -inf;
+            bestErrs(ii) = inf;
+        end
+    end
+
+    finiteMask = isfinite(scores);
+    if ~any(finiteMask)
+        info.message = "ASM scores unavailable; use BER rotation search";
+        return;
+    end
+
+    [sortedScores, order] = sort(scores, 'descend');
+    sortedErrs = bestErrs(order);
+    sortedPos = bestPos(order);
+    bestScore = sortedScores(1);
+    secondScore = -inf;
+    if numel(sortedScores) >= 2
+        secondScore = sortedScores(2);
+    end
+    gap = bestScore - secondScore;
+
+    info.enabled = true;
+    info.selectedIdx = order;
+    info.scores = scores;
+    info.bestErrs = bestErrs;
+    info.bestPos = bestPos;
+
+    if sortedErrs(1) <= maxErr && gap >= minGap
+        selectedIdx = order(1);
+        info.message = sprintf('selected 1 rotation by ASM: rot=%+.1f deg, err=%d/32, pos=%d, gap=%.1f', ...
+            rad2deg(angle(rotations(selectedIdx(1)))), sortedErrs(1), sortedPos(1), gap);
+        return;
+    end
+
+    nPick = min([maxCandidates, numel(order), 2]);
+    selectedIdx = order(1:nPick);
+    info.message = sprintf('ASM ambiguous; decode top %d rotations: best rot=%+.1f deg err=%d/32, second err=%d/32, gap=%.1f', ...
+        nPick, rad2deg(angle(rotations(selectedIdx(1)))), sortedErrs(1), ...
+        sortedErrs(min(2,numel(sortedErrs))), gap);
+end
+
+function demodData = localDemodForASM(fineSynced, tmMod, tmCode, opt, btVal)
+    if isfield(opt,'PCMFormat') && ~isempty(opt.PCMFormat)
+        pcmFormatRx = string(opt.PCMFormat);
+    else
+        pcmFormatRx = "NRZ-L";
+    end
+
+    if HelperCCSDSTMPCMDemodulator.supports(tmMod)
+        demodData = real(fineSynced(:));
+    elseif contains(tmMod,'FM')
+        demodData = double(real(fineSynced(:)));
+    elseif contains(tmMod,'UQPSK')
+        demodobj = HelperCCSDSTMDemodulator( ...
+            'Modulation', tmMod, ...
+            'ChannelCoding', tmCode, ...
+            'PCMFormat', pcmFormatRx);
+        demodData = demodobj(fineSynced);
+    elseif strcmp(tmMod,'OQPSK')
+        if isfield(opt,'sps')
+            spsLocal = double(opt.sps);
+        else
+            spsLocal = 8;
+        end
+        if isfield(opt,'RolloffFactor')
+            rolloffLocal = str2double(string(opt.RolloffFactor));
+        else
+            rolloffLocal = 0.35;
+        end
+        demodobj = HelperCCSDSTMDemodulator( ...
+            'Modulation', tmMod, ...
+            'ChannelCoding', tmCode, ...
+            'PCMFormat', pcmFormatRx, ...
+            'SamplesPerSymbol', spsLocal, ...
+            'RolloffFactor', rolloffLocal);
+        demodData = demodobj(fineSynced);
+    elseif contains(tmMod,'GMSK')
+        demodobj = HelperCCSDSTMDemodulator( ...
+            'Modulation', tmMod, ...
+            'ChannelCoding', tmCode, ...
+            'PCMFormat', pcmFormatRx, ...
+            'BandwidthTimeProduct', btVal);
+        demodData = real(demodobj(fineSynced));
+    else
+        demodArgs = {'Modulation', tmMod, 'ChannelCoding', tmCode, 'PCMFormat', pcmFormatRx};
+        if contains(tmMod,'4D-8PSK-TCM')
+            demodArgs = [demodArgs, {'ModulationEfficiency', getf(opt,'ModulationEfficiency',2)}];
+        end
+        demodobj = HelperCCSDSTMDemodulator(demodArgs{:});
+        demodData = demodobj(fineSynced);
+    end
+end
+
+function asmBits = localTMASM()
+    asmBits = int8([0;0;0;1;1;0;1;0;1;1;0;0;1;1;1;1;1;1;1;1;1;1;0;0;0;0;0;1;1;1;0;1]);
+end
+
+function [bestErr, bestPos] = localBestASMError(hardBits, asmBits)
+    hardBits = int8(hardBits(:));
+    asmBits = int8(asmBits(:));
+    asmLen = numel(asmBits);
+    bestErr = inf;
+    bestPos = 0;
+    if numel(hardBits) < asmLen
+        return;
+    end
+
+    asmInv = int8(~logical(asmBits));
+    maxStart = numel(hardBits) - asmLen + 1;
+    for iPos = 1:maxStart
+        seg = hardBits(iPos:iPos+asmLen-1);
+        err0 = nnz(seg ~= asmBits);
+        err1 = nnz(seg ~= asmInv);
+        errNow = min(err0, err1);
+        if errNow < bestErr
+            bestErr = errNow;
+            bestPos = iPos;
+            if bestErr == 0
+                break;
             end
         end
     end
