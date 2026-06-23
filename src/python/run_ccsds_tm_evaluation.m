@@ -16,8 +16,6 @@ function metrics = run_ccsds_tm_evaluation(params)
 %   2) 用前端的 JSON 直接粘进来调（验一致性）
 %   m = run_ccsds_tm_evaluation('{"modType":"QPSK","symbolRate":1e6,"sps":8,"snr":12,"cfo":0,"phaseOffset":0,"channelCoding":"none","RolloffFactor":0.35}');
 %
-%   3) BER vs SNR 扫描（把 .snrSweep 设成数组，会跑一条曲线）
-%   p.snrSweep = 0:2:14;  m = run_ccsds_tm_evaluation(p);
 
 tStart = tic;
 
@@ -33,14 +31,7 @@ else
 end
 
 try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 =====
-
-    % ======== 是否做扫描 ========
-    if isfield(opt,'snrSweep') && ~isempty(opt.snrSweep)
-        metrics = doSNRSweep(opt);
-        return;
-    end
-
-    % ======== 单点仿真 ========
+    % ======== Single point simulation ========
     [res, ctx] = runOneShot(opt);
 
     % showFigures 默认 true; 矩阵测试或前端调用时设 false 跳过出图
@@ -49,9 +40,13 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
 
     printMetrics(res, opt);
     if showFigures
-        plotAll(res, ctx, opt);
-        plotPipeline(res, ctx, opt);     % 损伤恢复管线图
-        plotDamageBudget(res, ctx, opt); % 损伤预算图: 输入 vs 残余
+        ccsdsEvalPlotFigures('summary', res, ctx, opt);
+        if getLogicalField(opt, 'showPipelineFigure', true)
+            ccsdsEvalPlotFigures('pipeline', res, ctx, opt);
+        end
+        if getLogicalField(opt, 'showDamageBudgetFigure', false)
+            ccsdsEvalPlotFigures('damageBudget', res, ctx, opt);
+        end
     end
 
     % ======== 给前端打包: 频谱 / 星座 / 管线 / 残余损伤 ========
@@ -1421,26 +1416,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
             'RolloffFactor', rolloffLocal);
     
         demodData = demodobj(fineSynced);
-%         oqpskDemod = comm.OQPSKDemodulator( ...
-%             'PulseShape','Root raised cosine', ...
-%             'RolloffFactor', rolloffLocal, ...
-%             'SamplesPerSymbol', spsLocal, ...
-%             'BitOutput', true);
-%         demodData = oqpskDemod(fineSynced);
-%         % 内置 OQPSKDemodulator 默认是 Gray 映射, CCSDS 用 CustomMapping [0;2;3;1],
-%         % 推导出两者差别正好是 "每对 bit 内部交换" (i.e. (b0,b1) <-> (b1,b0)).
-%         % 把 LLR 按对调换:
-%         if mod(length(demodData), 2) == 0
-%             demodData = reshape(demodData, 2, []);
-%             demodData = demodData([2 1], :);
-%             demodData = demodData(:);
-%         end
-%         % LLR 符号: comm.OQPSKDemodulator 输出 >0 表示 bit=0,
-%         % HelperCCSDSTMDecoder 里的 Viterbi 期望 >0 表示 bit=1 (跟 QPSK 路径一致, 那里有 y=-1*y),
-%         % 所以这里也翻号.
-%         demodBits = demodData(:) > 0;
-%         demodData = -5 * ones(size(demodBits));
-%         demodData(demodBits) = 5;
+
     elseif contains(tmMod,'GMSK')
         demodobj = HelperCCSDSTMDemodulator( ...
             'Modulation',tmMod, ...
@@ -1876,429 +1852,6 @@ function printMetrics(res, opt)
     fprintf('==================================\n\n');
 end
 
-function plotAll(res, ctx, opt)
-    if contains(upper(string(res.modType)),'GMSK')
-        plotGMSKAll(res, ctx, opt);
-        return;
-    end
-    figure('Name','CCSDS 评估','NumberTitle','off','Position',[100 100 1200 800]);
-
-    % 1. 同步前星座
-    subplot(2,3,1);
-    plotConstellation(ctx.rawSym, ctx.refConst, '同步前 (raw)');
-
-    % 2. 同步后星座 + EVM 圈
-    subplot(2,3,2);
-    plotConstellation(ctx.fineSynced, ctx.refConst, ...
-        sprintf('同步后  EVM=%.2f%%  MER=%.2fdB', res.EVM_post_pct, res.MER_dB));
-
-    % 3. 频谱
-    subplot(2,3,3);
-    [Pxx_tx, f_axis] = pwelch(ctx.txWaveform,[],[],1024,ctx.Fs,'centered');
-    [Pxx_rx, ~]      = pwelch(ctx.rxWaveform,[],[],1024,ctx.Fs,'centered');
-    plot(f_axis/1e3, 10*log10(Pxx_tx),'b','LineWidth',1.2); hold on;
-    plot(f_axis/1e3, 10*log10(Pxx_rx),'r','LineWidth',1.0);
-    grid on; xlabel('频率 (kHz)'); ylabel('PSD (dB/Hz)');
-    legend('Tx','Rx'); title('功率谱');
-
-    % 4. 时域 IQ
-    subplot(2,3,4);
-    Nt = min(2000, length(ctx.rxWaveform));
-    t = (0:Nt-1)/ctx.Fs * 1e6;
-    plot(t, real(ctx.rxWaveform(1:Nt)),'b'); hold on;
-    plot(t, imag(ctx.rxWaveform(1:Nt)),'r');
-    grid on; xlabel('时间 (us)'); ylabel('幅度');
-    legend('I','Q'); title('Rx 时域 IQ');
-
-    % 5. 眼图（仅 PSK，GMSK/APSK 跳过）
-    subplot(2,3,5);
-    try
-        if contains(upper(string(res.modType)),'PSK') && ~contains(upper(string(res.modType)),'OQPSK')
-            Neye = min(1000, length(ctx.fineSynced));
-            seg = real(ctx.fineSynced(end-Neye+1:end));
-            % 简单眼图：把每 2 个符号叠在一起画
-            spsEye = 2;
-            seg = seg(1:floor(length(seg)/spsEye)*spsEye);
-            mat = reshape(seg, spsEye, []);
-            plot(mat,'b'); grid on; title('眼图 (I 路简化)');
-        else
-            text(0.3,0.5,sprintf('%s 眼图省略', res.modType));
-            axis off;
-        end
-    catch
-        axis off;
-    end
-
-    % 6. 指标条形图
-    subplot(2,3,6);
-    vals = [res.EVM_post_pct, res.MER_dB, res.SNR_est_dB, res.PAPR_dB, res.LockRate*100];
-    names = {'EVM%','MER dB','SNRest dB','PAPR dB','Lock%'};
-    bar(vals); set(gca,'XTickLabel',names); grid on;
-    title(sprintf('BER=%.2e', res.BER));
-end
-
-function plotGMSKAll(res, ctx, opt) %#ok<INUSD>
-    figure('Name','CCSDS GMSK 评估','NumberTitle','off','Position',[100 100 1200 800]);
-
-    subplot(2,3,1);
-    plotIQTrajectory(ctx.fineSynced, 'GMSK 同步后 IQ 轨迹');
-
-    subplot(2,3,2);
-    phi = unwrap(angle(ctx.fineSynced(:)));
-    L = min(3000, length(phi));
-    if L > 0
-        plot(phi(1:L), 'b');
-        grid on; xlabel('样点索引'); ylabel('相位 (rad)');
-        title('GMSK 相位轨迹');
-    else
-        text(0.3,0.5,'无数据'); axis off;
-    end
-
-    subplot(2,3,3);
-    dphi = angle(ctx.fineSynced(2:end) .* conj(ctx.fineSynced(1:end-1)));
-    L = min(3000, length(dphi));
-    if L > 0
-        plot(dphi(1:L), 'b');
-        grid on; xlabel('样点索引'); ylabel('\Delta 相位 (rad)');
-        title('GMSK 差分相位判决量');
-    else
-        text(0.3,0.5,'无数据'); axis off;
-    end
-
-    subplot(2,3,4);
-    if ~isempty(dphi)
-        histogram(dphi, 80);
-        grid on; xlabel('\Delta 相位 (rad)'); ylabel('数量');
-        title('GMSK 差分相位分布');
-    else
-        text(0.3,0.5,'无数据'); axis off;
-    end
-
-    subplot(2,3,5);
-    [P1, fA] = pwelch(ctx.rxWaveform, [], [], 4096, ctx.Fs, 'centered');
-    [P2, ~]  = pwelch(ctx.coarseSynced, [], [], 4096, ctx.Fs, 'centered');
-    plot(fA/1e3, 10*log10(P1), 'r', 'LineWidth', 1.0); hold on;
-    plot(fA/1e3, 10*log10(P2), 'b', 'LineWidth', 1.0);
-    grid on; 
-    legend('接收信号/含CFO','粗频偏校正后','Location','best');
-    xlabel('频率 (kHz)'); ylabel('功率谱密度 (dB/Hz)');
-    title('GMSK 频谱：CFO校正前后');
-
-    subplot(2,3,6);
-    vals = [res.BER, res.LockRate*100, res.PAPR_dB, res.EVM_post_pct, res.MER_dB];
-    names = {'BER','锁帧率%','PAPR dB','包络误差%','包络MER dB'};
-    bar(vals); set(gca,'XTickLabel',names); grid on;
-    title('GMSK 核心指标');
-
-    sgtitle(sprintf('GMSK | SNR=%.0fdB CFO=%.0fHz Phase=%.0f deg | BER=%.2e Lock=%.0f%%', ...
-        res.snr_in, res.cfo_in, res.phase_in, res.BER, res.LockRate*100));
-end
-
-function plotIQTrajectory(sym, ttl)
-    if isempty(sym)
-        text(0.3,0.5,'no data'); axis off; return;
-    end
-    L = min(length(sym), 5000);
-    s = sym(1:L);
-    plot(real(s), imag(s), 'b.', 'MarkerSize', 4);
-    axis equal; grid on; xlabel('I'); ylabel('Q'); title(ttl);
-end
-
-function plotConstellation(sym, refConst, ttl)
-    if isempty(sym)
-        text(0.3,0.5,'no data'); axis off; return;
-    end
-    L = min(length(sym), 1500);
-    s = sym(end-L+1:end);
-    plot(real(s), imag(s),'b.','MarkerSize',4); hold on;
-    plot(real(refConst), imag(refConst),'rx','MarkerSize',12,'LineWidth',2);
-    grid on; axis equal;
-    lim = max(1.5, max(abs(s))*1.1);
-    xlim([-lim lim]); ylim([-lim lim]);
-    xlabel('I'); ylabel('Q'); title(ttl);
-end
-
-% =========================================================
-% 接收链路损伤恢复管线图
-% =========================================================
-function plotPipeline(res, ctx, opt) 
-    if contains(upper(string(res.modType)),'GMSK')
-        plotGMSKPipeline(res, ctx, opt);
-        return;
-    end
-    figure('Name','接收链路损伤恢复 (Pipeline)','NumberTitle','off','Position',[100 80 1500 720]);
-
-    % --- 各阶段符号: 都归一到单位平均功率,1 sample/symbol ---
-    s1 = normPwr(ctx.rxWaveform(1:ctx.sps:end));         % ① 信道损伤后(无任何同步)
-    s2 = normPwr(ctx.coarseSynced(1:ctx.sps:end));       % ② 粗频偏后
-    s3 = normPwr(ctx.TimeSynced);                        % ③ 定时同步后(还有相位旋转)
-    s4 = ctx.fineSynced;                                 % ④ 载波同步后(已 best-rotation 对齐)
-
-    stages = {s1, s2, s3, s4};
-    titles = {'① 信道损伤后','② 粗频偏校正','③ 定时同步','④ 载波同步(终态)'};
-    evms = zeros(1,4);
-    for k = 1:4
-        subplot(2,4,k);
-        plotConstellation(stages{k}, ctx.refConst, titles{k});
-        if ~isempty(stages{k})
-            [evms(k), ~] = computeEVM(stages{k}, ctx.refConst);
-        else
-            evms(k) = NaN;
-        end
-        xlabel(sprintf('EVM=%.1f%%', evms(k)));
-    end
-
-    % --- 5: EVM 逐级条形 ---
-    subplot(2,4,5);
-    bar(evms,'FaceColor',[0.3 0.6 0.9]);
-    set(gca,'XTickLabel',{'①','②','③','④'});
-    ylabel('EVM (%)'); title('损伤逐级降低');
-    grid on;
-    yl = ylim; ylim([0, max(yl(2)*1.15, 5)]);
-    for k = 1:4
-        text(k, evms(k)+max(evms)*0.03, sprintf('%.1f', evms(k)), ...
-             'HorizontalAlignment','center','FontSize',9);
-    end
-
-    % --- 6: 相位轨迹 (raw vs final) ---
-    subplot(2,4,6);
-    Lphase = min(1500, length(s1));
-    if ~isempty(s1) && ~isempty(s4)
-        Ls4 = min(Lphase, length(s4));
-        plot(unwrap(angle(s1(1:Lphase))),'r','LineWidth',1.0); hold on;
-        plot(unwrap(angle(s4(1:Ls4))),'b','LineWidth',1.2);
-        legend('① 含 CFO/相偏','④ 同步后','Location','best');
-    end
-    grid on; xlabel('符号 idx'); ylabel('相位 (rad)');
-    title(sprintf('相位轨迹 (输入 CFO=%+.0fHz)', res.cfo_in));
-
-    % --- 7: 频谱 (Rx vs 粗频偏后) ---
-    subplot(2,4,7);
-    [P1, fA] = pwelch(ctx.rxWaveform,   [],[],1024,ctx.Fs,'centered');
-    [P2, ~]  = pwelch(ctx.coarseSynced, [],[],1024,ctx.Fs,'centered');
-    plot(fA/1e3, 10*log10(P1),'r','LineWidth',1.0); hold on;
-    plot(fA/1e3, 10*log10(P2),'b','LineWidth',1.0);
-    legend('Rx (含 CFO)','粗频偏后','Location','best');
-    grid on; xlabel('频率 (kHz)'); ylabel('PSD (dB/Hz)');
-    title('频域: CFO 校正前后');
-
-    % --- 8: 总体压缩对比 ---
-    subplot(2,4,8);
-    barData = [evms(1), evms(4)];
-    b = bar(barData); b.FaceColor='flat';
-    b.CData(1,:) = [0.85 0.33 0.10];   % 红
-    b.CData(2,:) = [0.20 0.65 0.40];   % 绿
-    set(gca,'XTickLabel',{'同步前','同步后'});
-    ylabel('EVM (%)');
-    if evms(1) > 0
-        ratio = evms(1)/max(evms(4),eps);
-        title(sprintf('总压缩 %.1f%% → %.1f%%  (×%.0f)', evms(1), evms(4), ratio));
-    else
-        title('总压缩对比');
-    end
-    grid on;
-    for k=1:2
-        text(k, barData(k)+max(barData)*0.03, sprintf('%.1f', barData(k)), ...
-             'HorizontalAlignment','center','FontSize',10);
-    end
-
-    sgtitle(sprintf('%s | 输入: SNR=%.0fdB CFO=%.0fHz Phase=%.0f° | 输出: BER=%.2e MER=%.1fdB Lock=%.0f%%', ...
-        res.modType, res.snr_in, res.cfo_in, res.phase_in, ...
-        res.BER, res.MER_dB, res.LockRate*100));
-end
-
-function plotGMSKPipeline(res, ctx, opt) %#ok<INUSD>
-    figure('Name','GMSK 接收链路恢复过程','NumberTitle','off','Position',[100 80 1500 720]);
-
-    s1 = normPwr(ctx.rxWaveform(1:ctx.sps:end));
-    s2 = normPwr(ctx.coarseSynced(1:ctx.sps:end));
-    s3 = normPwr(ctx.TimeSynced);
-    s4 = normPwr(ctx.fineSynced);
-    stages = {s1, s2, s3, s4};
-    titles = {'① 接收IQ轨迹','② 粗频偏校正后','③ 定时同步后','④ 载波同步后'};
-    evms = zeros(1,4);
-
-    for k = 1:4
-        subplot(2,4,k);
-        plotIQTrajectory(stages{k}, titles{k});
-        [evms(k), ~] = computeGMSKIQRoughMetrics(stages{k});
-        xlabel(sprintf('包络误差=%.1f%%', evms(k)));
-    end
-
-    subplot(2,4,5);
-    s = ctx.fineSynced(:);
-    dphi = angle(s(2:end) .* conj(s(1:end-1)));
-    if ~isempty(dphi)
-        histogram(dphi, 80);
-        grid on; xlabel('\Delta phase (rad)'); ylabel('Count');
-        title('差分相位分布');
-    else
-        text(0.3,0.5,'no data'); axis off;
-    end
-
-    subplot(2,4,6);
-    phi1 = unwrap(angle(s1(:)));
-    phi4 = unwrap(angle(s4(:)));
-    L1 = min(1500, length(phi1));
-    L4 = min(1500, length(phi4));
-    if L1 > 0, plot(phi1(1:L1),'r','LineWidth',1.0); hold on; end
-    if L4 > 0, plot(phi4(1:L4),'b','LineWidth',1.2); end
-    grid on; 
-    legend('接收信号/含CFO相偏','同步后','Location','best');
-    xlabel('样点索引');
-    ylabel('相位 (rad)');
-    title(sprintf('GMSK 相位轨迹 (输入CFO=%+.0fHz)', res.cfo_in));
-
-    subplot(2,4,7);
-    [P1, fA] = pwelch(ctx.rxWaveform, [], [], 4096, ctx.Fs, 'centered');
-    [P2, ~]  = pwelch(ctx.coarseSynced, [], [], 4096, ctx.Fs, 'centered');
-    plot(fA/1e3, 10*log10(P1),'r','LineWidth',1.0); hold on;
-    plot(fA/1e3, 10*log10(P2),'b','LineWidth',1.0);
-    legend('接收信号/含CFO','粗频偏校正后','Location','best');
-    xlabel('频率 (kHz)');
-    ylabel('功率谱密度 (dB/Hz)');
-    title('频谱：CFO校正前后');
-
-    subplot(2,4,8);
-    vals = [res.BER, res.LockRate*100, res.PAPR_dB, evms(4)];
-    names = {'BER','锁帧率%','PAPR dB','包络误差%'};
-    bar(vals); set(gca,'XTickLabel',names); grid on;
-    title('GMSK 核心指标');
-
-    sgtitle(sprintf('GMSK | SNR=%.0fdB CFO=%.0fHz 相偏=%.0f° | BER=%.2e 锁帧=%.0f%%', ...
-        res.snr_in, res.cfo_in, res.phase_in, res.BER, res.LockRate*100));
-end
-
-function y = normPwr(x)
-    if isempty(x), y = x; return; end
-    p = mean(abs(x).^2);
-    if p > 0, y = x / sqrt(p); else, y = x; end
-end
-
-% =========================================================
-% 损伤预算图: 输入损伤 vs 残余损伤
-% =========================================================
-function plotDamageBudget(res, ctx, opt) %#ok<INUSD>
-    if contains(upper(string(res.modType)),'GMSK')
-        return;
-    end
-    figure('Name','损伤预算 (Damage Budget)','NumberTitle','off','Position',[140 120 1100 460]);
-
-    % --- 残余 CFO/相偏估计 (决策导向: 先把数据相位剥掉) ---
-    % fineSynced 是 QPSK/8PSK 符号串,直接取 angle 会在数据相位簇之间跳,
-    % unwrap 也救不回(因为跳变 < 2π),所以必须先除以最近理想星座点,
-    % 得到的 s./ideal 相位才是纯净的"残余相位",再 polyfit 才有意义。
-    s = ctx.fineSynced;
-    residCFO_Hz = NaN; residPhase_deg = NaN; phErr = [];
-    if ~isempty(s) && length(s) > 50
-        L = min(length(s), 5000);
-        s_use = s(end-L+1:end);                            % 用收敛后的尾段
-        refC  = ctx.refConst(:).';
-        [~, idx] = min(abs(s_use - refC), [], 2);
-        ideal = ctx.refConst(idx);
-        phErr = unwrap(angle(s_use ./ ideal));             % 残余相位误差,接近 0 附近
-        n = (0:L-1).';
-        fSym = ctx.Fs / ctx.sps;
-        coef = polyfit(n, phErr, 1);
-        residCFO_Hz   = coef(1) * fSym / (2*pi);           % 斜率 → 残余频偏
-        residPhase_deg = rad2deg(coef(2));                 % 截距 → 残余常相位
-    end
-
-    % --- 子图 1: CFO 输入 vs 残余 ---
-    subplot(1,3,1);
-    barCFO = [abs(res.cfo_in), abs(residCFO_Hz)];
-    b = bar(barCFO); b.FaceColor='flat';
-    b.CData(1,:) = [0.85 0.33 0.10];
-    b.CData(2,:) = [0.20 0.65 0.40];
-    set(gca,'XTickLabel',{'输入 CFO','残余 CFO'});
-    ylabel('|频偏| (Hz)'); grid on;
-    if barCFO(1) > 0
-        title(sprintf('CFO 抑制  %.0fHz → %.1fHz  (×%.0f)', barCFO(1), barCFO(2), barCFO(1)/max(barCFO(2),eps)));
-    else
-        title('CFO 抑制 (输入=0)');
-    end
-    ylim([0, chooseBudgetAxisMax(barCFO, 1)]);
-    for k=1:2, text(k, barCFO(k)+max(barCFO)*0.03, sprintf('%.1f', barCFO(k)), 'HorizontalAlignment','center'); end
-
-    % --- 子图 2: 相位偏置 输入 vs 残余 ---
-    subplot(1,3,2);
-    barPh = [abs(res.phase_in), abs(residPhase_deg)];
-    b = bar(barPh); b.FaceColor='flat';
-    b.CData(1,:) = [0.85 0.33 0.10];
-    b.CData(2,:) = [0.20 0.65 0.40];
-    set(gca,'XTickLabel',{'输入相偏','残余相偏'});
-    ylabel('|相位| (deg)'); grid on;
-    if barPh(1) > 0
-        title(sprintf('相偏抑制  %.1f° → %.2f°', barPh(1), barPh(2)));
-    else
-        title('相偏抑制 (输入=0)');
-    end
-    ylim([0, chooseBudgetAxisMax(barPh, 1)]);
-    for k=1:2, text(k, barPh(k)+max(barPh)*0.03, sprintf('%.2f', barPh(k)), 'HorizontalAlignment','center'); end
-
-    % --- 子图 3: 整体性能与噪声底 ---
-    subplot(1,3,3);
-    snrInput = res.snr_in;
-    snrPostMF_theory = snrInput + 10*log10(ctx.sps);   % 匹配滤波处理增益
-    snrPostMF_meas   = res.SNR_est_dB;
-    barSNR = [snrInput, snrPostMF_theory, snrPostMF_meas];
-    b = bar(barSNR); b.FaceColor='flat';
-    b.CData(1,:) = [0.50 0.50 0.50];
-    b.CData(2,:) = [0.30 0.50 0.85];
-    b.CData(3,:) = [0.20 0.65 0.40];
-    set(gca,'XTickLabel',{'输入 SNR','理论 MF 增益后','实测 SNR_{est}'});
-    ylabel('SNR (dB)'); grid on;
-    title(sprintf('噪声底  (BER=%.2e)', res.BER));
-    for k=1:3, text(k, barSNR(k)+max(abs(barSNR))*0.03, sprintf('%.1f', barSNR(k)), 'HorizontalAlignment','center'); end
-
-    sgtitle(sprintf('损伤预算: 输入 vs 残余  (%s, 锁帧率=%.0f%%)', res.modType, res.LockRate*100));
-end
-
-function ymax = chooseBudgetAxisMax(vals, minScale)
-    vals = vals(isfinite(vals));
-    if isempty(vals)
-        ymax = minScale;
-        return;
-    end
-
-    vmax = max(abs(vals));
-    if vmax <= 0
-        ymax = minScale;
-    else
-        ymax = max(minScale, vmax * 1.2);
-    end
-end
-
-% =========================================================
-% BER vs SNR 扫描
-% =========================================================
-function metrics = doSNRSweep(opt)
-    snrs = opt.snrSweep;
-    bers = nan(size(snrs));
-    evms = nan(size(snrs));
-    mers = nan(size(snrs));
-    fprintf('\n[SNR Sweep] %s, points = %d\n', opt.modType, numel(snrs));
-    for k = 1:numel(snrs)
-        opt2 = opt; opt2.snr = snrs(k); opt2 = rmfield(opt2,'snrSweep');
-        r = runOneShot(opt2);
-        bers(k)=r.BER; evms(k)=r.EVM_post_pct; mers(k)=r.MER_dB;
-        fprintf('  SNR=%5.1f dB  BER=%.4e  EVM=%.2f%%  MER=%.2fdB\n', ...
-                snrs(k), bers(k), evms(k), mers(k));
-    end
-    figure('Name','SNR 扫描','NumberTitle','off','Position',[120 120 900 400]);
-    subplot(1,2,1);
-    semilogy(snrs, max(bers,1e-6),'o-','LineWidth',1.5);
-    grid on; xlabel('SNR (dB)'); ylabel('BER'); title(sprintf('%s BER vs SNR', opt.modType));
-    subplot(1,2,2);
-    yyaxis left;  plot(snrs, evms,'o-'); ylabel('EVM (%)');
-    yyaxis right; plot(snrs, mers,'s-'); ylabel('MER (dB)');
-    xlabel('SNR (dB)'); grid on; title('EVM / MER vs SNR');
-    metrics = struct('snr',snrs,'BER',bers,'EVM',evms,'MER',mers);
-end
-
-% =========================================================
-% 给前端打包数据: 频谱 / 星座 / 4 阶段管线 / 残余损伤
-% =========================================================
 function fe = buildFrontendArrays(ctx, res) %#ok<INUSD>
     Fs = ctx.Fs; sps = ctx.sps;
     isGMSKMod = contains(upper(string(res.modType)),'GMSK');
@@ -2381,6 +1934,16 @@ function out = sampleConst(s, Lmax)
     s = s(:);
     if length(s) > Lmax, s = s(end-Lmax+1:end); end
     out = struct('i', reshape(real(s),1,[]), 'q', reshape(imag(s),1,[]));
+end
+
+function y = normPwr(x)
+    if isempty(x), y = x; return; end
+    p = mean(abs(x).^2);
+    if p > 0
+        y = x / sqrt(p);
+    else
+        y = x;
+    end
 end
 
 function spec = buildCFOEstimatorSpectrum(ctx, res)
@@ -3471,7 +3034,7 @@ function r = codeRateNum(opt)
 end
 function y = uqpskCarrierRecover(x, aRatio, loopBW)
 
-% 借鉴老师 UQPSKDem.m 的载波相位误差：
+% 借鉴 UQPSKDem.m 的载波相位误差：
 %   e_theta = sign(I_est)*Q_est*ARatio - sign(Q_est)*I_est
 %
 % 输入：

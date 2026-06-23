@@ -8,6 +8,7 @@ function results = sweep_multipath_system(profile)
 %
 % Optional:
 %   results = sweep_multipath_system("smoke"); % default
+%   results = sweep_multipath_system("equalizer");
 %   results = sweep_multipath_system("full");
 %
 % The sweep checks whether representative modulation/coding modes survive
@@ -139,7 +140,12 @@ function cases = localBuildCases(profile)
 
     cases = {};
 
-    if profile == "full"
+    if profile == "equalizer" || profile == "eq"
+        modList = {
+            "8PSK",  16, "convolutional", "TM conv1/2", 1e-4, 85
+            "16QAM", 20, "convolutional", "TM conv1/2", 1e-4, 85
+            };
+    elseif profile == "full"
         modList = {
             "BPSK",  16, "convolutional", "TM conv1/2", 1e-5, 90
             "QPSK",  16, "convolutional", "TM conv1/2", 1e-5, 90
@@ -164,8 +170,33 @@ function cases = localBuildCases(profile)
         if strcmpi(p.modType, 'GMSK')
             p.RolloffFactor = 0.5;
         end
+        if contains(upper(string(p.modType)), 'QAM')
+            p = localRemoveFields(p, {'PCMFormat'});
+        end
         cases{end+1} = localCase("TM modulation", ...
             sprintf('%s %s', p.modType, modList{i,4}), p, modList{i,5}, modList{i,6}); %#ok<AGROW>
+    end
+
+    if profile == "equalizer" || profile == "eq"
+        p = base;
+        p.modType = '16APSK';
+        p.sps = 8;
+        p.snr = 22;
+        p.cfo = 20000;
+        p.channelCoding = 'none';
+        p.ACMFormat = 14;
+        p.acmFormat = 14;
+        p.hasPilots = true;
+        p.debugFACM = false;
+        p.facmWarmupFrames = 8;
+        p.facmBERFrames = 16;
+        p.facmNumIterations = 10;
+        p.facmEqualizerMode = 'pilot-ls';
+        p.facmEqualizerTaps = 11;
+        p.facmEqualizerReg = 1e-2;
+        p.pilotLSReg = 1e-2;
+        cases{end+1} = localCase("FACM APSK", "16APSK ACM14", p, 1e-4, 80);
+        return;
     end
 
     codingList = {
@@ -267,6 +298,19 @@ function hCases = localBuildHScenarios(profile)
     mediumH = [1, 0, 0.35*exp(1j*pi/3), 0, 0.22*exp(-1j*pi/4), 0, 0.12*exp(1j*pi/2)];
     strongH = [1, 0, 0.55*exp(1j*pi/3), 0, 0.35*exp(-1j*pi/4), 0, 0.20*exp(1j*pi/2)];
 
+    if profile == "equalizer" || profile == "eq"
+        hCases = {
+            localHCase("clean", false, false, cleanH)
+            localHCase("mild H, EQ off", true, false, mildH)
+            localHCase("mild H, EQ on", true, true, mildH)
+            localHCase("medium H, EQ off", true, false, mediumH)
+            localHCase("medium H, EQ on", true, true, mediumH)
+            localHCase("strong H, EQ off", true, false, strongH)
+            localHCase("strong H, EQ on", true, true, strongH)
+            };
+        return;
+    end
+
     hCases = {
         localHCase("clean", false, false, cleanH)
         localHCase("mild H, EQ off", true, false, mildH)
@@ -275,8 +319,15 @@ function hCases = localBuildHScenarios(profile)
         };
 
     if profile == "full"
-        hCases{end+1} = localHCase("medium H, EQ off", true, false, mediumH);
-        hCases{end+1} = localHCase("strong H, EQ on", true, true, strongH);
+        hCases = {
+            localHCase("clean", false, false, cleanH)
+            localHCase("mild H, EQ off", true, false, mildH)
+            localHCase("mild H, EQ on", true, true, mildH)
+            localHCase("medium H, EQ off", true, false, mediumH)
+            localHCase("medium H, EQ on", true, true, mediumH)
+            localHCase("strong H, EQ off", true, false, strongH)
+            localHCase("strong H, EQ on", true, true, strongH)
+            };
     end
 end
 
