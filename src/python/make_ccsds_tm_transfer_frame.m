@@ -51,6 +51,9 @@ function [frameBits, frameBytes, fields] = make_ccsds_tm_transfer_frame(payload,
     firstHeaderPointer = getOpt(opt, 'FirstHeaderPointer', []);
     secondaryHeader = uint8(getOpt(opt, 'SecondaryHeader', uint8([])));
     hasSecondaryHeader = logical(getOpt(opt, 'HasSecondaryHeader', ~isempty(secondaryHeader)));
+    if ~hasSecondaryHeader
+        secondaryHeader = uint8([]);
+    end
     hasFECF = logical(getOpt(opt, 'HasFECF', false));
     idleFillByte = uint8(getOpt(opt, 'IdleFillByte', hex2dec('55')));
     allowTruncate = logical(getOpt(opt, 'AllowTruncate', false));
@@ -99,9 +102,9 @@ function [frameBits, frameBytes, fields] = make_ccsds_tm_transfer_frame(payload,
     fecfLength = 2 * double(hasFECF);
     dataFieldLength = frameLengthBytes - primaryHeaderLength - secondaryHeaderLength - ocfLength - fecfLength;
 
-    if dataFieldLength < 0
-        error('make_ccsds_tm_transfer_frame:FrameTooShort', ...
-            'FrameLengthBytes is too short for the selected header/OCF/FECF fields.');
+    if dataFieldLength < 1
+        error('make_ccsds_tm_transfer_frame:DataFieldTooShort', ...
+            'FrameLengthBytes is too short: Transfer Frame Data Field must contain at least one octet.');
     end
 
     [payloadBytes, payloadPadBits] = normalizePayload(payload, payloadIsBits);

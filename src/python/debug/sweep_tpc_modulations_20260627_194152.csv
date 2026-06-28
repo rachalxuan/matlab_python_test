@@ -1,0 +1,2 @@
+Modulation,TPCCodeRate,TPCBlocksPerTF,Note,InputSNR_dB,BER,FER,EVM_post_pct,SNR_est_dB,LockRate_pct,AcquisitionFrames,NumBytesInTransferFrame,Success,ErrorMsg
+BPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",0,0,0,33.8350603426663,9.41266089286772,100,2,2025,1,

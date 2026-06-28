@@ -269,7 +269,20 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
     %   Copyright 2020 The MathWorks, Inc.
     
     %#codegen
-    
+    properties
+        % RandomizerMode Randomizer insertion mode
+        %   "standard" uses the original CCSDS/MathWorks randomizer placement.
+        %   "bypass" disables randomizer.
+        %   "beforeCoding" randomizes before channel coding.
+        %   "afterCoding" randomizes after channel coding.
+        RandomizerMode = 'standard'
+        % TPCCodeRate Effective shortened TPC rate.
+        %   "native" uses 57x57/64x64. "1/2" uses 45x45/64x64.
+        %   "2/3" uses 52x52/64x64.
+        TPCCodeRate = 'native'
+        % TPCBlocksPerTF Number of TPC codewords in one coded transfer frame.
+        TPCBlocksPerTF = 1
+    end
     % Read-only properties
     properties(SetAccess = private)
         %NumInputBits Minimum number of input bits required to generate
@@ -666,6 +679,9 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             
             % Set public properties and states
             s = saveObjectImpl@satcom.internal.ccsds.tmBase(obj);
+            s.RandomizerMode = obj.RandomizerMode;
+            s.TPCCodeRate = obj.TPCCodeRate;
+            s.TPCBlocksPerTF = obj.TPCBlocksPerTF;
             if isLocked(obj)
                 % Save inherited properties
                 s.pIsFACM = obj.pIsFACM;
@@ -715,7 +731,15 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
         
         function loadObjectImpl(obj,s,wasLocked)
             % Set properties in object obj to values in structure s
-            
+            if isfield(s,'RandomizerMode')
+                obj.RandomizerMode = s.RandomizerMode;
+            end
+            if isfield(s,'TPCCodeRate')
+                obj.TPCCodeRate = s.TPCCodeRate;
+            end
+            if isfield(s,'TPCBlocksPerTF')
+                obj.TPCBlocksPerTF = s.TPCBlocksPerTF;
+            end
             if wasLocked
                 % Save inherited properties
                 obj.pIsFACM = s.pIsFACM;
@@ -816,6 +840,10 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 flag = ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) || isFACM;
             elseif strcmp(prop,'CodeRate')
                 flag = ~any(strcmp(obj.ChannelCoding,{'turbo','LDPC'})) || isFACM;
+            elseif strcmp(prop,'TPCCodeRate')
+                flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
+            elseif strcmp(prop,'TPCBlocksPerTF')
+                flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
             elseif strcmp(prop,'HasRandomizer')
                 flag = smtfFlag;
             elseif strcmp(prop,'HasASM')
@@ -926,7 +954,11 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         s.ActualCodeRate = double(obj.RSMessageLength)/obj.pRSParams.n;
                     end
                 elseif strcmp(obj.ChannelCoding,'TPC')
-                    s.ActualCodeRate = (57*57)/(64*64);
+                    s.ActualCodeRate = localTPCEffectiveRate(obj.TPCCodeRate);
+                    s.TPCBlocksPerTF = localPositiveInteger(obj.TPCBlocksPerTF, 1);
+                    s.TPCInfoBitsPerTransferFrame = localTPCPayloadBits(obj.TPCCodeRate) * s.TPCBlocksPerTF;
+                    syncLen = 32 * double(logical(obj.HasASM));
+                    s.TPCCodedTransferFrameBits = syncLen + 64*64*s.TPCBlocksPerTF;
                 end
                 switch(obj.Modulation)
                     case 'QPSK'
@@ -965,6 +997,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 'ACMFormat',...
                 'NumBytesInTransferFrame',...
                 'HasRandomizer',...
+                'RandomizerMode',...
                 'HasASM',...
                 'PCMFormat'};
             
@@ -972,6 +1005,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 'NumBitsInInformationBlock',...
                 'ConvolutionalCodeRate',...
                 'CodeRate',...
+                'TPCCodeRate',...
+                'TPCBlocksPerTF',...
                 'RSMessageLength',...
                 'RSInterleavingDepth',...
                 'IsRSMessageShortened',...
@@ -1039,9 +1074,20 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             HasASM = obj.HasASM;
             tfl = obj.pTFLen*8;
             numTF = length(bits)/tfl;
+
+            randomizerMode = lower(strtrim(char(obj.RandomizerMode)));
+            validRandomizerModes = {'standard','beforecoding','aftercoding','bypass'};
+            if ~any(strcmp(randomizerMode, validRandomizerModes))
+                error('ccsdsTMWaveformGenerator:InvalidRandomizerMode', ...
+                    'Unsupported RandomizerMode="%s".', randomizerMode);
+            end
+
+            localHasRandomizer = obj.HasRandomizer && ~strcmp(randomizerMode, 'bypass');
+
             switch(obj.ChannelCoding)
                 case 'none'
-                    if obj.HasRandomizer
+%                     if obj.HasRandomizer
+                    if localHasRandomizer
                         randomized = bitxor(bits,repmat(obj.pPRNSequence,numTF,1));
                     else
                         randomized = bits;
@@ -1063,7 +1109,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     for itf = 1:numTF
                         tbits = bits((itf-1)*tfl+1:itf*tfl);
                         cw = int8(ccsdsRSEncode(logical(tbits),k,i,s));
-                        if obj.HasRandomizer
+                        if localHasRandomizer
                             randomized = bitxor(cw,obj.pPRNSequence);
                         else
                             randomized = cw;
@@ -1076,7 +1122,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         encoded((itf-1)*numBitsInCADU+1:itf*numBitsInCADU) = code;
                     end
                 case 'convolutional'
-                    if obj.HasRandomizer
+                    if localHasRandomizer
                         randomized = bitxor(bits,repmat(obj.pPRNSequence,numTF,1));
                     else
                         randomized = bits;
@@ -1126,7 +1172,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     for itf = 1:numTF
                         tbits = bits((itf-1)*tfl+1:itf*tfl);
                         cw = int8(ccsdsRSEncode(logical(tbits),k,i,s));
-                        if obj.HasRandomizer
+                        if localHasRandomizer
                             randomized = bitxor(cw,obj.pPRNSequence);
                         else
                             randomized = cw;
@@ -1189,7 +1235,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         
                         % Puncture the codeword as per the rate of the code.
                         cw = encodedWithoutPuncturing(obj.pTurboPuncturePattern);
-                        if obj.HasRandomizer
+                        if localHasRandomizer
                             randomized = bitxor(cw,obj.pPRNSequence);
                         else
                             randomized = cw;
@@ -1202,20 +1248,22 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         encoded((itf-1)*numBitsInCADU+1:itf*numBitsInCADU) = code;
                     end
                 case 'TPC'
-                    if obj.HasRandomizer
+                    if localHasRandomizer
                         prn = repmat(obj.pPRNSequence, ceil(numel(bits)/numel(obj.pPRNSequence)), 1);
                         randomized = bitxor(bits, prn(1:numel(bits)));
                     else
                         randomized = bits;
                     end
-                    encoded = ccsdsTPCEncodeBits(randomized, HasASM, obj.pASM);
+                    encoded = ccsdsTPCEncodeBits(randomized, HasASM, obj.pASM, ...
+                        'TPCCodeRate', obj.TPCCodeRate, ...
+                        'TPCBlocksPerTF', obj.TPCBlocksPerTF);
                 case 'LDPC'
                     numBitsInCADU = obj.pInverseCodeRate*tfl+HasASM*length(obj.pASM);
                     encoded = zeros(numBitsInCADU*numTF,1,'int8');
                     for itf = 1:numTF
                         tf = bits((itf-1)*tfl+1:itf*tfl);
                         cw = int8(satcom.internal.ccsds.tmldpcEncode(tf(:),obj.pLDPCGeneratorMatrix));
-                        if obj.HasRandomizer
+                        if localHasRandomizer
                             randomized = bitxor(cw,obj.pPRNSequence);
                         else
                             randomized = cw;
@@ -1636,6 +1684,68 @@ function encodedBits = localPCMDifferentialEncode(diffEnc, bits, pcmFormat)
         diffIn = bits;
     end
     encodedBits = diffEnc(diffIn);
+end
+
+function rate = localTPCEffectiveRate(rawRate)
+    side = localTPCPayloadSideLength(rawRate);
+    rate = (side * side) / (64 * 64);
+end
+
+function value = localPositiveInteger(rawValue, defaultValue)
+    if nargin < 2
+        defaultValue = 1;
+    end
+    if nargin < 1 || isempty(rawValue)
+        value = defaultValue;
+        return;
+    end
+    if ischar(rawValue) || isstring(rawValue)
+        value = str2double(strtrim(char(rawValue)));
+    else
+        value = double(rawValue);
+    end
+    if ~isfinite(value)
+        value = defaultValue;
+    end
+    value = max(1, round(value));
+end
+
+function bits = localTPCPayloadBits(rawRate)
+    side = localTPCPayloadSideLength(rawRate);
+    bits = side * side;
+end
+
+function side = localTPCPayloadSideLength(rawRate)
+    if nargin < 1 || isempty(rawRate)
+        rawRate = 'native';
+    end
+
+    if isnumeric(rawRate)
+        side = round(double(rawRate));
+    else
+        key = lower(strtrim(char(rawRate)));
+        switch key
+            case {'native','default','0.7932','57','57x57'}
+                side = 57;
+            case {'1/2','half'}
+                side = 45;
+            case {'2/3'}
+                side = 52;
+            otherwise
+                xPos = strfind(key, 'x');
+                if numel(xPos) == 1
+                    side = round(str2double(key(1:xPos-1)));
+                else
+                    side = round(str2double(key));
+                end
+        end
+    end
+
+    if ~isfinite(side) || side < 1 || side > 57
+        error('ccsdsTMWaveformGenerator:InvalidTPCCodeRate', ...
+            'Unsupported TPCCodeRate="%s". Use native, 1/2, 2/3, or an integer side length <= 57.', ...
+            char(string(rawRate)));
+    end
 end
 
 % LocalWords:  TMWAVEGEN TXWAVEFORM tm randi hasfilt csmlen LDPCSMTF nd altersymb Prev Symb LDPCG

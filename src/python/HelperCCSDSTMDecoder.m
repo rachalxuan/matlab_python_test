@@ -29,7 +29,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
     %   1. Does not support ConvolutionalCodeRate to be '3/4', '5/6 and
     %      '7/8'
     %   2. Phase ambiguity resolution of only BPSK and QPSK are
-    %      supported currently. 
+    %      supported currently.
     %   3. Does not support turbo and LDPC decoding
     %   4. Does not support PCM-format of 'NRZ-M' for convolutional and
     %      concatenated codes
@@ -37,7 +37,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
     %   System objects may be called directly like a function instead of
     %   using the step method. For example, y = step(obj, x) and y = obj(x)
     %   are equivalent.
-    % 
+    %
     %   HelperCCSDSTMDecoder properties:
     %
     %   ChannelCoding               - Error control channel coding scheme
@@ -62,7 +62,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
     %                                 synchronization
     %   DisablePhaseAmbiguityResolution - Option to disable phase ambiguity
     %                                     resolution
-    
+
     %   Copyright 2020-2021 The MathWorks, Inc.
 
     % Public, non-tunable properties
@@ -95,6 +95,21 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         pTurboCodewordLength
         pTurboMessageLength
         pTurboInputIndices
+    end
+
+    properties
+        % RandomizerMode Derandomizer insertion mode
+        %   "standard" uses the original CCSDS/MathWorks derandomizer placement.
+        %   "bypass" disables derandomizer.
+        %   "beforeCoding" means TX randomized before coding, RX derandomizes after decoding.
+        %   "afterCoding" means TX randomized after coding, RX derandomizes before decoding.
+        RandomizerMode = 'standard'
+        % TPCCodeRate Effective shortened TPC rate.
+        %   "native" uses 57x57/64x64. "1/2" uses 45x45/64x64.
+        %   "2/3" uses 52x52/64x64.
+        TPCCodeRate = 'native'
+        % TPCBlocksPerTF Number of TPC codewords contained in one coded TF.
+        TPCBlocksPerTF = 1
     end
 
     methods
@@ -194,7 +209,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                         % [1;1;0;1;1;0;0;1;1;0]
                         %
                         % 5 input bits -> 6 transmitted coded bits.
-                    
+
                         obj.pDec.PuncturePattern = [1;1;0;1;1;0;0;1;1;0];
                         % 3/4 means: 3 input bits -> 4 transmitted coded bits.
                         % Use the same input-length trimming logic as transmitter:
@@ -237,19 +252,19 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                         % Build coded ASM template for frame synchronization.
                         asm = buildConvEncodedASMForSync(obj, obj.pASM, obj.ViterbiTrellis, ...
                             obj.pDec.PuncturePattern, obj.pASMOffsetLength, false);
-                        
+
                 end
                 if any(strcmp(obj.PCMFormat, {'NRZ-M','NRZ-S'}))
                     obj.pSkipPreViterbiASMSync = false;
                 end
             end
-            
+
             if obj.DisablePhaseAmbiguityResolution
                 modscheme = "other"; % So that following switch case executes code in otherwise case.
             else
                 modscheme = obj.Modulation;
             end
-            
+
             switch(modscheme)
                 case {"BPSK", "GMSK"}
                     obj.pRotatedASM = zeros(length(asm), 2);
@@ -274,13 +289,13 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     % === 【修改点】新增 8PSK 支持 ===
                     % 目前只支持 0 相位下的 ASM 匹配 (假设 Demodulator 已经解对了)
                     % 如果需要支持 8 相位搜索，需要生成 8 个旋转后的 ASM 模式，这里暂取基准模式
-                    % obj.pRotatedASM = 2*asm(:)-1; 
+                    % obj.pRotatedASM = 2*asm(:)-1;
                     % obj.pNumBitsPerSymbol = 3;
 
                     %----------------------------
                     m = 3;
                     obj.pNumBitsPerSymbol = m;
-                
+
                     % TM 8PSK demodulator uses this custom mapping:
                     % comm.PSKDemodulator(8, pi/4, ...
                     %   'SymbolMapping','Custom', ...
@@ -288,48 +303,48 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     %
                     % CustomSymbolMapping maps symbol index -> bit label.
                     map = [0 4 6 2 3 7 5 1];
-                
+
                     % Inverse map: bit label -> symbol index.
                     invMap = zeros(1, 8);
                     for k = 1:8
                         invMap(map(k) + 1) = k - 1;
                     end
-                
+
                     % ASM length may not be divisible by 3 in all configurations.
                     % Pad only for symbol grouping, then trim back to original ASM bit length.
                     asmLen = length(asm);
                     padLen = mod(m - mod(asmLen, m), m);
                     asmPadded = [asm(:); zeros(padLen, 1)];
-                
+
                     % Convert ASM bits into 8PSK demod bit labels.
                     asmLabels = comm.internal.utilities.bi2deLeftMSB( ...
                         double(reshape(asmPadded, m, []).'), 2);
-                
+
                     % Convert bit labels to transmitted 8PSK symbol indices.
                     asmSymIdx = zeros(size(asmLabels));
                     for k = 1:length(asmLabels)
                         asmSymIdx(k) = invMap(asmLabels(k) + 1);
                     end
-                
+
                     % Generate all 8 possible carrier phase ambiguities.
                     % A rotation by k*pi/4 advances the received symbol index by k modulo 8.
                     obj.pRotatedASM = zeros(asmLen, 8);
-                
+
                     for iRot = 1:8
                         rot = iRot - 1;
-                
+
                         rotatedSymIdx = mod(asmSymIdx + rot, 8);
-                
+
                         % Convert rotated symbol index back to the bit label the demodulator
                         % would produce under this phase ambiguity.
                         rotatedLabels = map(rotatedSymIdx + 1).';
-                
+
                         rotatedBits = comm.internal.utilities.de2biBase2LeftMSB( ...
                             rotatedLabels, m).';
-                
+
                         rotatedBits = rotatedBits(:);
                         rotatedBits = rotatedBits(1:asmLen);
-                
+
                         % Decoder frame correlation expects soft sign convention:
                         % bit 1 -> +1, bit 0 -> -1, matching existing code style.
                         obj.pRotatedASM(:, iRot) = 2*rotatedBits(:) - 1;
@@ -399,16 +414,16 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 invr = getInverseCodeRate(obj);
                 kReq = double(obj.NumBitsInInformationBlock);
                 S = loadOrCreateTMLDPCH(kReq, invr);
-            
+
                 obj.pLDPCMessageLength = S.k;
                 obj.pLDPCCodewordLength = S.n;
                 obj.pLDPCDecoderCfg = ldpcDecoderConfig(sparse(logical(S.H)));
-            
+
                 % 普通 TM LDPC: coded frame = ASM + LDPC codeword
                 syncLen = length(obj.pASM)*obj.HasASM;
                 obj.pFullInputBufferLength = obj.pLDPCCodewordLength + syncLen;
                 obj.pFrameLength = obj.pFullInputBufferLength;
-            
+
                 fprintf('[LDPC setup] k=%d, n=%d, rate=%.6f, syncLen=%d, fullFrame=%d\n', ...
                     obj.pLDPCMessageLength, ...
                     obj.pLDPCCodewordLength, ...
@@ -418,10 +433,12 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             end
             if strcmp(obj.ChannelCoding, "TPC")
                 syncLen = length(obj.pASM)*obj.HasASM;
-                obj.pFullInputBufferLength = 64*64 + syncLen;
+                blocksPerTF = localPositiveInteger(obj.TPCBlocksPerTF, 1);
+                obj.pFullInputBufferLength = 64*64*blocksPerTF + syncLen;
                 obj.pFrameLength = obj.pFullInputBufferLength;
-                fprintf('[TPC setup] k=%d, n=%d, rate=%.6f, syncLen=%d, fullFrame=%d\n', ...
-                    57*57, 64*64, (57*57)/(64*64), syncLen, obj.pFullInputBufferLength);
+                fprintf('[TPC setup] k=%d, n=%d, rate=%.6f, blocksPerTF=%d, syncLen=%d, fullFrame=%d\n', ...
+                    localTPCPayloadBits(obj.TPCCodeRate), 64*64, ...
+                    localTPCEffectiveRate(obj.TPCCodeRate), blocksPerTF, syncLen, obj.pFullInputBufferLength);
             end
         end
 
@@ -430,11 +447,21 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         function y = stepImpl(obj,llr)
             % Implement algorithm. Calculate y as a function of input u and
             % discrete states.
+
+            randomizerMode = lower(strtrim(char(obj.RandomizerMode)));
+            validRandomizerModes = {'standard','beforecoding','aftercoding','bypass'};
+            if ~any(strcmp(randomizerMode, validRandomizerModes))
+                error('HelperCCSDSTMDecoder:InvalidRandomizerMode', ...
+                    'Unsupported RandomizerMode="%s".', randomizerMode);
+            end
+
+            localHasRandomizer = obj.HasRandomizer && ~strcmp(randomizerMode, 'bypass');
+
             if isempty(llr)
                 y = zeros(0, 1, 'int8');
                 return;
             end
-            
+
 %             if obj.HasASM
 %                 asmlen = length(obj.pASM);
 %                 % Frame synchronization
@@ -449,7 +476,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             else
                 asmlen = 0;
             end
-            
+
             % ---------------------------------------------------------
             % 两种同步路径：
             %
@@ -461,14 +488,64 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             %    原因：CADU 长度不能被 puncture 输入周期整除，
             %    CADU 边界相对卷积编码块边界漂移，coded ASM 不在固定位置。
             % ---------------------------------------------------------
-            if obj.HasASM && ~obj.pSkipPreViterbiASMSync
+            if obj.HasASM && strcmp(obj.ChannelCoding, "TPC")
+                tpcInput = [obj.pInputBuffer; llr(:)];
+                asmBits = int8(obj.pASM(:) ~= 0);
+                searchLimit = min(obj.pFullInputBufferLength, numel(tpcInput) - asmlen + 1);
+                bestPos = 1;
+                bestErr = asmlen + 1;
+                bestMeanErr = inf;
+                bestFrames = 0;
+                bestPolarity = 1;
+
+                if searchLimit > 0
+                    for polarity = [1 -1]
+                        hardBits = int8((polarity * tpcInput(:)) > 0);
+                        for iPos = 1:searchLimit
+                            errNow = nnz(hardBits(iPos:iPos+asmlen-1) ~= asmBits);
+                            errsPeriodic = errNow;
+                            nPeriodic = 1;
+                            nextPos = iPos + obj.pFullInputBufferLength;
+                            while nextPos + asmlen - 1 <= numel(hardBits) && nPeriodic < 8
+                                errsPeriodic(end+1,1) = nnz(hardBits(nextPos:nextPos+asmlen-1) ~= asmBits); %#ok<AGROW>
+                                nPeriodic = nPeriodic + 1;
+                                nextPos = nextPos + obj.pFullInputBufferLength;
+                            end
+                            meanErr = mean(errsPeriodic);
+                            if meanErr < bestMeanErr || ...
+                                    (abs(meanErr - bestMeanErr) < 1e-12 && errNow < bestErr)
+                                bestMeanErr = meanErr;
+                                bestErr = errNow;
+                                bestPos = iPos;
+                                bestFrames = nPeriodic;
+                                bestPolarity = polarity;
+                            end
+                        end
+                    end
+                end
+
+                if searchLimit > 0 && bestFrames >= 2 && bestMeanErr <= asmlen/2
+                    tpcInput = tpcInput(bestPos:end);
+                end
+                if bestPolarity < 0
+                    tpcInput = -tpcInput;
+                end
+
+                [frames, obj.pInputBuffer] = buffer(tpcInput, obj.pFullInputBufferLength);
+                syncLostFlag = false;
+
+                if evalin('base','exist(''debugTPC_encodedBits'',''var'')')
+                    fprintf('[TPC DEBUG] decoder ASM sync pos=%d err=%d mean=%.2f frames=%d, polarity=%+d, outFrames=%d\n', ...
+                        bestPos, bestErr, bestMeanErr, bestFrames, bestPolarity, size(frames,2));
+                end
+            elseif obj.HasASM && ~obj.pSkipPreViterbiASMSync
                 [frames, syncLostFlag] = frameSynchronize(obj, llr);
             else
                 % 如果有同步头 && 高码率 则跳过ASM同步 先进行解码
                 [frames, obj.pInputBuffer] = buffer([obj.pInputBuffer; llr], obj.pFullInputBufferLength);
                 syncLostFlag = false;
 
-                
+
             end
 
 
@@ -480,7 +557,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 n = size(frames,2);
                 u = frames(asmlen+1:end,:);
             end
-            
+
             if syncLostFlag
                 y = zeros(obj.pTFLen*8, 1, 'int8');
                 % valid = false;
@@ -489,7 +566,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     switch(obj.ChannelCoding)
                         case "none"
                             if n % For non zero value of n
-                                if obj.HasRandomizer
+%                                 if obj.HasRandomizer
+                                if localHasRandomizer
                                     tempy = bitxor(int8(u>0),obj.pPRNSequence);
                                     y = tempy(:);
                                 elseif strcmpi(string(obj.Modulation), "GMSK")
@@ -504,7 +582,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             end
                         case "RS"
                             if n % For non zero value of n
-                                if obj.HasRandomizer
+                                if localHasRandomizer
                                     derandom = logical(bitxor(int8(u>0),obj.pPRNSequence));
                                 else
                                     derandom = logical(u>0);
@@ -560,9 +638,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             % ---------------------------------------------------------
                             if obj.HasASM && obj.pSkipPreViterbiASMSync
                                 [tempy, n] = decodedDomainFrameSynchronize(obj, tdecoded);
-                        
+
                                 if n
-                                    if obj.HasRandomizer
+                                    if localHasRandomizer
                                         % tempy 是 TF payload，长度为 pPRNSequenceLength*n。
                                         % pPRNSequence 是单帧长度，需要按帧重复。
                                         tempMat = reshape(tempy, obj.pPRNSequenceLength, n);
@@ -574,18 +652,18 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 else
                                     y = zeros(0, 1, 'int8');
                                 end
-                        
+
                             else
                                 % 原来的路径：Viterbi 前已经完成 coded ASM 同步，
                                 % 这里直接按 CADU 长度 buffer 即可。
                                 [ty,obj.pOutputBuffer] = buffer([obj.pOutputBuffer;tdecoded], ...
                                     obj.pPRNSequenceLength+asmlen);
-                        
+
                                 n = size(ty,2);
-                        
+
                                 if n
                                     tempy = ty(asmlen+1:end, :);
-                                    if obj.HasRandomizer
+                                    if localHasRandomizer
                                         derandom = bitxor(int8(tempy),obj.pPRNSequence);
                                         y = derandom(:);
                                     else
@@ -619,7 +697,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             n = size(ty,2);
                             if n
                                 viterbiDecoded = logical(ty(asmlen+1:end, :)); % By this time, frame synchronization is complete. Hence, ASM can be discarded
-                                if obj.HasRandomizer
+                                if localHasRandomizer
                                     derandom = logical(bitxor(int8(viterbiDecoded),obj.pPRNSequence));
                                 else
                                     derandom = viterbiDecoded;
@@ -656,7 +734,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                         llr = llrHard;
                                     end
 
-                                    if obj.HasRandomizer
+                                    if localHasRandomizer
                                         basePRN = obj.pPRNSequence(:);
                                         repNum = ceil(obj.pTurboCodewordLength / length(basePRN));
                                         prn = repmat(basePRN, repNum, 1);
@@ -684,50 +762,58 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             else
                                 cwSoft = frames;
                             end
-                        
+
                             % 只取 LDPC codeword 长度，避免 buffer 多余
                             cwSoft = cwSoft(1:obj.pLDPCCodewordLength, :);
-                        
+
                             numWords = size(cwSoft, 2);
                             y = zeros(obj.pLDPCMessageLength*numWords, 1, 'int8');
-                        
+
                             for iWord = 1:numWords
                                 llrIn = double(cwSoft(:,iWord));
-                        
+
                                 % 关键：ldpcDecode 需要 bit0 正、bit1 负。
                                 % 你当前 TM demod/decoder 链路大概率是 bit1 正、bit0 负，
                                 % 所以这里先翻号。
                                 llr = -llrIn;
-                        
+
                                 % 如果启用了 randomizer：
                                 % 发送端是对 LDPC codeword bits 做 XOR；
                                 % 接收端对 soft LLR 的处理就是 PRN=1 的位置翻号。
-                                if obj.HasRandomizer
+                                if localHasRandomizer
                                     prn = obj.pPRNSequence(1:obj.pLDPCCodewordLength);
                                     llr(logical(prn)) = -llr(logical(prn));
                                 end
-                        
+
                                 decWhole = ldpcDecode(llr, obj.pLDPCDecoderCfg, ...
                                     obj.pLDPCMaxIterations, 'OutputFormat','whole');
-                        
+
                                 msg = int8(decWhole(1:obj.pLDPCMessageLength));
-                        
+
                                 y((iWord-1)*obj.pLDPCMessageLength+1:iWord*obj.pLDPCMessageLength) = msg(:);
-                            end 
+                            end
                         case "TPC"
                             codeLen = 64*64;
-                            infoLen = 57*57;
+                            infoLen = localTPCPayloadBits(obj.TPCCodeRate);
                             if n
-                                cwSoft = u(1:codeLen, :);
+                                usableLen = floor(numel(u) / codeLen) * codeLen;
+                                cwSoft = reshape(u(1:usableLen), codeLen, []);
                                 numWords = size(cwSoft, 2);
                                 y = zeros(infoLen*numWords, 1, 'int8');
 
                                 for iWord = 1:numWords
-                                    [msg, ~] = ccsdsTPCDecodeSoft(cwSoft(:,iWord));
+                                    if evalin('base','exist(''debugTPC_encodedBits'',''var'')') && iWord <= 3
+                                        txEncDbg = evalin('base','debugTPC_encodedBits');
+                                        localTPCDecoderBoundaryDebug(cwSoft(:,iWord), txEncDbg, ...
+                                            length(obj.pASM)*obj.HasASM, codeLen, iWord, ...
+                                            localPositiveInteger(obj.TPCBlocksPerTF, 1));
+                                    end
+                                    [msg, ~] = ccsdsTPCDecodeSoft(cwSoft(:,iWord), ...
+                                        'TPCCodeRate', obj.TPCCodeRate);
                                     y((iWord-1)*infoLen+1:iWord*infoLen) = msg(:);
                                 end
 
-                                if obj.HasRandomizer && ~isempty(y)
+                                if localHasRandomizer && ~isempty(y)
                                     prn = repmat(obj.pPRNSequence, ceil(numel(y)/numel(obj.pPRNSequence)), 1);
                                     y = bitxor(y, prn(1:numel(y)));
                                 end
@@ -735,16 +821,16 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 y = zeros(0, 1, 'int8');
                             end
                     end
-                    
+
                 else
                     y = zeros(0, 1, 'int8');
                 end
             end
         end
-        
+
         function [v, syncFailed, pos, PhaseIndex] = frameSynchronize(obj,u)
             % Do frame synchronization and phase ambiguity resolution
-            
+
             [frames, obj.pInputBuffer] = buffer([obj.pInputBuffer;u], obj.pFullInputBufferLength);
             n = size(frames, 2);
             v = zeros(obj.pFullInputBufferLength, 1); % Pre-initialization
@@ -767,7 +853,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                         pos = pos - obj.pASMOffsetLength;
                     end
                 end
-                
+
                 % Resolve phase ambiguity
                 if any(strcmp(obj.Modulation,{'QPSK','OQPSK'}))
                     basePhaseIndex = mod(PhaseIndex-1, 4) + 1;
@@ -793,7 +879,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 else % Do not do phase ambiguity resolution
                     derotated = frames(:,iFrame);
                 end
-                
+
                 if pos == 1
                     syncFailed = false;
                     v(:,iFrame) = derotated;
@@ -825,19 +911,19 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     v = zeros(obj.pFullInputBufferLength, 0);
                 end
             end
-            
+
             % Take care of additional frames that might getting added when
             % sync is lost
             if size(frames,2)~=n
                 obj.pInputBuffer = [reshape(frames(:,iFrame+1:end),[],1);obj.pInputBuffer];
             end
-            
+
             if n == 0
                 syncFailed = true;
                 v = zeros(obj.pFullInputBufferLength, 0);
             end
         end
-        
+
         function [PeakPos, maxcorr] = FrameCorrelate(obj, demodData, syncMarker)
             % Correlation for frame synchronization method
             numASMBits = length(syncMarker);
@@ -862,7 +948,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 fOfSiYi = ones(numASMBits, 1);
             end
             [maxcorr,PeakPos] = max(SMu); % See equations in page 9-12 in CCSDS 130.1-G-2
-            
+
         end
 
         function [tfBits, nFrames] = decodedDomainFrameSynchronize(obj, decodedBits)
@@ -875,21 +961,21 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             % 2. 在前几个 CADU 范围内滑动搜索原始 ASM
             % 3. 找到后，立刻从 ASM 位置重新对齐
             % 4. 本次直接切出完整 CADU，并输出 TF payload
-        
+
             asmBits = double(obj.pASM(:));
             asmLen = length(asmBits);
             caduLen = obj.pPRNSequenceLength + asmLen;
-        
+
             stream = [obj.pOutputBuffer; double(decodedBits(:))];
-        
+
             tfBits = zeros(0, 1, 'int8');
             nFrames = 0;
-        
+
             if length(stream) < caduLen
                 obj.pOutputBuffer = stream;
                 return;
             end
-        
+
             % ---------------------------------------------------------
             % 搜索范围：
             % 不要只搜第一帧，也不要全局无脑搜到几十万 bit 后面。
@@ -903,7 +989,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 searchLen = min(length(stream), 2*caduLen);
             end
             maxPos = searchLen - asmLen + 1;
-        
+
             bestPos = 1;
             bestMetric = inf;
             bestMeanMetric = inf;
@@ -957,36 +1043,36 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 obj.pOutputBuffer = stream(end-keepLen+1:end);
                 return;
             end
-        
-        
+
+
             % ---------------------------------------------------------
             % 关键点：
             % 找到 ASM 后，不要等下一次调用。
             % 直接从 bestPos 对齐，并在本次输出完整帧。
             % ---------------------------------------------------------
             stream = stream(bestPos:end);
-        
+
             nFrames = floor(length(stream) / caduLen);
-        
+
             if nFrames == 0
                 obj.pOutputBuffer = stream;
                 return;
             end
-        
+
             usedLen = nFrames * caduLen;
             cadu = reshape(stream(1:usedLen), caduLen, nFrames);
-        
+
             % 可选：检查周期性 ASM，防止误锁。
             asmMetrics = zeros(1, nFrames);
             for k = 1:nFrames
                 asmMetrics(k) = sum(cadu(1:asmLen,k) ~= asmBits);
             end
-        
+
             if obj.DebugPCMFormat
                 fprintf('[PostVitASM check] nFrames=%d, firstASMerr=%d, meanASMerr=%.2f\n', ...
                     nFrames, asmMetrics(1), mean(asmMetrics));
             end
-        
+
             % 如果平均 ASM 错误太大，说明 bestPos 可能是假峰。
             if mean(asmMetrics) > maxASMErrors
                 keepLen = min(length(stream), caduLen - 1);
@@ -995,35 +1081,35 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 nFrames = 0;
                 return;
             end
-        
+
             payload = cadu(asmLen+1:end, :);
             tfBits = int8(payload(:));
-        
+
             obj.pOutputBuffer = stream(usedLen+1:end);
         end
 
         function [PeakPos, minDist] = RawASMCorrelate(obj, decodedFrame, asmBits)
             % 在 Viterbi 后的 hard bits 中滑动寻找原始 ASM。
             % 类似 FrameCorrelate，但这里没有 soft value，所以用汉明距离。
-        
+
             asmLen = length(asmBits);
             F = length(decodedFrame);
-        
+
             maxPos = F - asmLen + 1;
-        
+
             if maxPos < 1
                 PeakPos = 1;
                 minDist = inf;
                 return;
             end
-        
+
             dist = inf(maxPos, 1);
-        
+
             for iBit = 1:maxPos
                 yi = decodedFrame(iBit:iBit+asmLen-1);
                 dist(iBit) = sum(yi ~= asmBits);
             end
-        
+
             [minDist, PeakPos] = min(dist);
         end
 
@@ -1039,31 +1125,31 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             %   1. Generate mother rate-1/2 coded bits.
             %   2. Apply puncturing manually.
             %   3. Drop the first offsetLength coded bits.
-        
+
             asmBits = int8(asmBits(:));
-        
+
             % 1) Mother rate-1/2 convolutional encoding, no puncturing here.
             enc = comm.ConvolutionalEncoder('TrellisStructure', trellis);
             motherBits = enc(asmBits);
-        
+
             % For 1/2 CCSDS case only, second branch is inverted.
             % For 3/4, flipSecondBranch should be false.
             if flipSecondBranch
                 motherBits(2:2:end) = int8(~motherBits(2:2:end));
             end
-        
+
             % 2) Manual puncturing.
             p = puncturePattern(:);
             pp = repmat(p, ceil(length(motherBits)/length(p)), 1);
             pp = pp(1:length(motherBits));
-        
+
             codedASM = motherBits(logical(pp));
-        
+
             % 3) Drop leading bits affected by convolutional encoder memory.
             offsetLength = min(offsetLength, length(codedASM)-1);
             syncASM = codedASM(offsetLength+1:end);
         end
-        
+
         function resetImpl(obj)
             % Initialize / reset discrete-state properties
             if ~isempty(obj.pDec)
@@ -1095,6 +1181,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
 
             % Set public properties and states
             s = saveObjectImpl@satcom.internal.ccsds.tmBase(obj);
+            s.RandomizerMode = obj.RandomizerMode;
+            s.TPCCodeRate = obj.TPCCodeRate;
+            s.TPCBlocksPerTF = obj.TPCBlocksPerTF;
             s.ViterbiTraceBackDepth = obj.ViterbiTraceBackDepth;
             s.ViterbiTrellis = obj.ViterbiTrellis;
             s.ViterbiWordLength = obj.ViterbiTrellis;
@@ -1111,6 +1200,16 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
 
         function loadObjectImpl(obj,s,wasLocked)
             % Set properties in object obj to values in structure s
+
+            if isfield(s,'RandomizerMode')
+                obj.RandomizerMode = s.RandomizerMode;
+            end
+            if isfield(s,'TPCCodeRate')
+                obj.TPCCodeRate = s.TPCCodeRate;
+            end
+            if isfield(s,'TPCBlocksPerTF')
+                obj.TPCBlocksPerTF = s.TPCBlocksPerTF;
+            end
 
             if wasLocked
                 if isfield(s,'pDec') % For the case of ChannelCoding being "none" or "RS", pDec is not defined. Hence, this should not be saved then
@@ -1137,7 +1236,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         end
 
         function flag = isInactivePropertyImpl(obj,prop)
-            % Return false if property is visible based on object 
+            % Return false if property is visible based on object
             % configuration, for the command line and System block dialog
             flag = true;
             isFACM = false; % Currently FACM waveform is not supported
@@ -1155,13 +1254,17 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 flag = false;
             elseif strcmp(prop,'CodeRate')
                 flag = ~any(strcmp(obj.ChannelCoding,{'turbo','LDPC'})) || isFACM;
+            elseif strcmp(prop,'TPCCodeRate')
+                flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
+            elseif strcmp(prop,'TPCBlocksPerTF')
+                flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
             elseif strcmp(prop,'NumBitsInInformationBlock')
                 flag = ~any(strcmp(obj.ChannelCoding,{'LDPC','turbo'})) || isFACM;
             elseif strcmp(prop,'IsLDPCOnSMTF')
                 flag = ~strcmp(obj.ChannelCoding,'LDPC') || isFACM;
             elseif strcmp(prop,'LDPCCodeblockSize')
                 flag = ~(strcmp(obj.ChannelCoding,'LDPC') && obj.IsLDPCOnSMTF) || isFACM;
-            elseif strcmp(prop,'HasRandomizer')
+            elseif any(strcmp(prop,{'HasRandomizer','RandomizerMode'}))
                 flag = smtfFlag;
             elseif strcmp(prop,'HasASM')
                 flag = smtfFlag;
@@ -1190,6 +1293,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             % Define property section(s) for System block dialog
             genprops = {'ChannelCoding',...
                 'HasRandomizer',...
+                'RandomizerMode',...
                 'HasASM',...
                 'DisableFrameSynchronization',...
                 'DisablePhaseAmbiguityResolution',...
@@ -1197,6 +1301,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 'NumBytesInTransferFrame',...
                 'ConvolutionalCodeRate',...
                 'CodeRate',...
+                'TPCCodeRate',...
+                'TPCBlocksPerTF',...
                 'NumBitsInInformationBlock',...
                 'IsLDPCOnSMTF',...
                 'LDPCCodeblockSize',...
@@ -1447,4 +1553,124 @@ function localPCMPrintASMCandidates(stream, asmBits, caduLen, maxPos, maxASMErro
         fprintf('#%d pos=%d err=%d mean=%.2f frames=%d; ', ii, c(1), c(2), c(3), c(4));
     end
     fprintf('\n');
+end
+
+function bits = localTPCPayloadBits(rawRate)
+    side = localTPCPayloadSideLength(rawRate);
+    bits = side * side;
+end
+
+function value = localPositiveInteger(rawValue, defaultValue)
+    if nargin < 2
+        defaultValue = 1;
+    end
+    if nargin < 1 || isempty(rawValue)
+        value = defaultValue;
+        return;
+    end
+    if ischar(rawValue) || isstring(rawValue)
+        value = str2double(strtrim(char(rawValue)));
+    else
+        value = double(rawValue);
+    end
+    if ~isfinite(value)
+        value = defaultValue;
+    end
+    value = max(1, round(value));
+end
+
+function localTPCDecoderBoundaryDebug(cwSoft, txEncodedBits, syncLen, codeLen, wordIndex, blocksPerTF)
+    if nargin < 6 || isempty(blocksPerTF)
+        blocksPerTF = 1;
+    end
+    blocksPerTF = localPositiveInteger(blocksPerTF, 1);
+    txEncodedBits = int8(txEncodedBits(:) ~= 0);
+    cwHard0 = int8(cwSoft(:) > 0);
+    if isempty(txEncodedBits) || isempty(cwHard0)
+        return;
+    end
+
+    codedTFLen = syncLen + codeLen * blocksPerTF;
+    numTxFrames = floor(numel(txEncodedBits) / codedTFLen);
+    if numTxFrames < 1
+        return;
+    end
+
+    bestErr = inf;
+    bestFrame = NaN;
+    bestBlockInFrame = NaN;
+    bestGlobalBlock = NaN;
+    bestPolarity = 1;
+    bestLen = 0;
+    for iFrame = 1:numTxFrames
+        frameStart = (iFrame-1)*codedTFLen + syncLen;
+        for jBlock = 1:blocksPerTF
+            startIdx = frameStart + (jBlock-1)*codeLen + 1;
+            stopIdx = startIdx + codeLen - 1;
+            if stopIdx > numel(txEncodedBits)
+                break;
+            end
+            txCW = txEncodedBits(startIdx:stopIdx);
+            L = min(numel(txCW), numel(cwHard0));
+            for polarity = [1 -1]
+                if polarity > 0
+                    cwHard = cwHard0;
+                else
+                    cwHard = int8(~logical(cwHard0));
+                end
+                err = nnz(cwHard(1:L) ~= txCW(1:L));
+                if err < bestErr
+                    bestErr = err;
+                    bestFrame = iFrame;
+                    bestBlockInFrame = jBlock;
+                    bestGlobalBlock = (iFrame-1)*blocksPerTF + jBlock;
+                    bestPolarity = polarity;
+                    bestLen = L;
+                end
+            end
+        end
+    end
+
+    if bestLen > 0
+        fprintf('[TPC DEBUG] decoder cwSoft word=%d bestTxFrame=%d block=%d globalBlock=%d polarity=%+d hardBER=%.6g (%d/%d)\n', ...
+            wordIndex, bestFrame, bestBlockInFrame, bestGlobalBlock, ...
+            bestPolarity, bestErr/bestLen, bestErr, bestLen);
+    end
+end
+
+function rate = localTPCEffectiveRate(rawRate)
+    rate = localTPCPayloadBits(rawRate) / (64 * 64);
+end
+
+function side = localTPCPayloadSideLength(rawRate)
+    if nargin < 1 || isempty(rawRate)
+        rawRate = 'native';
+    end
+
+    if isnumeric(rawRate)
+        side = round(double(rawRate));
+    else
+        key = lower(strtrim(char(rawRate)));
+        switch key
+            case {'native','default','0.7932','57','57x57'}
+                side = 57;
+            case {'1/2','half'}
+                side = 45;
+            case {'2/3'}
+                side = 52;
+            otherwise
+                xPos = strfind(key, 'x');
+                if numel(xPos) == 1
+                    side = round(str2double(key(1:xPos-1)));
+                else
+                    side = round(str2double(key));
+                end
+        end
+    end
+
+    if ~isfinite(side) || side < 1 || side > 57
+        error('HelperCCSDSTMDecoder:InvalidTPCCodeRate', ...
+            'Unsupported TPCCodeRate="%s". Use native, 1/2, 2/3, or an integer side length <= 57.', ...
+            char(string(rawRate)));
+    end
 end

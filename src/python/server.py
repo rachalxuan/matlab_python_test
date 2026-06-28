@@ -94,6 +94,7 @@ def _worker_loop():
         future = None
         try:
             print(f"▶️ [Task {task_id}] 开始 MATLAB 仿真")
+            eng.eval("clear run_ccsds_tm_evaluation", nargout=0)
             future = eng.run_ccsds_tm_evaluation(params_json, nargout=1, background=True)
 
             while not future.done():
@@ -121,6 +122,11 @@ def _worker_loop():
                 print(f"⏹️ [Task {task_id}] 已停止")
             else:
                 result_data = json.loads(result_json)
+                print(
+                    f"[Task {task_id}] ResidualCFO_Hz="
+                    f"{result_data.get('ResidualCFO_Hz')} "
+                    f"ResidualCFO_valid={result_data.get('ResidualCFO_valid')}"
+                )
                 _set_task(
                     task_id,
                     status="completed",

@@ -3,7 +3,7 @@ function metrics = run_ccsds_tpc_extension_evaluation(params)
 %
 % This script keeps TPC outside ccsdsTMWaveformGenerator for the first
 % validation pass:
-%   TM-like transfer frames -> TPC encode -> BPSK/RRC waveform
+%   TM-like transfer frames -> TPC encode -> BPSK/QPSK/RRC waveform
 %   -> channel impairments -> sync/demod -> TPC decode -> frame BER.
 %
 % Example:
@@ -47,23 +47,29 @@ function metrics = run_ccsds_tpc_extension_evaluation(params)
         txBits((iFrame-1)*bitsPerFrame+1:iFrame*bitsPerFrame) = frameBits;
     end
 
-    % TPC encode stream in k*k information-bit blocks.
-    infoBlockLen = kTPC * kTPC;
+    % TPC encode stream. The teacher code is native (64,57)^2. For 1/2 and
+    % 2/3 tests, use shortened payload blocks while keeping the same TPC
+    % encoder/decoder core and codeword length.
+    nativeInfoBlockLen = kTPC * kTPC;
     codeBlockLen = NTPC * NTPC;
-    padBits = ceil(numel(txBits)/infoBlockLen)*infoBlockLen - numel(txBits);
+    [payloadSideLen, rateLabel] = localParseTPCRate(opt.tpcCodeRate, kTPC);
+    payloadBlockLen = payloadSideLen * payloadSideLen;
+    padBits = ceil(numel(txBits)/payloadBlockLen)*payloadBlockLen - numel(txBits);
     txBitsPadded = [txBits; zeros(padBits,1,'int8')];
-    numTPCBlocks = numel(txBitsPadded) / infoBlockLen;
+    numTPCBlocks = numel(txBitsPadded) / payloadBlockLen;
 
     encodedBits = zeros(numTPCBlocks*codeBlockLen, 1, 'int8');
     for iBlock = 1:numTPCBlocks
-        idx = (iBlock-1)*infoBlockLen+1:iBlock*infoBlockLen;
-        msgMat = reshape(double(txBitsPadded(idx)), kTPC, kTPC);
+        idx = (iBlock-1)*payloadBlockLen+1:iBlock*payloadBlockLen;
+        msgMat = zeros(kTPC, kTPC);
+        msgMat(1:payloadSideLen, 1:payloadSideLen) = ...
+            reshape(double(txBitsPadded(idx)), payloadSideLen, payloadSideLen);
         encMat = TPC_encoder(msgMat, nTPC, kTPC, G, genpoly);
         encodedBits((iBlock-1)*codeBlockLen+1:iBlock*codeBlockLen) = int8(encMat(:));
     end
 
-    % BPSK modulation and RRC transmit shaping.
-    txSymbols = 2*double(encodedBits) - 1;
+    % Modulation and RRC transmit shaping.
+    [txSymbols, bitsPerSymbol] = localTPCModulate(encodedBits, opt.modType);
     txFilter = comm.RaisedCosineTransmitFilter( ...
         'Shape','Square root', ...
         'RolloffFactor', opt.RolloffFactor, ...
@@ -88,8 +94,12 @@ function metrics = run_ccsds_tpc_extension_evaluation(params)
     rxWaveform = awgn(rxWaveform, opt.snr, 'measured');
 
     % Receiver: coarse CFO, matched filter, symbol timing, carrier sync.
+    coarseMod = upper(char(opt.modType));
+    if ~any(strcmp(coarseMod, {'BPSK','QPSK'}))
+        coarseMod = 'BPSK';
+    end
     coarseSync = comm.CoarseFrequencyCompensator( ...
-        'Modulation','8PSK', ...
+        'Modulation',coarseMod, ...
         'SampleRate', Fs, ...
         'FrequencyResolution', opt.coarseFrequencyResolution);
     [coarseSynced, estCFO] = coarseSync(rxWaveform);
@@ -114,7 +124,7 @@ function metrics = run_ccsds_tpc_extension_evaluation(params)
     timeSynced = timingSync(filtered);
 
     carrierSync = comm.CarrierSynchronizer( ...
-        'Modulation','BPSK', ...
+        'Modulation',upper(char(opt.modType)), ...
         'SamplesPerSymbol', 1, ...
         'DampingFactor', 1/sqrt(2), ...
         'NormalizedLoopBandwidth', opt.carrierLoopBandwidth);
@@ -126,7 +136,7 @@ function metrics = run_ccsds_tpc_extension_evaluation(params)
     % Align the soft stream to the encoded-bit stream. This is a standalone
     % validation script, so using the known encoded stream for delay choice is
     % acceptable before integrating TPC into the production decoder.
-    [rxSoft, alignInfo] = localAlignSoftBPSK(rxSymbols, encodedBits, opt.maxAlignSymbols);
+    [rxSoft, alignInfo] = localAlignTPCSoft(rxSymbols, encodedBits, opt.modType, opt.maxAlignSymbols);
     hardBits = int8(rxSoft(:) >= 0);
     nCmp = min(numel(hardBits), numel(encodedBits));
     encodedHardErrors = nnz(hardBits(1:nCmp) ~= encodedBits(1:nCmp));
@@ -140,13 +150,14 @@ function metrics = run_ccsds_tpc_extension_evaluation(params)
 
     numRxBlocks = floor(numel(rxSoft) / codeBlockLen);
     numDecBlocks = min(numRxBlocks, numTPCBlocks);
-    decBitsPadded = zeros(numDecBlocks*infoBlockLen, 1, 'int8');
+    decBitsPadded = zeros(numDecBlocks*payloadBlockLen, 1, 'int8');
     for iBlock = 1:numDecBlocks
         idx = (iBlock-1)*codeBlockLen+1:iBlock*codeBlockLen;
         rxMat = reshape(double(rxSoft(idx)), NTPC, NTPC);
         [decMat, ~] = TPC_decoder(rxMat, nTPC, kTPC, H, ...
             opt.tpcLeastReliableBits, opt.tpcAlpha, opt.tpcBeta, opt.tpcIterations);
-        decBitsPadded((iBlock-1)*infoBlockLen+1:iBlock*infoBlockLen) = int8(decMat(:) ~= 0);
+        decPayload = int8(decMat(1:payloadSideLen, 1:payloadSideLen) ~= 0);
+        decBitsPadded((iBlock-1)*payloadBlockLen+1:iBlock*payloadBlockLen) = decPayload(:);
     end
 
     cd(oldDir);
@@ -163,8 +174,8 @@ function metrics = run_ccsds_tpc_extension_evaluation(params)
     metrics = struct();
     metrics.success = true;
     metrics.errorMsg = '';
-    metrics.info = 'CCSDS TM-like source + TPC extension | BPSK';
-    metrics.modType = 'BPSK';
+    metrics.info = sprintf('CCSDS TM-like source + TPC extension | %s', upper(char(opt.modType)));
+    metrics.modType = upper(char(opt.modType));
     metrics.channelCoding = 'TPC';
     metrics.BER = berVal;
     metrics.ber = berVal;
@@ -188,9 +199,15 @@ function metrics = run_ccsds_tpc_extension_evaluation(params)
     metrics.delay_in = opt.delay;
     metrics.NumTPCBlocks = numTPCBlocks;
     metrics.DecodedTPCBlocks = numDecBlocks;
-    metrics.TPCInfoBlockBits = infoBlockLen;
+    metrics.TPCCodeRate = rateLabel;
+    metrics.TPCNativeInfoBlockBits = nativeInfoBlockLen;
+    metrics.TPCPayloadSideBits = payloadSideLen;
+    metrics.TPCPayloadBlockBits = payloadBlockLen;
+    metrics.TPCInfoBlockBits = payloadBlockLen;
     metrics.TPCCodeBlockBits = codeBlockLen;
-    metrics.TPCRate = infoBlockLen / codeBlockLen;
+    metrics.BitsPerSymbol = bitsPerSymbol;
+    metrics.TPCRate = payloadBlockLen / codeBlockLen;
+    metrics.TPCNativeRate = nativeInfoBlockLen / codeBlockLen;
     metrics.AlignInfo = alignInfo;
     metrics.FrameInfo = frameInfo;
     metrics.ElapsedTime = toc(tStart);
@@ -202,6 +219,7 @@ function metrics = run_ccsds_tpc_extension_evaluation(params)
 end
 
 function opt = localDefaults(opt)
+    opt = localSetDefault(opt, 'modType', 'BPSK');
     opt = localSetDefault(opt, 'symbolRate', 20e6);
     opt = localSetDefault(opt, 'sps', 4);
     opt = localSetDefault(opt, 'snr', 8);
@@ -221,14 +239,59 @@ function opt = localDefaults(opt)
     opt = localSetDefault(opt, 'tpcLeastReliableBits', 4);
     opt = localSetDefault(opt, 'tpcAlpha', 0.5);
     opt = localSetDefault(opt, 'tpcBeta', 1);
+    opt = localSetDefault(opt, 'tpcCodeRate', 'native');
     opt = localSetDefault(opt, 'showFigures', false);
+
+    opt.modType = upper(strtrim(char(opt.modType)));
+    if ~any(strcmp(opt.modType, {'BPSK','QPSK','8PSK'}))
+        error('run_ccsds_tpc_extension_evaluation:UnsupportedModulation', ...
+            'Standalone TPC extension currently supports BPSK, QPSK and 8PSK. Got "%s".', opt.modType);
+    end
+end
+
+function [payloadSideLen, label] = localParseTPCRate(rawRate, nativeSideLen)
+    if nargin < 1 || isempty(rawRate)
+        rawRate = 'native';
+    end
+
+    if isnumeric(rawRate)
+        payloadSideLen = round(double(rawRate));
+        label = sprintf('%dx%d', payloadSideLen, payloadSideLen);
+    else
+        label = lower(strtrim(char(rawRate)));
+        switch label
+            case {'native','default','0.7932','57','57x57'}
+                payloadSideLen = nativeSideLen;
+                label = 'native';
+            case {'1/2','half'}
+                payloadSideLen = 45;
+                label = '1/2';
+            case {'2/3'}
+                payloadSideLen = 52;
+                label = '2/3';
+            otherwise
+                xPos = strfind(label, 'x');
+                if numel(xPos) == 1
+                    payloadSideLen = round(str2double(label(1:xPos-1)));
+                else
+                    payloadSideLen = round(str2double(label));
+                end
+                label = sprintf('%dx%d', payloadSideLen, payloadSideLen);
+        end
+    end
+
+    if ~isfinite(payloadSideLen) || payloadSideLen < 1 || payloadSideLen > nativeSideLen
+        error('run_ccsds_tpc_extension_evaluation:InvalidTPCRate', ...
+            'Unsupported tpcCodeRate="%s". Use native, 1/2, 2/3, or an integer side length <= 57.', ...
+            char(string(rawRate)));
+    end
 end
 
 function s = localSetDefault(s, name, value)
     if ~isfield(s, name) || isempty(s.(name))
         s.(name) = value;
     end
-    if ischar(s.(name)) || isstring(s.(name))
+    if (ischar(s.(name)) || isstring(s.(name))) && ~strcmp(name, 'tpcCodeRate')
         n = str2double(strrep(string(s.(name)), ',', ''));
         if ~isnan(n)
             s.(name) = n;
@@ -236,17 +299,64 @@ function s = localSetDefault(s, name, value)
     end
 end
 
-function [rxSoft, info] = localAlignSoftBPSK(rxSymbols, encodedBits, maxOffset)
-    rxSoftAll = double(real(rxSymbols(:)));
+function [txSymbols, bitsPerSymbol] = localTPCModulate(encodedBits, modType)
+    bits = int8(encodedBits(:) ~= 0);
+    modType = upper(strtrim(char(modType)));
+    switch modType
+        case 'BPSK'
+            bitsPerSymbol = 1;
+            txSymbols = complex(2*double(bits) - 1, 0);
+        case 'QPSK'
+            bitsPerSymbol = 2;
+            n = floor(numel(bits)/2)*2;
+            bits = bits(1:n);
+            b = reshape(double(bits), 2, []);
+            iq = 1 - 2*b;
+            txSymbols = (iq(1,:).' + 1j*iq(2,:).') / sqrt(2);
+        case '8PSK'
+            bitsPerSymbol = 3;
+            n = floor(numel(bits)/3)*3;
+            bits = bits(1:n);
+            modObj = comm.PSKModulator(8, pi/4, ...
+                'BitInput', true, ...
+                'SymbolMapping', 'Custom', ...
+                'CustomSymbolMapping', [0 4 6 2 3 7 5 1]);
+            txSymbols = modObj(logical(bits));
+        otherwise
+            error('run_ccsds_tpc_extension_evaluation:UnsupportedModulation', ...
+                'Unsupported modulation "%s".', modType);
+    end
+end
+
+function [rxSoft, info] = localAlignTPCSoft(rxSymbols, encodedBits, modType, maxOffsetSymbols)
     encodedBits = int8(encodedBits(:) ~= 0);
+    modType = upper(strtrim(char(modType)));
+    switch modType
+        case 'BPSK'
+            rotations = [1 -1];
+            bitsPerSymbol = 1;
+        case 'QPSK'
+            rotations = exp(1j*pi/2*(0:3));
+            bitsPerSymbol = 2;
+        case '8PSK'
+            rotations = exp(1j*pi/4*(0:7));
+            bitsPerSymbol = 3;
+        otherwise
+            error('run_ccsds_tpc_extension_evaluation:UnsupportedModulation', ...
+                'Unsupported modulation "%s".', modType);
+    end
+
     bestErr = inf;
     bestOffset = 0;
-    bestPolarity = 1;
+    bestRot = 1;
     bestLen = 0;
-    for polarity = [1 -1]
-        softCand = polarity * rxSoftAll;
+    bestSoft = zeros(0,1);
+    maxOffsetBits = maxOffsetSymbols * bitsPerSymbol;
+
+    for iRot = 1:numel(rotations)
+        softCand = localTPCSoftDemap(rxSymbols(:) * rotations(iRot), modType);
         hardCand = int8(softCand >= 0);
-        for offset = 0:min(maxOffset, max(0,numel(hardCand)-1))
+        for offset = 0:min(maxOffsetBits, max(0,numel(hardCand)-1))
             L = min(numel(encodedBits), numel(hardCand)-offset);
             if L <= 0
                 continue;
@@ -255,14 +365,50 @@ function [rxSoft, info] = localAlignSoftBPSK(rxSymbols, encodedBits, maxOffset)
             if err < bestErr
                 bestErr = err;
                 bestOffset = offset;
-                bestPolarity = polarity;
+                bestRot = rotations(iRot);
                 bestLen = L;
+                bestSoft = softCand;
             end
         end
     end
-    rxSoft = bestPolarity * rxSoftAll(bestOffset+1:end);
-    info = struct('offsetSymbols',bestOffset,'polarity',bestPolarity, ...
+    rxSoft = bestSoft(bestOffset+1:end);
+    info = struct('offsetBits',bestOffset,'rotation',bestRot, ...
         'alignedErrors',bestErr,'alignedBits',bestLen);
+end
+
+function softBits = localTPCSoftDemap(rxSymbols, modType)
+    modType = upper(strtrim(char(modType)));
+    rxSymbols = rxSymbols(:);
+    if isempty(rxSymbols)
+        softBits = zeros(0,1);
+        return;
+    end
+    p = mean(abs(rxSymbols).^2);
+    if isfinite(p) && p > 0
+        rxSymbols = rxSymbols / sqrt(p);
+    end
+
+    switch modType
+        case 'BPSK'
+            softBits = double(real(rxSymbols));
+        case 'QPSK'
+            % Matches localTPCModulate: I=1-2*b1, Q=1-2*b2.
+            iSoft = -real(rxSymbols);
+            qSoft = -imag(rxSymbols);
+            softBits = double(reshape([iSoft.'; qSoft.'], [], 1));
+        case '8PSK'
+            demodObj = comm.PSKDemodulator( ...
+                'PhaseOffset', pi/8, ...
+                'ModulationOrder', 8, ...
+                'BitOutput', true, ...
+                'DecisionMethod', "Approximate log-likelihood ratio", ...
+                'SymbolMapping', 'Custom', ...
+                'CustomSymbolMapping', [0 4 6 2 3 7 5 1]);
+            softBits = -double(demodObj(rxSymbols));
+        otherwise
+            error('run_ccsds_tpc_extension_evaluation:UnsupportedModulation', ...
+                'Unsupported modulation "%s".', modType);
+    end
 end
 
 function [berVal, numErr, numBits, lockRate, frameInfo] = localCompareFrames(validTxFrames, decBits, warmup)
@@ -325,7 +471,8 @@ end
 function localPrintMetrics(m)
     fprintf('\n========= CCSDS TM + TPC extension result =========\n');
     fprintf(' Modulation   : %s\n', m.modType);
-    fprintf(' Coding       : TPC (64,57)^2, rate %.4f\n', m.TPCRate);
+    fprintf(' Coding       : TPC (64,57)^2 shortened, rate %s (effective %.4f, native %.4f)\n', ...
+        char(m.TPCCodeRate), m.TPCRate, m.TPCNativeRate);
     fprintf(' Input SNR    : %.1f dB, CFO=%.1f Hz, Phase=%.1f deg, Delay=%.3f\n', ...
         m.snr_in, m.cfo_in, m.phase_in, m.delay_in);
     fprintf(' --------------------------------\n');
@@ -333,6 +480,10 @@ function localPrintMetrics(m)
     fprintf(' Frame Lock   : %.2f %%\n', m.FrameLock_pct);
     fprintf(' Encoded BER  : %.6g (%d/%d)\n', ...
         m.EncodedHardBER, m.EncodedHardErrors, m.EncodedHardBits);
+    if isfield(m,'AlignInfo')
+        fprintf(' Align        : offset=%d bits, rotation=%+.1f deg\n', ...
+            m.AlignInfo.offsetBits, rad2deg(angle(m.AlignInfo.rotation)));
+    end
     fprintf(' EVM          : %.2f %%\n', m.EVM_post_pct);
     fprintf(' MER/SNR_est  : %.2f dB\n', m.MER_dB);
     fprintf(' PAPR (Tx)    : %.2f dB\n', m.PAPR_dB);
@@ -340,6 +491,9 @@ function localPrintMetrics(m)
         m.cfo_est_Hz, m.cfo_error_Hz);
     fprintf(' TPC blocks   : %d decoded / %d sent\n', ...
         m.DecodedTPCBlocks, m.NumTPCBlocks);
+    fprintf(' TPC payload  : %dx%d / 64x64 (%d / %d bits per block)\n', ...
+        m.TPCPayloadSideBits, m.TPCPayloadSideBits, ...
+        m.TPCPayloadBlockBits, m.TPCCodeBlockBits);
     fprintf('===============================================\n');
 end
 

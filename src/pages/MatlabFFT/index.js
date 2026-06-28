@@ -88,6 +88,7 @@ const DEFAULT_CCSDS_PARAMS = {
   PCMFormat: "NRZ-L",
   ConvolutionalCodeRate: "5/6",
   CodeRate: "N/A",
+  TPCCodeRate: "native",
   NumBitsInInformationBlock: 1024,
   IsLDPCOnSMTF: false,
   LDPCCodeblockSize: 1,
@@ -122,8 +123,8 @@ const MODULATION_OPTIONS = [
   { value: "UQPSK", label: "UQPSK" },
   { value: "16QAM", label: "16QAM" },
   { value: "32QAM", label: "32QAM" },
-  { value: "16APSK", label: "16APSK (FACM)" },
-  { value: "32APSK", label: "32APSK (FACM)" },
+  { value: "16APSK", label: "16APSK " },
+  { value: "32APSK", label: "32APSK " },
   { value: "FM", label: "FM" },
   { value: "4D-8PSK-TCM", label: "4D-8PSK-TCM" },
   { value: "PCM/PSK/PM", label: "PCM/PSK/PM" },
@@ -308,7 +309,11 @@ const formatLockStatus = (locked) => {
 
 const formatCodeRateDisplay = (raw) => {
   const preferred =
-    raw?.ConvolutionalCodeRate ?? raw?.codeRate ?? raw?.CodeRate ?? null;
+    raw?.TPCCodeRate ??
+    raw?.ConvolutionalCodeRate ??
+    raw?.codeRate ??
+    raw?.CodeRate ??
+    null;
 
   if (typeof preferred === "string") {
     return preferred;
@@ -347,6 +352,14 @@ const getEvmDisplay = (stats) => {
   return `${formatMetricValue(stats.EVMPercent)}%`;
 };
 
+const getFerDisplay = (stats) => {
+  if (!stats || !isFiniteNumber(stats.FER) || stats.FER < 0) {
+    return "N/A";
+  }
+  if (stats.FER === 0) return "0";
+  return Number(stats.FER).toExponential(2);
+};
+
 const isGMSKResult = (result) =>
   String(result?.modType || result?.info || "")
     .toUpperCase()
@@ -380,7 +393,8 @@ const getEvmSummary = (evmPercent) => {
   }
   if (evmPercent < 8) return "星座点聚集较好，当前调制质量正常。";
   if (evmPercent < 15) return "星座有一定扩散，但接收机通常还能稳定工作。";
-  if (evmPercent < 25) return "调制质量已经明显下降，建议结合 BER 和锁定率判断。";
+  if (evmPercent < 25)
+    return "调制质量已经明显下降，建议结合 BER 和锁定率判断。";
   return "星座偏离较大，当前损伤已经比较重。";
 };
 
@@ -407,6 +421,7 @@ const normalizeSimulationResult = (raw) => {
       ber: raw.BER,
       errorMsg: raw.errorMsg || "",
       spectrum: raw.spectrum,
+      constellation_tx: raw.constellation_tx,
       constellation_raw: raw.constellation_raw,
       constellation_synced: raw.constellation_synced,
       pipeline: raw.pipeline, // 4 阶段星座 + EVM 数组 + 标签
@@ -419,6 +434,27 @@ const normalizeSimulationResult = (raw) => {
         MERdB: raw.MER_dB,
         SNREstdB: raw.SNR_est_dB,
         PAPRdB: raw.PAPR_dB,
+        FER: isFiniteNumber(raw.FER)
+          ? raw.FER
+          : isFiniteNumber(raw.FrameErrorRate)
+            ? raw.FrameErrorRate
+            : null,
+        FrameErrors: isFiniteNumber(raw.FrameErrors) ? raw.FrameErrors : null,
+        CountedFrames: isFiniteNumber(raw.CountedFrames)
+          ? raw.CountedFrames
+          : null,
+        MatchedFrames: isFiniteNumber(raw.MatchedFrames)
+          ? raw.MatchedFrames
+          : null,
+        DecodedFrames: isFiniteNumber(raw.DecodedFrames)
+          ? raw.DecodedFrames
+          : null,
+        AcquisitionFrames: isFiniteNumber(raw.AcquisitionFrames)
+          ? raw.AcquisitionFrames
+          : null,
+        AcquisitionTime: isFiniteNumber(raw.AcquisitionTime_s)
+          ? raw.AcquisitionTime_s
+          : null,
         LockRate: lockRate,
         LockRatePercent: isFiniteNumber(lockRate) ? lockRate * 100 : null,
         LockStatus: isFiniteNumber(lockRate) ? lockRate > 0.8 : null,
@@ -427,10 +463,26 @@ const normalizeSimulationResult = (raw) => {
         InputPhase: raw.phase_in,
         InputDelay: raw.delay_in,
         // 残余损伤 (同步链路压制后剩余,理想值接近 0)
-        ResidCFOHz: isFiniteNumber(raw.residCFO_Hz) ? raw.residCFO_Hz : null,
-        ResidPhaseDeg: isFiniteNumber(raw.residPhase_deg)
-          ? raw.residPhase_deg
-          : null,
+        ResidCFOValid:
+          raw.ResidualCFO_valid === undefined
+            ? isFiniteNumber(raw.ResidualCFO_Hz) ||
+              isFiniteNumber(raw.residCFO_Hz)
+            : Boolean(raw.ResidualCFO_valid),
+        ResidCFOHz: isFiniteNumber(raw.ResidualCFO_Hz)
+          ? raw.ResidualCFO_Hz
+          : isFiniteNumber(raw.residCFO_Hz)
+            ? raw.residCFO_Hz
+            : null,
+        ResidPhaseValid:
+          raw.ResidualPhase_valid === undefined
+            ? isFiniteNumber(raw.ResidualPhase_deg) ||
+              isFiniteNumber(raw.residPhase_deg)
+            : Boolean(raw.ResidualPhase_valid),
+        ResidPhaseDeg: isFiniteNumber(raw.ResidualPhase_deg)
+          ? raw.ResidualPhase_deg
+          : isFiniteNumber(raw.residPhase_deg)
+            ? raw.residPhase_deg
+            : null,
       },
       rawEvaluation: raw,
     };
@@ -463,6 +515,7 @@ const CCSDSPlatform = () => {
   const LDPC_RATES = ["1/2", "2/3", "4/5", "7/8"];
   const LDPC_INFO_BLOCKS = [1024, 4096, 16384, 7136];
   const CONVOLUTIONAL_RATES = ["1/2", "2/3", "3/4", "5/6", "7/8"];
+  const TPC_RATES = ["native", "1/2", "2/3"];
 
   useEffect(() => {
     setIsElectron(window && window.matlabAPI !== undefined);
@@ -544,9 +597,12 @@ const CCSDSPlatform = () => {
 
       if (payload.channelCoding === "TPC") {
         delete payload.ConvolutionalCodeRate;
+        payload.TPCCodeRate = payload.TPCCodeRate || "native";
         payload.CodeRate = "N/A";
         payload.berWarmUpFrames = 0;
         payload.berFrames = Number(payload.berFrames ?? 6);
+      } else {
+        delete payload.TPCCodeRate;
       }
 
       if (payload.channelCoding === "LDPC") {
@@ -622,6 +678,12 @@ const CCSDSPlatform = () => {
 
       const res = await waitForSimulationTask(submitRes.taskId);
       const normalizedRes = normalizeSimulationResult(res);
+      console.log("Residual CFO fields:", {
+        rawResidualCFO: res?.ResidualCFO_Hz,
+        rawResidualCFOValid: res?.ResidualCFO_valid,
+        normalizedResidualCFO: normalizedRes?.stats?.ResidCFOHz,
+        normalizedResidualCFOValid: normalizedRes?.stats?.ResidCFOValid,
+      });
 
       if (normalizedRes && normalizedRes.success) {
         message.success("仿真成功！");
@@ -847,12 +909,15 @@ const CCSDSPlatform = () => {
   };
   const renderCharts = (data) => {
     if (!data) return;
-    // 1. 画修复前的图
-    if (data.constellation_raw) {
+    // 1. 画修复前星座：优先显示经过信道后的同步前采样。
+    const beforeConstellation = data.constellation_raw || data.constellation_tx;
+    if (beforeConstellation) {
       drawConstellation(
         rawConstellationRef,
-        "❌ 修复前 (信道损伤)",
-        data.constellation_raw,
+        data.constellation_raw
+          ? "❌ 修复前 (信道损伤)"
+          : "📡 发送端星座 (调制后)",
+        beforeConstellation,
       );
     }
 
@@ -1040,9 +1105,8 @@ const CCSDSPlatform = () => {
           </Card>
           <Card className="kpi-card" bordered={false}>
             <Statistic
-              title="SNR估计"
-              value={formatMetricValue(simResult.stats.SNREstdB)}
-              suffix="dB"
+              title="FER"
+              value={getFerDisplay(simResult.stats)}
               valueStyle={{ color: "#1677ff", fontSize: 24 }}
             />
           </Card>
@@ -1096,8 +1160,19 @@ const CCSDSPlatform = () => {
                 <Descriptions.Item label={getMerTitle(simResult)}>
                   {formatMetricValue(simResult.stats.MERdB)} dB
                 </Descriptions.Item>
-                <Descriptions.Item label="SNR估计">
-                  {formatMetricValue(simResult.stats.SNREstdB)} dB
+                <Descriptions.Item label="FER">
+                  <Tag
+                    color={getMetricTone(simResult.stats.FER, {
+                      good: 0,
+                      warn: 0.05,
+                    })}
+                  >
+                    {getFerDisplay(simResult.stats)}
+                  </Tag>
+                  {isFiniteNumber(simResult.stats.FrameErrors) &&
+                  isFiniteNumber(simResult.stats.CountedFrames)
+                    ? ` (${simResult.stats.FrameErrors}/${simResult.stats.CountedFrames} 帧)`
+                    : ""}
                 </Descriptions.Item>
                 <Descriptions.Item label="PAPR">
                   {formatMetricValue(simResult.stats.PAPRdB)} dB
@@ -1141,6 +1216,25 @@ const CCSDSPlatform = () => {
                   >
                     {formatLockStatus(simResult.stats.LockStatus)}
                   </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="残余CFO">
+                  {simResult.stats.ResidCFOValid &&
+                  isFiniteNumber(simResult.stats.ResidCFOHz)
+                    ? `${formatMetricValue(simResult.stats.ResidCFOHz, 3)} Hz`
+                    : "N/A"}
+                </Descriptions.Item>
+                <Descriptions.Item label="捕获帧数">
+                  {isFiniteNumber(simResult.stats.AcquisitionFrames)
+                    ? `${formatMetricValue(simResult.stats.AcquisitionFrames, 0)} 帧`
+                    : "N/A"}
+                </Descriptions.Item>
+                <Descriptions.Item label="捕获时间">
+                  {isFiniteNumber(simResult.stats.AcquisitionTime)
+                    ? `${formatMetricValue(
+                        simResult.stats.AcquisitionTime * 1000,
+                        3,
+                      )} ms`
+                    : "N/A"}
                 </Descriptions.Item>
                 <Descriptions.Item label="MATLAB耗时">
                   {formatMetricValue(simResult.stats.ElapsedTime, 3)} s
@@ -1524,10 +1618,14 @@ const CCSDSPlatform = () => {
                       } else if (value === "TPC") {
                         form.setFieldsValue({
                           CodeRate: "N/A",
+                          TPCCodeRate: "native",
                           ConvolutionalCodeRate: "5/6",
                         });
                       } else {
-                        form.setFieldsValue({ CodeRate: "N/A" });
+                        form.setFieldsValue({
+                          CodeRate: "N/A",
+                          TPCCodeRate: "native",
+                        });
                       }
 
                       // 重置卷积码率
@@ -1629,6 +1727,7 @@ const CCSDSPlatform = () => {
                     coding === "convolutional" || coding === "concatenated";
                   const showRS = coding === "RS" || coding === "concatenated";
                   const isApplicable = coding === "Turbo" || coding === "LDPC";
+                  const showTPCRate = coding === "TPC";
 
                   // 分别计算各自的默认值和选项
                   let convDefaultRate = "5/6";
@@ -1785,6 +1884,27 @@ const CCSDSPlatform = () => {
                               {turboLdpcRateOptions.map((rate) => (
                                 <Option key={rate} value={rate}>
                                   {rate}
+                                </Option>
+                              ))}
+                            </Select>
+                          </Form.Item>
+                        </Col>
+                      )}
+
+                      {showTPCRate && (
+                        <Col span={4}>
+                          <Form.Item
+                            name="TPCCodeRate"
+                            label="TPC码率"
+                            initialValue="native"
+                            rules={[enumRule(TPC_RATES, "TPC码率")]}
+                          >
+                            <Select>
+                              {TPC_RATES.map((rate) => (
+                                <Option key={rate} value={rate}>
+                                  {rate === "native"
+                                    ? "native (57x57)"
+                                    : rate}
                                 </Option>
                               ))}
                             </Select>
@@ -1990,9 +2110,8 @@ const CCSDSPlatform = () => {
                         </Card>
                         <Card className="kpi-card" bordered={false}>
                           <Statistic
-                            title="同步状态"
-                            value={formatMetricValue(simResult.stats.SNREstdB)}
-                            suffix="dB"
+                            title="FER"
+                            value={getFerDisplay(simResult.stats)}
                             valueStyle={{
                               color: "#1677ff",
                               fontSize: 24,
@@ -2001,7 +2120,7 @@ const CCSDSPlatform = () => {
                         </Card>
                         <Card className="kpi-card" bordered={false}>
                           <Statistic
-                            title="估计频偏"
+                            title="锁定率"
                             value={formatMetricValue(
                               simResult.stats.LockRatePercent,
                             )}
@@ -2010,7 +2129,7 @@ const CCSDSPlatform = () => {
                         </Card>
                         <Card className="kpi-card" bordered={false}>
                           <Statistic
-                            title="采样率"
+                            title="PAPR"
                             value={formatMetricValue(simResult.stats.PAPRdB)}
                             suffix="dB"
                           />
@@ -2040,6 +2159,16 @@ const CCSDSPlatform = () => {
                                   {simResult.ber >= 0
                                     ? formatMetricValue(simResult.ber)
                                     : "N/A"}
+                                </Tag>
+                              </Descriptions.Item>
+                              <Descriptions.Item label="FER">
+                                <Tag
+                                  color={getMetricTone(simResult.stats.FER, {
+                                    good: 0,
+                                    warn: 0.05,
+                                  })}
+                                >
+                                  {getFerDisplay(simResult.stats)}
                                 </Tag>
                               </Descriptions.Item>
                               <Descriptions.Item label="MER">
@@ -2094,11 +2223,24 @@ const CCSDSPlatform = () => {
                                   {formatLockStatus(simResult.stats.LockStatus)}
                                 </Tag>
                               </Descriptions.Item>
-                              <Descriptions.Item label="估计频偏">
-                                {formatMetricValue(
-                                  simResult.stats.EstimatedCFO,
-                                )}{" "}
-                                Hz
+                              <Descriptions.Item label="残余CFO">
+                                {simResult.stats.ResidCFOValid &&
+                                isFiniteNumber(simResult.stats.ResidCFOHz)
+                                  ? `${formatMetricValue(
+                                      simResult.stats.ResidCFOHz,
+                                      3,
+                                    )} Hz`
+                                  : "N/A"}
+                              </Descriptions.Item>
+                              <Descriptions.Item label="捕获帧数">
+                                {isFiniteNumber(
+                                  simResult.stats.AcquisitionFrames,
+                                )
+                                  ? `${formatMetricValue(
+                                      simResult.stats.AcquisitionFrames,
+                                      0,
+                                    )} 帧`
+                                  : "N/A"}
                               </Descriptions.Item>
                               <Descriptions.Item label="建议观察">
                                 {simResult.stats.LockStatus
@@ -2116,13 +2258,17 @@ const CCSDSPlatform = () => {
                               bordered
                             >
                               <Descriptions.Item label="对比帧数">
-                                {simResult.stats.ComparedFrames ?? 0}
+                                {simResult.stats.CountedFrames ??
+                                  simResult.stats.ComparedFrames ??
+                                  0}
                               </Descriptions.Item>
                               <Descriptions.Item label="出错帧数">
                                 {simResult.stats.FrameErrors ?? 0}
                               </Descriptions.Item>
                               <Descriptions.Item label="结论">
-                                {simResult.stats.ComparedFrames > 0
+                                {(simResult.stats.CountedFrames ??
+                                  simResult.stats.ComparedFrames ??
+                                  0) > 0
                                   ? "已有足够样本可用于链路对比"
                                   : "当前没有有效帧，指标参考意义有限"}
                               </Descriptions.Item>

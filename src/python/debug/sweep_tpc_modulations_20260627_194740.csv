@@ -1,0 +1,331 @@
+Modulation,TPCCodeRate,TPCBlocksPerTF,Note,InputSNR_dB,BER,FER,EVM_post_pct,SNR_est_dB,LockRate_pct,AcquisitionFrames,NumBytesInTransferFrame,Success,ErrorMsg
+BPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",0,0,0,34.4966322401308,9.2444660237049,100,2,2025,1,
+BPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",2,0,0,27.7135031615457,11.1461714637368,100,2,2025,1,
+BPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",4,0,0,22.3440119711812,13.0167768925279,100,2,2025,1,
+BPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",6,0,0,17.7157850927937,15.0327919341713,100,2,2025,1,
+BPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",8,0,0,14.213817518805,16.9457852891772,100,2,2025,1,
+BPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",10,0,0,11.5038682820815,18.7831219910539,100,2,2025,1,
+BPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",12,0,0,9.24544817316959,20.6814406313251,100,2,2025,1,
+BPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",14,0,0,7.54491097271807,22.4469176075898,100,2,2025,1,
+BPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",16,0,0,6.06846739341165,24.3384195446461,100,2,2025,1,
+BPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",18,0,0,5.0784441033856,25.885386466188,100,2,2025,1,
+BPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",20,0,0,4.21878839236441,27.4962451516802,100,2,2025,1,
+BPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",0,0,0,33.8403697115779,9.41129801737595,100,2,338,1,
+BPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",2,0,0,27.8394780561975,11.1067782256535,100,2,338,1,
+BPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",4,0,0,22.3149883933935,13.0280666942252,100,2,338,1,
+BPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",6,0,0,17.9065545628414,14.9397593922241,100,2,338,1,
+BPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",8,0,0,14.2750048680194,16.9084746996056,100,2,338,1,
+BPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",10,0,0,11.4059669581833,18.8573578170372,100,2,338,1,
+BPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",12,0,0,9.25404307346747,20.6733696676631,100,2,338,1,
+BPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",14,0,0,7.49246965416171,22.507500146977,100,2,338,1,
+BPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",16,0,0,6.05943938399176,24.3513510932465,100,2,338,1,
+BPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",18,0,0,4.99316599957536,26.0324799086143,100,2,338,1,
+BPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",20,0,0,4.17883082498701,27.5789042079564,100,2,338,1,
+BPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",0,0,0,34.517843463809,9.23912690167641,100,2,1014,1,
+BPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",2,0,0,27.7042150036312,11.149083020474,100,2,1014,1,
+BPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",4,0,0,22.1201197431235,13.1042505277835,100,2,1014,1,
+BPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",6,0,0,17.6928916545233,15.0440236391785,100,2,1014,1,
+BPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",8,0,0,14.3136348931522,16.8850012960416,100,2,1014,1,
+BPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",10,0,0,11.3245769753798,18.9195602378514,100,2,1014,1,
+BPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",12,0,0,9.16999005781448,20.7526227039139,100,2,1014,1,
+BPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",14,0,0,7.45875215175377,22.5466764771893,100,2,1014,1,
+BPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",16,0,0,5.97339720465157,24.4755721123817,100,2,1014,1,
+BPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",18,0,0,5.00209703672595,26.0169577510869,100,2,1014,1,
+BPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",20,0,0,4.19552228921081,27.5442793465117,100,2,1014,1,
+BPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",0,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",2,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",4,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",6,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",8,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",10,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",12,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",14,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",16,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",18,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",20,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,native,8,"TM TPC rate native, 8 blocks/TF",0,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,native,8,"TM TPC rate native, 8 blocks/TF",2,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,native,8,"TM TPC rate native, 8 blocks/TF",4,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,native,8,"TM TPC rate native, 8 blocks/TF",6,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,native,8,"TM TPC rate native, 8 blocks/TF",8,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,native,8,"TM TPC rate native, 8 blocks/TF",10,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,native,8,"TM TPC rate native, 8 blocks/TF",12,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,native,8,"TM TPC rate native, 8 blocks/TF",14,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,native,8,"TM TPC rate native, 8 blocks/TF",16,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,native,8,"TM TPC rate native, 8 blocks/TF",18,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+BPSK,native,8,"TM TPC rate native, 8 blocks/TF",20,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",0,0,0,34.2516202493039,9.30637759368599,100,2,2025,1,
+QPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",2,0,0,27.9391941698714,11.0757224817059,100,2,2025,1,
+QPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",4,0,0,22.3010525573305,13.0334927757607,100,2,2025,1,
+QPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",6,0,0,18.0728524101788,14.8594659601396,100,2,2025,1,
+QPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",8,0,0,14.3344077562155,16.8724049152092,100,2,2025,1,
+QPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",10,0,0,11.4145451246567,18.8508278136329,100,2,2025,1,
+QPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",12,0,0,9.23594110195383,20.6903769052617,100,2,2025,1,
+QPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",14,0,0,7.4105018843781,22.6030475590777,100,2,2025,1,
+QPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",16,0,0,6.0720637572305,24.3332735391287,100,2,2025,1,
+QPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",18,0,0,4.94889709833789,26.1098315262766,100,2,2025,1,
+QPSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",20,0,0,4.23531715140496,27.4622812606299,100,2,2025,1,
+QPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",0,0,0,34.1248936068503,9.33857387948081,100,2,338,1,
+QPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",2,0,0,27.464327929995,11.2246204796325,100,2,338,1,
+QPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",4,0,0,22.0782571308512,13.1207042604591,100,2,338,1,
+QPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",6,0,0,17.6634292998052,15.0584995130185,100,2,338,1,
+QPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",8,0,0,14.1472686876701,16.986547963742,100,2,338,1,
+QPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",10,0,0,11.4599856255048,18.8163185422553,100,2,338,1,
+QPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",12,0,0,9.25362242239589,20.6737645017696,100,2,338,1,
+QPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",14,0,0,7.47525258521051,22.5274825630542,100,2,338,1,
+QPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",16,0,0,6.03470165051257,24.386883922232,100,2,338,1,
+QPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",18,0,0,5.01552437949512,25.993673084513,100,2,338,1,
+QPSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",20,0,0,4.19144231486164,27.5527301296952,100,2,338,1,
+QPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",0,0,0,34.1149960860143,9.34109348420647,100,2,1014,1,
+QPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",2,0,0,27.5975941569594,11.1825755252885,100,2,1014,1,
+QPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",4,0,0,22.2426155167925,13.0562829049992,100,2,1014,1,
+QPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",6,0,0,17.8086808732019,14.9873649691926,100,2,1014,1,
+QPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",8,0,0,14.4593275382208,16.7970380872074,100,2,1014,1,
+QPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",10,0,0,11.3963932540612,18.8646514604622,100,2,1014,1,
+QPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",12,0,0,9.23501632357238,20.6912466515106,100,2,1014,1,
+QPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",14,0,0,7.41983176673182,22.592118831369,100,2,1014,1,
+QPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",16,0,0,6.13091642854602,24.2494920753304,100,2,1014,1,
+QPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",18,0,0,4.92777531185559,26.1469820519611,100,2,1014,1,
+QPSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",20,0,0,4.12089375767814,27.7001716408297,100,2,1014,1,
+QPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",0,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",2,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",4,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",6,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",8,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",10,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",12,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",14,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",16,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",18,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",20,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,native,8,"TM TPC rate native, 8 blocks/TF",0,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,native,8,"TM TPC rate native, 8 blocks/TF",2,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,native,8,"TM TPC rate native, 8 blocks/TF",4,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,native,8,"TM TPC rate native, 8 blocks/TF",6,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,native,8,"TM TPC rate native, 8 blocks/TF",8,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,native,8,"TM TPC rate native, 8 blocks/TF",10,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,native,8,"TM TPC rate native, 8 blocks/TF",12,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,native,8,"TM TPC rate native, 8 blocks/TF",14,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,native,8,"TM TPC rate native, 8 blocks/TF",16,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,native,8,"TM TPC rate native, 8 blocks/TF",18,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+QPSK,native,8,"TM TPC rate native, 8 blocks/TF",20,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",0,0.497283950617284,1,32.8474341895228,9.66997097617961,50,3,2025,1,
+8PSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",2,0.5,NaN,42.2723937081544,7.47886318403527,50,NaN,2025,1,
+8PSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",4,0,0,22.1961829050221,13.0744341018154,100,2,2025,1,
+8PSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",6,0,0,17.9716124238295,14.9082591196385,100,2,2025,1,
+8PSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",8,0,0,14.3548006846485,16.8600566654508,100,2,2025,1,
+8PSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",10,0,0,11.5046391805385,18.7825399507861,100,2,2025,1,
+8PSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",12,0,0,9.27744041956016,20.6514365208593,100,2,2025,1,
+8PSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",14,0,0,7.47322240585042,22.5298418557562,100,2,2025,1,
+8PSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",16,0,0,6.03244456442342,24.3901332076145,100,2,2025,1,
+8PSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",18,0,0,4.99898890065215,26.0223565503684,100,2,2025,1,
+8PSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",20,0,0,4.1621957073508,27.6135500604582,100,2,2025,1,
+8PSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",0,0.502958579881657,1,33.2865419953646,9.55462639205224,40,9,338,1,
+8PSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",2,0.495007396449704,1,42.2873635301726,7.47578781514689,30,4,338,1,
+8PSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",4,0.5,NaN,42.5029976938672,7.43160877029086,50,NaN,338,1,
+8PSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",6,0,0,17.803188304593,14.9900442919154,100,2,338,1,
+8PSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",8,0,0,14.2525059710645,16.9221753675363,100,4,338,1,
+8PSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",10,0,0,11.4094912613606,18.854674398769,100,2,338,1,
+8PSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",12,0,0,9.14441607881411,20.776880427798,100,2,338,1,
+8PSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",14,0,0,7.41885523563917,22.5932620647709,100,2,338,1,
+8PSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",16,0,0,6.0530554669043,24.360506928621,100,4,338,1,
+8PSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",18,0,0,4.90917858316254,26.1798233821564,100,2,338,1,
+8PSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",20,0,0,4.13911074863009,27.6618590637917,100,2,338,1,
+8PSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",0,0.5,NaN,43.824912951663,7.16557875723325,50,NaN,1014,1,
+8PSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",2,0.5,NaN,44.4706940641908,7.03852184731726,30,NaN,1014,1,
+8PSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",4,0,0,21.9666595439774,13.1647196189122,100,2,1014,1,
+8PSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",6,0,0,17.8279995295021,14.9779477209461,100,2,1014,1,
+8PSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",8,0,0,14.3291406330721,16.8755970985514,100,4,1014,1,
+8PSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",10,0,0,11.3700038605674,18.8847877570406,100,2,1014,1,
+8PSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",12,0,0,9.17067310038366,20.7519757444964,100,2,1014,1,
+8PSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",14,0,0,7.37587065067454,22.6437341606471,100,2,1014,1,
+8PSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",16,0,0,6.01716116985893,24.4121671152124,100,2,1014,1,
+8PSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",18,0,0,4.91285340425771,26.173323893659,100,2,1014,1,
+8PSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",20,0,0,4.11914510781965,27.7038581719644,100,2,1014,1,
+8PSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",0,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",2,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",4,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",6,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",8,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",10,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",12,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",14,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",16,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",18,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",20,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,native,8,"TM TPC rate native, 8 blocks/TF",0,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,native,8,"TM TPC rate native, 8 blocks/TF",2,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,native,8,"TM TPC rate native, 8 blocks/TF",4,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,native,8,"TM TPC rate native, 8 blocks/TF",6,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,native,8,"TM TPC rate native, 8 blocks/TF",8,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,native,8,"TM TPC rate native, 8 blocks/TF",10,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,native,8,"TM TPC rate native, 8 blocks/TF",12,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,native,8,"TM TPC rate native, 8 blocks/TF",14,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,native,8,"TM TPC rate native, 8 blocks/TF",16,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,native,8,"TM TPC rate native, 8 blocks/TF",18,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+8PSK,native,8,"TM TPC rate native, 8 blocks/TF",20,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",0,0.5,NaN,24.5747222242111,12.190227648695,60,NaN,2025,1,
+GMSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",2,0.504228395061728,1,20.1252011027719,13.9251954242824,90,4,2025,1,
+GMSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",4,0.446596119929453,1,16.4309333192962,15.6867553364017,72.7272727272727,4,2025,1,
+GMSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",6,0.5,NaN,13.1052103823408,17.6511200557267,70,NaN,2025,1,
+GMSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",8,0.0625555555555556,0.1,10.7186845469168,19.3971702053088,100,2,2025,1,
+GMSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",10,0,0,8.67309300720859,21.236519927259,100,2,2025,1,
+GMSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",12,0,0,7.38082979405238,22.6378961924833,100,2,2025,1,
+GMSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",14,0,0,6.1884066831981,24.1684230705419,100,2,2025,1,
+GMSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",16,0,0,5.26231696047932,25.5764599397479,100,2,2025,1,
+GMSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",18,0,0,4.54469738368771,26.8499005941429,100,2,2025,1,
+GMSK,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",20,0,0,4.19142165754985,27.5527729377696,100,2,2025,1,
+GMSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",0,0.494822485207101,1,24.4237097484252,12.243767396761,54.5454545454545,11,338,1,
+GMSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",2,0.498643984220907,1,20.4165303017481,13.8003612477641,60,3,338,1,
+GMSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",4,0.5,NaN,16.398555887112,15.703887914501,70,NaN,338,1,
+GMSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",6,0,0,13.1632948935504,17.6127077843775,81.8181818181818,2,338,1,
+GMSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",8,0.0214086127547666,0.111111111111111,10.7093318261795,19.4047524942043,90.9090909090909,2,338,1,
+GMSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",10,0,0,8.84007884678437,21.0708772278592,100,2,338,1,
+GMSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",12,0,0,7.41954416146298,22.5924555177145,100,2,338,1,
+GMSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",14,0,0,6.10141214614075,24.2913927545397,100,2,338,1,
+GMSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",16,0,0,5.44179498711046,25.2851564751009,100,2,338,1,
+GMSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",18,0,0,4.73652103432349,26.490810594093,100,2,338,1,
+GMSK,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",20,0,0,4.23054083048148,27.4720821812005,100,2,338,1,
+GMSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",0,0.5,NaN,24.7679550217763,12.1221969933711,80,NaN,1014,1,
+GMSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",2,0.5,NaN,19.7815128989333,14.0748099286572,80,NaN,1014,1,
+GMSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",4,0.5,NaN,16.1662316447083,15.8278240504032,90,NaN,1014,1,
+GMSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",6,0.306815691431076,0.555555555555556,13.3180082814614,17.5112143877704,90.9090909090909,2,1014,1,
+GMSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",8,0,0,10.9626748694407,19.2016693197656,100,2,1014,1,
+GMSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",10,0,0,8.7500055280643,21.1598334519947,100,2,1014,1,
+GMSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",12,0,0,7.43134727614752,22.5786488619252,100,2,1014,1,
+GMSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",14,0,0,6.25288208297014,24.0783952235983,100,2,1014,1,
+GMSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",16,0,0,5.43443784241099,25.2969074844181,100,2,1014,1,
+GMSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",18,0,0,4.77119468328266,26.4274572435422,100,2,1014,1,
+GMSK,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",20,0,0,4.35386622602873,27.2224983786135,100,2,1014,1,
+GMSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",0,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",2,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",4,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",6,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",8,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",10,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",12,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",14,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",16,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",18,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",20,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,native,8,"TM TPC rate native, 8 blocks/TF",0,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,native,8,"TM TPC rate native, 8 blocks/TF",2,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,native,8,"TM TPC rate native, 8 blocks/TF",4,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,native,8,"TM TPC rate native, 8 blocks/TF",6,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,native,8,"TM TPC rate native, 8 blocks/TF",8,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,native,8,"TM TPC rate native, 8 blocks/TF",10,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,native,8,"TM TPC rate native, 8 blocks/TF",12,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,native,8,"TM TPC rate native, 8 blocks/TF",14,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,native,8,"TM TPC rate native, 8 blocks/TF",16,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,native,8,"TM TPC rate native, 8 blocks/TF",18,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+GMSK,native,8,"TM TPC rate native, 8 blocks/TF",20,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",0,0.509382716049383,1,26.2131633579945,11.7556217123006,80,10,2025,1,
+16QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",2,0.5,NaN,25.0049855635534,12.360818305859,90,NaN,2025,1,
+16QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",4,0.502222222222222,1,23.2763369903647,13.2465748829776,50,9,2025,1,
+16QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",6,0.000115740740740741,0.625,21.271352626409,14.2653423856204,100,4,2025,1,
+16QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",8,0,0,19.3886382691219,15.1933458325235,100,2,2025,1,
+16QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",10,0,0,17.7226768325462,16.0655354213388,100,2,2025,1,
+16QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",12,0,0,16.1343367466448,16.8679423205865,100,4,2025,1,
+16QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",14,0,0,15.1061281316729,17.4645383842747,100,2,2025,1,
+16QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",16,0,0,14.4349989610894,17.8384711367592,100,2,2025,1,
+16QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",18,0,0,13.7430295802231,18.2376417029796,100,2,2025,1,
+16QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",20,0,0,13.670336225215,18.3265549164599,100,4,2025,1,
+16QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",0,0.5,NaN,26.1360219640803,11.6105092544687,80,NaN,338,1,
+16QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",2,0.0959689349112426,1,24.1524820733981,12.4660999718228,90.9090909090909,2,338,1,
+16QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",4,0.000287639710716634,0.555555555555556,21.4717326515582,13.6775507362352,90.9090909090909,3,338,1,
+16QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",6,0,0,18.644443095851,14.9610448555449,100,2,338,1,
+16QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",8,0,0,15.5033035302406,16.6644194734027,100,2,338,1,
+16QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",10,0,0,13.124893149302,18.0997571822593,100,2,338,1,
+16QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",12,0,0,11.0781239367137,19.6251337441077,100,4,338,1,
+16QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",14,0,0,9.58270610425079,20.8450102348242,100,2,338,1,
+16QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",16,0,0,8.54640284878515,21.8409747430173,100,2,338,1,
+16QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",18,0,0,8.12673946808421,22.2963344586424,100,2,338,1,
+16QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",20,0,0,7.287828224393,23.1984492750367,100,4,338,1,
+16QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",0,0.5,NaN,26.5459793742448,11.4697038138386,40,NaN,1014,1,
+16QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",2,0.496055226824458,1,24.0068817216598,12.5246919760488,100,6,1014,1,
+16QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",4,0.000382149901380671,0.9,21.9044318041161,13.4913080103254,100,2,1014,1,
+16QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",6,0,0,18.6568643706628,14.9238936986755,100,4,1014,1,
+16QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",8,0,0,15.7066957947768,16.4878060422394,100,4,1014,1,
+16QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",10,0,0,13.0756147102402,18.0960403104434,100,2,1014,1,
+16QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",12,0,0,11.0488248360462,19.6072058378154,100,2,1014,1,
+16QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",14,0,0,9.69314677472856,20.7826926687477,100,2,1014,1,
+16QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",16,0,0,8.42858111550355,21.878575811303,100,2,1014,1,
+16QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",18,0,0,7.69369411995028,22.7433457514002,100,2,1014,1,
+16QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",20,0,0,7.07819390776438,23.4632235916313,100,2,1014,1,
+16QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",0,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",2,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",4,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",6,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",8,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",10,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",12,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",14,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",16,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",18,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",20,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,native,8,"TM TPC rate native, 8 blocks/TF",0,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,native,8,"TM TPC rate native, 8 blocks/TF",2,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,native,8,"TM TPC rate native, 8 blocks/TF",4,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,native,8,"TM TPC rate native, 8 blocks/TF",6,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,native,8,"TM TPC rate native, 8 blocks/TF",8,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,native,8,"TM TPC rate native, 8 blocks/TF",10,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,native,8,"TM TPC rate native, 8 blocks/TF",12,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,native,8,"TM TPC rate native, 8 blocks/TF",14,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,native,8,"TM TPC rate native, 8 blocks/TF",16,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,native,8,"TM TPC rate native, 8 blocks/TF",18,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+16QAM,native,8,"TM TPC rate native, 8 blocks/TF",20,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",0,0.5,NaN,19.8075268684262,13.9731732906712,66.6666666666667,NaN,2025,1,
+32QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",2,0.5,NaN,19.2171013238672,14.2448799429583,70,NaN,2025,1,
+32QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",4,0.5,NaN,18.7122302964166,14.5289053487754,80,NaN,2025,1,
+32QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",6,0.493456790123457,1,18.4306094016565,14.7355146904691,30,9,2025,1,
+32QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",8,0.5,NaN,18.4327251286103,14.8040826458924,60,NaN,2025,1,
+32QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",10,0.5,NaN,17.9081357515406,15.1611309606865,100,NaN,2025,1,
+32QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",12,0.5,NaN,17.9319741647414,15.1962010662716,100,NaN,2025,1,
+32QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",14,0.5,NaN,17.7741866545477,15.253000827043,88.8888888888889,NaN,2025,1,
+32QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",16,0.5,NaN,17.9038097921,15.1437090387226,100,NaN,2025,1,
+32QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",18,0.494783950617284,1,17.4837494972301,15.5675477644892,90,2,2025,1,
+32QAM,1/2,8,"TM TPC rate 1/2, 8 blocks/TF",20,0.5,NaN,17.3521712313544,15.6091266122634,50,NaN,2025,1,
+32QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",0,0.5,NaN,20.0135143723636,13.7875505947227,54.5454545454545,NaN,338,1,
+32QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",2,0.5,NaN,19.4873371617086,14.1218171685364,45.4545454545455,NaN,338,1,
+32QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",4,0.5,NaN,18.4204127711569,14.6950550258,70,NaN,338,1,
+32QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",6,0.499815088757396,1,17.5055620837121,15.2160038507825,80,5,338,1,
+32QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",8,0.00693417159763314,0.625,16.1740947055455,16.0740360705069,81.8181818181818,4,338,1,
+32QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",10,0,0,14.2554483707538,17.303881224156,90.9090909090909,5,338,1,
+32QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",12,0,0,12.2306931546495,18.6693250960597,100,4,338,1,
+32QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",14,0,0,11.2923489536182,19.3106031505759,100,4,338,1,
+32QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",16,0,0,10.1871580560479,20.2940465243717,100,4,338,1,
+32QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",18,0,0,9.38135165090395,21.0319562382679,100,4,338,1,
+32QAM,2/3,1,"TM TPC rate 2/3, 1 blocks/TF",20,0,0,8.50483406893985,21.8250296122749,100,4,338,1,
+32QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",0,0.5,NaN,20.1598263200749,13.6783476478295,55.5555555555556,NaN,1014,1,
+32QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",2,0.5,NaN,19.1268212835169,14.3111954680555,40,NaN,1014,1,
+32QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",4,0.5,NaN,18.3696958465073,14.7656440682115,40,NaN,1014,1,
+32QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",6,0.497822156476003,1,18.0231230099946,14.9379498467903,100,4,1014,1,
+32QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",8,0.5,NaN,16.198635208093,15.978425749442,100,NaN,1014,1,
+32QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",10,6.16370808678501e-05,0.25,13.7898964438489,17.5449472272692,100,4,1014,1,
+32QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",12,0.497055117247425,1,12.0386915418872,18.8174755359583,100,2,1014,1,
+32QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",14,0,0,10.6735212319306,19.8195704166868,100,4,1014,1,
+32QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",16,0,0,9.42561997551137,20.968283111883,100,4,1014,1,
+32QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",18,0,0,9.15313985395635,21.2127411797378,100,4,1014,1,
+32QAM,2/3,3,"TM TPC rate 2/3, 3 blocks/TF",20,0,0,8.83838627401312,21.4905714065787,100,4,1014,1,
+32QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",0,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",2,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",4,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",6,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",8,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",10,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",12,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",14,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",16,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",18,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,2/3,8,"TM TPC rate 2/3, 8 blocks/TF",20,-2,NaN,NaN,NaN,NaN,NaN,2704,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,native,8,"TM TPC rate native, 8 blocks/TF",0,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,native,8,"TM TPC rate native, 8 blocks/TF",2,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,native,8,"TM TPC rate native, 8 blocks/TF",4,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,native,8,"TM TPC rate native, 8 blocks/TF",6,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,native,8,"TM TPC rate native, 8 blocks/TF",8,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,native,8,"TM TPC rate native, 8 blocks/TF",10,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,native,8,"TM TPC rate native, 8 blocks/TF",12,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,native,8,"TM TPC rate native, 8 blocks/TF",14,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,native,8,"TM TPC rate native, 8 blocks/TF",16,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,native,8,"TM TPC rate native, 8 blocks/TF",18,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)
+32QAM,native,8,"TM TPC rate native, 8 blocks/TF",20,-2,NaN,NaN,NaN,NaN,NaN,3249,0,NumBytesInTransferFrame 应为具有值 <= 2048 的标量。 (at ccsdsTMWaveformGenerator.ccsdsTMWaveformGenerator line 340)

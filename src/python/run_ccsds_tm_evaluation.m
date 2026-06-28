@@ -12,7 +12,17 @@ function metrics = run_ccsds_tm_evaluation(params)
 %               'snr',12,'cfo',2000,'phaseOffset',30, ...
 %               'channelCoding','none','RolloffFactor',0.35,'hasASM',true,'hasPilots',true);
 %   m = run_ccsds_tm_evaluation(p);
-%
+% p = struct('modType','QPSK','symbolRate',1e6,'sps',8, ...
+%            'snr',20,'cfo',2000,'phaseOffset',15,'delay',0.2, ...
+%            'channelCoding','convolutional','ConvolutionalCodeRate','1/2', ...
+%            'RolloffFactor',0.35,'hasASM',true,'hasRandomizer',true, ...
+%            'NumBytesInTransferFrame',1115, ...
+%            'SpacecraftID',1,'VirtualChannelID',0, ...
+%            'HasSecondaryHeader',false,'HasOCF',false,'HasFECF',false, ...
+%            'showFigures',false);
+% p.debugTMFrame = true;
+% m = run_ccsds_tm_evaluation(p);
+
 %   2) 用前端的 JSON 直接粘进来调（验一致性）
 %   m = run_ccsds_tm_evaluation('{"modType":"QPSK","symbolRate":1e6,"sps":8,"snr":12,"cfo":0,"phaseOffset":0,"channelCoding":"none","RolloffFactor":0.35}');
 %
@@ -33,6 +43,7 @@ end
 try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 =====
     % ======== Single point simulation ========
     [res, ctx] = runOneShot(opt);
+    res = attachResidualMetrics(res, ctx);
 
     % showFigures 默认 true; 矩阵测试或前端调用时设 false 跳过出图
     showFigures = false;
@@ -49,7 +60,7 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
         end
     end
 
-    % ======== 给前端打包: 频谱 / 星座 / 管线 / 残余损伤 ========
+    % ======== Frontend plot arrays: spectrum / constellation / pipeline ========
     fe = buildFrontendArrays(ctx, res);
 
     % ======== 编码信息归一化 (码率字符串 → 数值) ========
@@ -65,7 +76,9 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     if isfield(opt,'channelCoding'), codeStr = char(opt.channelCoding); end
     rateStr = '-';
     if isfield(opt,'ConvolutionalCodeRate'), rateStr = char(opt.ConvolutionalCodeRate);
-    elseif isfield(opt,'CodeRate'),          rateStr = char(opt.CodeRate); end
+    elseif isfield(opt,'CodeRate'),          rateStr = char(opt.CodeRate);
+    elseif isfield(opt,'TPCCodeRate'),       rateStr = char(opt.TPCCodeRate);
+    elseif isfield(opt,'tpcCodeRate'),       rateStr = char(opt.tpcCodeRate); end
     frontResult.info = sprintf('CCSDS TM | %s | coding=%s | rate=%s', ...
                                res.modType, codeStr, rateStr);
 
@@ -79,6 +92,14 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     frontResult.SNR_est_dB   = res.SNR_est_dB;
     frontResult.PAPR_dB      = res.PAPR_dB;
     frontResult.LockRate     = res.LockRate;
+    if isfield(res,'FER'), frontResult.FER = res.FER; end
+    if isfield(res,'FrameErrorRate'), frontResult.FrameErrorRate = res.FrameErrorRate; end
+    if isfield(res,'FrameErrors'), frontResult.FrameErrors = res.FrameErrors; end
+    if isfield(res,'CountedFrames'), frontResult.CountedFrames = res.CountedFrames; end
+    if isfield(res,'MatchedFrames'), frontResult.MatchedFrames = res.MatchedFrames; end
+    if isfield(res,'DecodedFrames'), frontResult.DecodedFrames = res.DecodedFrames; end
+    if isfield(res,'AcquisitionFrames'), frontResult.AcquisitionFrames = res.AcquisitionFrames; end
+    if isfield(res,'AcquisitionTime_s'), frontResult.AcquisitionTime_s = res.AcquisitionTime_s; end
     frontResult.Fs           = res.Fs;
     if isfield(res,'cfo_est_Hz'),    frontResult.cfo_est_Hz = res.cfo_est_Hz; end
     if isfield(res,'IFHz'),          frontResult.IFHz = res.IFHz; end
@@ -95,8 +116,12 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     frontResult.delay_in = res.delay_in;
 
     % --- 残余损伤 (同步链路压制后的剩余) ---
-    frontResult.residCFO_Hz    = fe.residCFO;
-    frontResult.residPhase_deg = fe.residPhase;
+    frontResult.residCFO_Hz    = getfieldnumeric(res, 'residCFO_Hz', NaN);
+    frontResult.residPhase_deg = getfieldnumeric(res, 'residPhase_deg', NaN);
+    frontResult.ResidualCFO_Hz = getfieldnumeric(res, 'ResidualCFO_Hz', NaN);
+    frontResult.ResidualPhase_deg = getfieldnumeric(res, 'ResidualPhase_deg', NaN);
+    frontResult.ResidualCFO_valid = isfinite(frontResult.ResidualCFO_Hz);
+    frontResult.ResidualPhase_valid = isfinite(frontResult.ResidualPhase_deg);
 
     % --- 前端绘图数据 (这是之前没传, 前端拿不到的) ---
     frontResult.spectrum             = fe.spectrum;
@@ -107,6 +132,10 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
 
     % --- 编码信息透传 ---
     if isfield(opt,'ConvolutionalCodeRate'), frontResult.ConvolutionalCodeRate = opt.ConvolutionalCodeRate; end
+    if isfield(opt,'TPCCodeRate'), frontResult.TPCCodeRate = opt.TPCCodeRate;
+    elseif isfield(opt,'tpcCodeRate'), frontResult.TPCCodeRate = opt.tpcCodeRate; end
+    if isfield(opt,'TPCBlocksPerTF'), frontResult.TPCBlocksPerTF = opt.TPCBlocksPerTF;
+    elseif isfield(opt,'tpcBlocksPerTF'), frontResult.TPCBlocksPerTF = opt.tpcBlocksPerTF; end
     if isfield(res,'CodeRate'), frontResult.CodeRate = res.CodeRate;
     elseif isfield(opt,'CodeRate') && ~strcmp(char(opt.CodeRate),'N/A'), frontResult.CodeRate = opt.CodeRate; end
     if isfield(opt,'channelCoding'),         frontResult.channelCoding = opt.channelCoding; end
@@ -119,6 +148,13 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
         'CodeRate',    realRate, ...
         'centerFrequencyHz', getCenterFrequencyHz(res, 0), ...
         'IFHz',        getCenterFrequencyHz(res, 0), ...
+        'FER',         getfieldnumeric(frontResult, 'FER', NaN), ...
+        'ResidualCFO_Hz', getfieldnumeric(frontResult, 'ResidualCFO_Hz', NaN), ...
+        'ResidualCFO_valid', isfinite(getfieldnumeric(frontResult, 'ResidualCFO_Hz', NaN)), ...
+        'ResidualPhase_deg', getfieldnumeric(frontResult, 'ResidualPhase_deg', NaN), ...
+        'ResidualPhase_valid', isfinite(getfieldnumeric(frontResult, 'ResidualPhase_deg', NaN)), ...
+        'AcquisitionFrames', getfieldnumeric(frontResult, 'AcquisitionFrames', NaN), ...
+        'AcquisitionTime_s', getfieldnumeric(frontResult, 'AcquisitionTime_s', NaN), ...
         'ElapsedTime', elapsed, ...
         'matlabTime',  elapsed);
 
@@ -150,13 +186,55 @@ function [res, ctx] = runOneShot(opt)
     if ischar(opt.sps),        sps  = makeNum(opt.sps);        else, sps  = double(opt.sps);        end
     hasRandomizer = false; if isfield(opt,'hasRandomizer'), hasRandomizer = opt.hasRandomizer; end
     hasASM        = false; if isfield(opt,'hasASM'),        hasASM        = opt.hasASM;        end
+    randomizerModeRaw = getfieldwithdefault(opt, 'RandomizerMode', 'standard');
+    randomizerMode = lower(strtrim(char(randomizerModeRaw)));
+    validRandomizerModes = {'standard','beforecoding','aftercoding','bypass'};
+    if ~any(strcmp(randomizerMode, validRandomizerModes))
+        error('run_ccsds_tm_evaluation:InvalidRandomizerMode', ...
+            'Unsupported RandomizerMode="%s". Use standard, beforeCoding, afterCoding, or bypass.', ...
+            randomizerMode);
+    end
+
+    if strcmp(randomizerMode, 'bypass')
+        hasRandomizer = false;
+    end
+
+    if isfield(opt,'channelCoding')
+        initialCodeStr = canonicalChannelCoding(opt.channelCoding);
+    else
+        initialCodeStr = 'none';
+    end
+    initialCodeKey = lower(string(initialCodeStr));
+    tpcBlocksPerTF = 1;
+    if isfield(opt,'TPCBlocksPerTF') && ~isempty(opt.TPCBlocksPerTF)
+        tpcBlocksPerTF = max(1, round(makeNum(opt.TPCBlocksPerTF)));
+    elseif isfield(opt,'tpcBlocksPerTF') && ~isempty(opt.tpcBlocksPerTF)
+        tpcBlocksPerTF = max(1, round(makeNum(opt.tpcBlocksPerTF)));
+    end
 
     numBytesTF = 1115;
     if isfield(opt,'NumBytesInTransferFrame') && ~isempty(opt.NumBytesInTransferFrame)
         numBytesTF = double(opt.NumBytesInTransferFrame);
     end
+    if contains(initialCodeKey, 'tpc')
+        tpcPayloadBits = localTPCPayloadBits(localTPCCodeRateValue(opt));
+        tpcTFBits = tpcPayloadBits * tpcBlocksPerTF;
+        if mod(tpcTFBits, 8) ~= 0
+            error('run_ccsds_tm_evaluation:TPCFrameLengthNotOctetAligned', ...
+                'TPC frame length is not byte aligned: payloadBits=%d, TPCBlocksPerTF=%d.', ...
+                tpcPayloadBits, tpcBlocksPerTF);
+        end
+        numBytesTF = tpcTFBits / 8;
+        opt.NumBytesInTransferFrame = numBytesTF;
+        opt.TPCBlocksPerTF = tpcBlocksPerTF;
+        fprintf('[TPC TF setup] TPCBlocksPerTF=%d, TPC payload=%d bits, NumBytesInTransferFrame=%d\n', ...
+            tpcBlocksPerTF, tpcPayloadBits, numBytesTF);
+    end
 
     args = {'SamplesPerSymbol', sps, 'HasRandomizer', hasRandomizer, 'HasASM', hasASM};
+    if ~strcmp(randomizerMode, 'standard')
+        args = [args, {'RandomizerMode', char(randomizerMode)}];
+    end
     isAPSK = contains(opt.modType,'APSK');
     modStr = string(opt.modType);
 
@@ -200,6 +278,10 @@ function [res, ctx] = runOneShot(opt)
             if ~strcmp(rate,'N/A')
                 args = [args, {'ConvolutionalCodeRate', rate}];
             end
+        end
+        if contains(codeKey,'tpc')
+            args = [args, {'TPCCodeRate', localTPCCodeRateValue(opt), ...
+                           'TPCBlocksPerTF', tpcBlocksPerTF}];
         end
 
         if isfield(opt,'RolloffFactor'), rolloff = str2double(string(opt.RolloffFactor)); else, rolloff = 0.5; end
@@ -264,7 +346,6 @@ function [res, ctx] = runOneShot(opt)
     bitsPerFrame = tmWaveGen.NumInputBits;
     fprintf('[Actual TF] NumInputBits=%d, NumInputBytes=%.3f\n', ...
              tmWaveGen.NumInputBits, tmWaveGen.NumInputBits/8);
-    numHeaderBits = 8;
     % 缓冲帧
     numWarmUp = 8;
     if isfield(opt,'berWarmUpFrames') && ~isempty(opt.berWarmUpFrames)
@@ -276,15 +357,65 @@ function [res, ctx] = runOneShot(opt)
     end
     totalFrames = numWarmUp + numRealFrames;
 
-    msg = []; validTxFrames = {};
+    if mod(bitsPerFrame, 8) ~= 0
+        error('run_ccsds_tm_evaluation:TMFrameLengthNotOctetAligned', ...
+            'TM Transfer Frame length must be an integer number of octets. NumInputBits=%d', bitsPerFrame);
+    end
+    numBytesActualTF = bitsPerFrame / 8;
+
+    % 发送端输入现在按 CCSDS TM Transfer Frame 生成：
+    % Primary Header + Data Field + 可选 Secondary Header/OCF/FECF。
+    % 这里不加 ASM，ASM 仍由 ccsdsTMWaveformGenerator 按配置处理。
+    msg = zeros(bitsPerFrame * totalFrames, 1, 'int8');
+    validTxFrames = cell(totalFrames, 1);
+    validTxFrameInfo = cell(totalFrames, 1);
+    validTxFrameBytes = cell(totalFrames, 1);
     for i = 1:totalFrames
-        header = de2bi(mod(i-1,256), numHeaderBits, 'left-msb')';
-        payload = int8(randi([0 1], bitsPerFrame - numHeaderBits, 1));
-        currentFrame = [header; payload];
-        msg = [msg; currentFrame];
-        validTxFrames{end+1} = currentFrame; %#ok<AGROW>
+        tfOpt = struct();
+        tfOpt.FrameLengthBytes = numBytesActualTF;
+        tfOpt.TransferFrameVersionNumber = getf(opt, 'TransferFrameVersionNumber', 0);
+        tfOpt.SpacecraftID = getf(opt, 'SpacecraftID', 1);
+        tfOpt.VirtualChannelID = getf(opt, 'VirtualChannelID', 0);
+        tfOpt.MasterChannelFrameCount = mod(i-1, 256);
+        tfOpt.VirtualChannelFrameCount = mod(i-1, 256);
+        tfOpt.HasSecondaryHeader = getLogicalField(opt, 'HasSecondaryHeader', false);
+        tfOpt.HasOCF = getLogicalField(opt, 'HasOCF', false);
+        tfOpt.HasFECF = getLogicalField(opt, 'HasFECF', false);
+        if tfOpt.HasSecondaryHeader
+            tfOpt.SecondaryHeader = uint8(getfieldwithdefault(opt, 'SecondaryHeader', uint8([])));
+        end
+        if tfOpt.HasOCF
+            tfOpt.OCF = uint8(getfieldwithdefault(opt, 'OCF', zeros(1,4,'uint8')));
+        end
+        tfOpt.AllowTruncate = true;
+        tfOpt.IdleFillByte = uint8(getf(opt, 'IdleFillByte', hex2dec('55')));
+
+        payloadBytes = uint8(randi([0 255], 1, numBytesActualTF));
+        [frameBits, frameBytes, frameInfo] = make_ccsds_tm_transfer_frame(payloadBytes, tfOpt);
+        currentFrame = int8(frameBits(:));
+        if numel(currentFrame) ~= bitsPerFrame
+            error('run_ccsds_tm_evaluation:TMFrameLengthMismatch', ...
+                'Generated TM frame length mismatch: got %d bits, expected %d bits.', ...
+                numel(currentFrame), bitsPerFrame);
+        end
+
+        idx = (i-1)*bitsPerFrame + (1:bitsPerFrame);
+        msg(idx) = currentFrame;
+        validTxFrames{i} = currentFrame;
+        validTxFrameInfo{i} = frameInfo;
+        validTxFrameBytes{i} = frameBytes;
+    end
+    if getLogicalField(opt, 'debugTMFrame', false)
+        localPrintTMFrameInfo(validTxFrameInfo{1}, validTxFrameBytes{1}, 1);
+        if totalFrames >= 2
+            localPrintTMFrameInfo(validTxFrameInfo{2}, validTxFrameBytes{2}, 2);
+        end
     end
     [txWaveform, encodedBits] = tmWaveGen(msg);
+    if contains(lower(string(codeStr)), 'tpc') && isfield(opt,'debugTPC') && logical(opt.debugTPC)
+        assignin('base', 'debugTPC_encodedBits', int8(encodedBits(:) ~= 0));
+        fprintf('[TPC DEBUG] stored tx encodedBits for boundary check: %d bits\n', numel(encodedBits));
+    end
     fmInfo = [];
     if contains(modStr,'FM')
         fmParams = makeFMParams(opt, fSym, Fs, sps, rolloff);
@@ -773,7 +904,7 @@ function [res, ctx] = runOneShot(opt)
     papr_dB = 10*log10(max(abs(txWaveform).^2)/mean(abs(txWaveform).^2));
 
     % BER + Frame Lock（沿用主脚本逻辑的简化版）
-    [berVal, lockRate, bestRot] = computeBER(fineSyncedForBER, validTxFrames, modStr, opt, hasRandomizer, hasASM, btVal, numWarmUp);
+    [berVal, lockRate, bestRot, berStats] = computeBER(fineSyncedForBER, validTxFrames, modStr, opt, hasRandomizer, hasASM, btVal, numWarmUp);
 
     % 用 BER 评估挑出来的 best 旋转把 fineSynced 转回参考相位,星座图视觉对齐
     if isFMMod
@@ -813,6 +944,14 @@ function [res, ctx] = runOneShot(opt)
     res.SNR_est_dB  = snr_est;
     res.PAPR_dB     = papr_dB;
     res.LockRate    = lockRate;
+    res.FER         = berStats.FER;
+    res.FrameErrorRate = berStats.FER;
+    res.FrameErrors = berStats.FrameErrors;
+    res.CountedFrames = berStats.CountedFrames;
+    res.MatchedFrames = berStats.MatchedFrames;
+    res.DecodedFrames = berStats.NumRxFrames;
+    res.AcquisitionFrames = berStats.AcquisitionFrames;
+    res.AcquisitionTime_s = berStats.AcquisitionTime_s;
     res.Fs          = Fs;
     res.HEnabled    = hInfo.Enabled;
     res.HMode       = char(hInfo.Mode);
@@ -839,6 +978,7 @@ function [res, ctx] = runOneShot(opt)
     ctx.Fs           = Fs;
     ctx.sps          = sps;
     ctx.bestRot      = bestRot;
+
 end
 
 % =========================================================
@@ -846,6 +986,81 @@ end
 % =========================================================
 function v = getf(s, name, defv)
     if isfield(s,name) && ~isempty(s.(name)), v = double(s.(name)); else, v = defv; end
+end
+
+function v = getfieldnumeric(s, name, defv)
+    v = defv;
+    if isfield(s, name) && ~isempty(s.(name))
+        raw = s.(name);
+        if isnumeric(raw) || islogical(raw)
+            v = double(raw);
+        else
+            tmp = str2double(string(raw));
+            if isfinite(tmp)
+                v = double(tmp);
+            end
+        end
+    end
+end
+
+function res = attachResidualMetrics(res, ctx)
+    residCFO_Hz = NaN;
+    residPhase_deg = NaN;
+
+    isFACM = isfield(res,'ACMFormat') || ...
+        (isfield(res,'modType') && contains(upper(string(res.modType)), 'APSK'));
+
+    if isFACM
+        if isfield(res,'FACMResidualCFO_Hz') && isfinite(res.FACMResidualCFO_Hz)
+            residCFO_Hz = double(res.FACMResidualCFO_Hz);
+        end
+    else
+        [residCFO_Hz, residPhase_deg] = estimateResidualCarrierMetrics(ctx, res);
+    end
+
+    res.residCFO_Hz = residCFO_Hz;
+    res.ResidualCFO_Hz = residCFO_Hz;
+    res.residPhase_deg = residPhase_deg;
+    res.ResidualPhase_deg = residPhase_deg;
+    res.ResidualCFO_valid = isfinite(residCFO_Hz);
+    res.ResidualPhase_valid = isfinite(residPhase_deg);
+end
+
+function [residCFO_Hz, residPhase_deg] = estimateResidualCarrierMetrics(ctx, res)
+    residCFO_Hz = NaN;
+    residPhase_deg = NaN;
+    if ~isfield(ctx,'fineSynced') || isempty(ctx.fineSynced) || ...
+            ~isfield(ctx,'Fs') || ~isfield(ctx,'sps') || isempty(ctx.sps)
+        return;
+    end
+
+    s = ctx.fineSynced(:);
+    if length(s) <= 50
+        return;
+    end
+
+    L = min(length(s), 5000);
+    s_use = s(end-L+1:end);
+    n = (0:L-1).';
+    fSym = ctx.Fs / ctx.sps;
+
+    isGMSKMod = isfield(res,'modType') && contains(upper(string(res.modType)),'GMSK');
+    if isGMSKMod
+        % GMSK is continuous-phase modulation. A direct phase-slope fit on
+        % the synchronized waveform measures data phase as well as carrier
+        % phase, so it can report a large fake residual CFO even when BER is 0.
+        % Leave this metric invalid unless a GMSK-specific estimator is added.
+        residCFO_Hz = NaN;
+        residPhase_deg = NaN;
+    elseif isfield(ctx,'refConst') && ~isempty(ctx.refConst)
+        refC = ctx.refConst(:).';
+        [~, idx] = min(abs(s_use - refC), [], 2);
+        ideal = ctx.refConst(idx);
+        phErr = unwrap(angle(s_use ./ ideal));
+        coef = polyfit(n, phErr, 1);
+        residCFO_Hz = coef(1) * fSym / (2*pi);
+        residPhase_deg = rad2deg(coef(2));
+    end
 end
 
 function fc = getCenterFrequencyHz(s, defv)
@@ -1151,8 +1366,8 @@ function snr_est = computeSNRest(rxSym, refConst)
     snr_est = 10*log10(Ps / (Pn+eps));
 end
 
-function [berVal, lockRate, bestRot] = computeBER(fineSynced, validTxFrames, modStr, opt, hasRandomizer, hasASM, btVal, numWarmUp)
-    berVal = -1; lockRate = 0; bestRot = 0;
+function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxFrames, modStr, opt, hasRandomizer, hasASM, btVal, numWarmUp)
+    berVal = -1; lockRate = 0; bestRot = 0; berStats = localEmptyBERStats();
     try
         tmMod = char(modStr); if contains(tmMod,'GMSK'), tmMod='GMSK'; end
         if isfield(opt,'channelCoding'), tmCode=char(canonicalChannelCoding(opt.channelCoding)); else, tmCode='none'; end
@@ -1200,6 +1415,7 @@ function [berVal, lockRate, bestRot] = computeBER(fineSynced, validTxFrames, mod
         bestRot = 0;
         bitErrorsBest = 0;
         bitsComparedBest = 0;
+        bestStats = localEmptyBERStats();
         bestShift = 0;
         evaluated = false(size(rotations));
         
@@ -1209,7 +1425,7 @@ function [berVal, lockRate, bestRot] = computeBER(fineSynced, validTxFrames, mod
             evaluated(ii) = true;
             rxRot = fineSynced * r;
         
-            [ber, lock, errs, bitsComp] = tryOneRotation( ...
+            [ber, lock, errs, bitsComp, stats] = tryOneRotation( ...
                 rxRot, validTxFrames, tmMod, tmCode, ...
                 opt, hasRandomizer, hasASM, btVal, numWarmUp);
         
@@ -1218,18 +1434,21 @@ function [berVal, lockRate, bestRot] = computeBER(fineSynced, validTxFrames, mod
         
             % 新规则：
             % 只要锁帧率还可以，就优先选择 BER 最低的角度
-            if lock >= 0.80 && bitsComp > 0
-                if ber < bestBer
+            isUsableCandidate = (bitsComp > 0) && ...
+                (lock >= 0.80 || (strcmp(tmCodeKey,'tpc') && lock > 0 && ber < 0.25));
+            if isUsableCandidate
+                if ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock)
                     bestBer = ber;
                     bestLock = lock;
                     bestRot = angle(r);
                     bitErrorsBest = errs;
                     bitsComparedBest = bitsComp;
+                    bestStats = stats;
 %                     bestShift = shiftBits;
                 end
                 % 如果已经找到完美候选, 后面的等价旋转没有必要继续跑。
                 % 这对 4D-8PSK-TCM 特别重要, 因为每个候选都会触发一次 4D Viterbi 解调。
-                if ber == 0 && lock >= 0.999 && bitsComp > 0
+                if ber == 0 && (lock >= 0.999 || (strcmp(tmCodeKey,'tpc') && lock >= 0.50)) && bitsComp > 0
                     break;
                 end
             else
@@ -1240,6 +1459,7 @@ function [berVal, lockRate, bestRot] = computeBER(fineSynced, validTxFrames, mod
                     bestRot = angle(r);
                     bitErrorsBest = errs;
                     bitsComparedBest = bitsComp;
+                    bestStats = stats;
 %                     bestShift = shiftBits;
                 end
             end
@@ -1258,22 +1478,25 @@ function [berVal, lockRate, bestRot] = computeBER(fineSynced, validTxFrames, mod
                 r = rotations(ii);
                 rxRot = fineSynced * r;
 
-                [ber, lock, errs, bitsComp] = tryOneRotation( ...
+                [ber, lock, errs, bitsComp, stats] = tryOneRotation( ...
                     rxRot, validTxFrames, tmMod, tmCode, ...
                     opt, hasRandomizer, hasASM, btVal, numWarmUp);
 
                 fprintf('   [候选角度] rot=%+6.1f deg, BER=%.4g, Lock=%.1f%%, Err=%d, Bits=%d', ...
                     rad2deg(angle(r)), ber, lock*100, errs, bitsComp);
 
-                if lock >= 0.80 && bitsComp > 0
-                    if ber < bestBer
+                isUsableCandidate = (bitsComp > 0) && ...
+                    (lock >= 0.80 || (strcmp(tmCodeKey,'tpc') && lock > 0 && ber < 0.25));
+                if isUsableCandidate
+                    if ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock)
                         bestBer = ber;
                         bestLock = lock;
                         bestRot = angle(r);
                         bitErrorsBest = errs;
                         bitsComparedBest = bitsComp;
+                        bestStats = stats;
                     end
-                    if ber == 0 && lock >= 0.999 && bitsComp > 0
+                    if ber == 0 && (lock >= 0.999 || (strcmp(tmCodeKey,'tpc') && lock >= 0.50)) && bitsComp > 0
                         break;
                     end
                 else
@@ -1283,6 +1506,7 @@ function [berVal, lockRate, bestRot] = computeBER(fineSynced, validTxFrames, mod
                         bestRot = angle(r);
                         bitErrorsBest = errs;
                         bitsComparedBest = bitsComp;
+                        bestStats = stats;
                     end
                 end
             end
@@ -1290,6 +1514,7 @@ function [berVal, lockRate, bestRot] = computeBER(fineSynced, validTxFrames, mod
         
         berVal = bestBer;
         lockRate = max(bestLock, 0);
+        berStats = bestStats;
         
         fprintf('   [Phase ambiguity] best rotation = %+5.1f deg, lockRate=%.1f%%\n', ...
             rad2deg(bestRot), lockRate*100);
@@ -1318,15 +1543,20 @@ function [selectedIdx, info] = selectRotationsByASM(fineSynced, rotations, tmMod
     minGap = 4;
     maxCandidates = 2;
     maxSearchBits = 250000;
+    if contains(upper(string(tmMod)), '8PSK')
+        maxCandidates = 4;
+    end
     if isfield(opt,'phaseResolveASMMaxErr'), maxErr = double(opt.phaseResolveASMMaxErr); end
     if isfield(opt,'phaseResolveASMMinGap'), minGap = double(opt.phaseResolveASMMinGap); end
     if isfield(opt,'phaseResolveMaxCandidates'), maxCandidates = max(1, round(double(opt.phaseResolveMaxCandidates))); end
     if isfield(opt,'phaseResolveASMSearchBits'), maxSearchBits = max(1024, round(double(opt.phaseResolveASMSearchBits))); end
 
-    asmBits = localTMASM();
+    [asmTemplates, asmPeriodBits] = localASMTemplatesForPhaseResolve(tmMod, tmCode, opt);
     scores = -inf(1, length(rotations));
     bestErrs = inf(1, length(rotations));
     bestPos = zeros(1, length(rotations));
+    meanErrs = inf(1, length(rotations));
+    periodicFrames = zeros(1, length(rotations));
 
     for ii = 1:length(rotations)
         try
@@ -1338,8 +1568,8 @@ function [selectedIdx, info] = selectRotationsByASM(fineSynced, rotations, tmMod
             if numel(hardBits) > maxSearchBits
                 hardBits = hardBits(1:maxSearchBits);
             end
-            [bestErrs(ii), bestPos(ii)] = localBestASMError(hardBits, asmBits);
-            scores(ii) = numel(asmBits) - bestErrs(ii);
+            [bestErrs(ii), bestPos(ii), meanErrs(ii), periodicFrames(ii), scores(ii)] = ...
+                localBestASMPeriodicScore(hardBits, asmTemplates, asmPeriodBits, opt);
         catch
             scores(ii) = -inf;
             bestErrs(ii) = inf;
@@ -1367,19 +1597,179 @@ function [selectedIdx, info] = selectRotationsByASM(fineSynced, rotations, tmMod
     info.scores = scores;
     info.bestErrs = bestErrs;
     info.bestPos = bestPos;
+    info.meanErrs = meanErrs;
+    info.periodicFrames = periodicFrames;
 
     if sortedErrs(1) <= maxErr && gap >= minGap
         selectedIdx = order(1);
-        info.message = sprintf('selected 1 rotation by ASM: rot=%+.1f deg, err=%d/32, pos=%d, gap=%.1f', ...
-            rad2deg(angle(rotations(selectedIdx(1)))), sortedErrs(1), sortedPos(1), gap);
+        info.message = sprintf('selected 1 rotation by periodic ASM: rot=%+.1f deg, err=%d, mean=%.2f, frames=%d, pos=%d, gap=%.1f', ...
+            rad2deg(angle(rotations(selectedIdx(1)))), sortedErrs(1), ...
+            meanErrs(selectedIdx(1)), periodicFrames(selectedIdx(1)), sortedPos(1), gap);
         return;
     end
 
-    nPick = min([maxCandidates, numel(order), 2]);
+    nPick = min(maxCandidates, numel(order));
     selectedIdx = order(1:nPick);
-    info.message = sprintf('ASM ambiguous; decode top %d rotations: best rot=%+.1f deg err=%d/32, second err=%d/32, gap=%.1f', ...
+    info.message = sprintf('periodic ASM ambiguous; decode top %d rotations: best rot=%+.1f deg err=%d mean=%.2f frames=%d, second err=%d, gap=%.1f', ...
         nPick, rad2deg(angle(rotations(selectedIdx(1)))), sortedErrs(1), ...
+        meanErrs(selectedIdx(1)), periodicFrames(selectedIdx(1)), ...
         sortedErrs(min(2,numel(sortedErrs))), gap);
+end
+
+function stats = localEmptyBERStats()
+    stats = struct( ...
+        'FER', NaN, ...
+        'FrameErrors', 0, ...
+        'CountedFrames', 0, ...
+        'MatchedFrames', 0, ...
+        'NumRxFrames', 0, ...
+        'AcquisitionFrames', NaN, ...
+        'AcquisitionTime_s', NaN);
+end
+
+function t = localAcquisitionTimeSeconds(acquisitionFrames, bitsPerFrame, tmMod, tmCode, opt)
+    t = NaN;
+    if isempty(acquisitionFrames) || ~isfinite(acquisitionFrames) || acquisitionFrames <= 0
+        return;
+    end
+    symbolRate = 1;
+    if isfield(opt,'symbolRate') && ~isempty(opt.symbolRate)
+        symbolRate = double(opt.symbolRate);
+    end
+    if ~isfinite(symbolRate) || symbolRate <= 0
+        return;
+    end
+
+    bitsPerSymbol = localNominalBitsPerSymbol(tmMod);
+    codeRate = localNominalCodeRate(tmCode, opt);
+    codedBitsPerFrame = double(bitsPerFrame) / max(codeRate, eps);
+    symbolsPerFrame = codedBitsPerFrame / max(bitsPerSymbol, eps);
+    t = double(acquisitionFrames) * symbolsPerFrame / symbolRate;
+end
+
+function bps = localNominalBitsPerSymbol(tmMod)
+    s = upper(string(tmMod));
+    if contains(s,'UQPSK')
+        bps = 1.5;
+    elseif contains(s,'32QAM') || contains(s,'32APSK')
+        bps = 5;
+    elseif contains(s,'16QAM') || contains(s,'16APSK')
+        bps = 4;
+    elseif contains(s,'8PSK') || contains(s,'4D-8PSK-TCM')
+        bps = 3;
+    elseif contains(s,'QPSK') || contains(s,'OQPSK')
+        bps = 2;
+    else
+        bps = 1;
+    end
+end
+
+function rate = localNominalCodeRate(tmCode, opt)
+    codeKey = lower(string(tmCode));
+    rate = 1;
+    if contains(codeKey,'convolutional')
+        if isfield(opt,'ConvolutionalCodeRate') && ~isempty(opt.ConvolutionalCodeRate)
+            rate = localRateStringToDouble(opt.ConvolutionalCodeRate, 1/2);
+        else
+            rate = 1/2;
+        end
+    elseif contains(codeKey,'turbo') || contains(codeKey,'ldpc')
+        if isfield(opt,'CodeRate') && ~isempty(opt.CodeRate)
+            rate = localRateStringToDouble(opt.CodeRate, 1/2);
+        else
+            rate = 1/2;
+        end
+    elseif contains(codeKey,'tpc')
+        rate = localTPCEffectiveRate(getfieldwithdefault(opt, 'TPCCodeRate', ...
+            getfieldwithdefault(opt, 'tpcCodeRate', 'native')));
+    elseif contains(codeKey,'concatenated')
+        rate = localRateStringToDouble(getfieldwithdefault(opt,'ConvolutionalCodeRate','1/2'), 1/2) * 223/255;
+    elseif contains(codeKey,'rs')
+        rate = 223/255;
+    end
+end
+
+function rate = localRateStringToDouble(rawRate, defaultRate)
+    rate = defaultRate;
+    if isnumeric(rawRate)
+        rate = double(rawRate);
+        return;
+    end
+    txt = char(string(rawRate));
+    if contains(txt,'/')
+        parts = split(string(txt), '/');
+        if numel(parts) == 2
+            num = str2double(parts(1));
+            den = str2double(parts(2));
+            if isfinite(num) && isfinite(den) && den ~= 0
+                rate = num / den;
+            end
+        end
+    else
+        v = str2double(txt);
+        if isfinite(v)
+            rate = v;
+        end
+    end
+end
+
+function value = localTPCCodeRateValue(opt)
+    value = getfieldwithdefault(opt, 'TPCCodeRate', ...
+        getfieldwithdefault(opt, 'tpcCodeRate', 'native'));
+    if isstring(value)
+        value = char(value);
+    end
+end
+
+function rate = localTPCEffectiveRate(rawRate)
+    side = localTPCPayloadSideLength(rawRate);
+    rate = (side * side) / (64 * 64);
+end
+
+function bits = localTPCPayloadBits(rawRate)
+    side = localTPCPayloadSideLength(rawRate);
+    bits = side * side;
+end
+
+function side = localTPCPayloadSideLength(rawRate)
+    if nargin < 1 || isempty(rawRate)
+        rawRate = 'native';
+    end
+
+    if isnumeric(rawRate)
+        side = round(double(rawRate));
+    else
+        key = lower(strtrim(char(rawRate)));
+        switch key
+            case {'native','default','0.7932','57','57x57'}
+                side = 57;
+            case {'1/2','half'}
+                side = 45;
+            case {'2/3'}
+                side = 52;
+            otherwise
+                xPos = strfind(key, 'x');
+                if numel(xPos) == 1
+                    side = round(str2double(key(1:xPos-1)));
+                else
+                    side = round(str2double(key));
+                end
+        end
+    end
+
+    if ~isfinite(side) || side < 1 || side > 57
+        error('run_ccsds_tm_evaluation:InvalidTPCCodeRate', ...
+            'Unsupported TPCCodeRate="%s". Use native, 1/2, 2/3, or an integer side length <= 57.', ...
+            char(string(rawRate)));
+    end
+end
+
+function v = getfieldwithdefault(s, name, defv)
+    if isfield(s, name) && ~isempty(s.(name))
+        v = s.(name);
+    else
+        v = defv;
+    end
 end
 
 function demodData = localDemodForASM(fineSynced, tmMod, tmCode, opt, btVal)
@@ -1438,6 +1828,139 @@ function asmBits = localTMASM()
     asmBits = int8([0;0;0;1;1;0;1;0;1;1;0;0;1;1;1;1;1;1;1;1;1;1;0;0;0;0;0;1;1;1;0;1]);
 end
 
+function [asmTemplates, periodBits] = localASMTemplatesForPhaseResolve(tmMod, tmCode, opt)
+    asmBits = localTMASM();
+    codeKey = lower(string(tmCode));
+    pcmFormat = "NRZ-L";
+    if isfield(opt,'PCMFormat') && ~isempty(opt.PCMFormat)
+        pcmFormat = upper(string(opt.PCMFormat));
+    end
+
+    if contains(codeKey, 'convolutional')
+        rateStr = "1/2";
+        if isfield(opt,'ConvolutionalCodeRate') && ~isempty(opt.ConvolutionalCodeRate)
+            rateStr = string(opt.ConvolutionalCodeRate);
+        end
+        [baseTemplate, puncturePattern, offsetLength, flipSecondBranch] = localConvASMTemplateByRate(rateStr);
+        if any(strcmp(pcmFormat, ["NRZ-M","NRZ-S"]))
+            trellis = poly2trellis(7, [171 133]);
+            sync0 = localBuildConvEncodedASMSync(asmBits, 0, pcmFormat, trellis, puncturePattern, offsetLength, flipSecondBranch);
+            sync1 = localBuildConvEncodedASMSync(asmBits, 1, pcmFormat, trellis, puncturePattern, offsetLength, flipSecondBranch);
+            asmTemplates = [sync0(:), sync1(:)];
+        else
+            asmTemplates = baseTemplate(:);
+        end
+    else
+        asmTemplates = asmBits(:);
+    end
+
+    periodBits = localASMPeriodBits(tmMod, tmCode, opt);
+end
+
+function [asmTemplate, puncturePattern, offsetLength, flipSecondBranch] = localConvASMTemplateByRate(rateStr)
+    rateStr = string(rateStr);
+    puncturePattern = [1;1];
+    offsetLength = 12;
+    flipSecondBranch = false;
+
+    switch char(rateStr)
+        case '1/2'
+            asmTemplate = int8([1;0;0;0;0;0;0;1;1;1;0;0;1;0;0;1;0;1;1;1;0;0;0;1;1;0;1; ...
+                0;1;0;1;0;0;1;1;1;0;0;1;1;1;1;0;1;0;0;1;1;1;1;1;0]);
+            puncturePattern = [1;1];
+            offsetLength = 12;
+        case '2/3'
+            asmTemplate = int8([1;1;0;1;0;1;0;1;1;1;0;0;0;0;0;1;0; ...
+                1;1;1;1;1;1;0;0;0;0;1;0;1;0;0;0;1;0;1;0;1]);
+            puncturePattern = [1;1;0;1];
+            offsetLength = 10;
+        case '3/4'
+            puncturePattern = [1;1;0;1;1;0];
+            offsetLength = 7;
+            asmTemplate = localBuildConvEncodedASMSync(localTMASM(), 0, "NRZ-L", ...
+                poly2trellis(7, [171 133]), puncturePattern, offsetLength, false);
+        case '5/6'
+            puncturePattern = [1;1;0;1;1;0;0;1;1;0];
+            offsetLength = 9;
+            asmTemplate = localBuildConvEncodedASMSync(localTMASM(), 0, "NRZ-L", ...
+                poly2trellis(7, [171 133]), puncturePattern, offsetLength, false);
+        case '7/8'
+            puncturePattern = [1;1;0;1;0;1;0;1;1;0;0;1;1;0];
+            offsetLength = 7;
+            asmTemplate = localBuildConvEncodedASMSync(localTMASM(), 0, "NRZ-L", ...
+                poly2trellis(7, [171 133]), puncturePattern, offsetLength, false);
+        otherwise
+            asmTemplate = localBuildConvEncodedASMSync(localTMASM(), 0, "NRZ-L", ...
+                poly2trellis(7, [171 133]), puncturePattern, offsetLength, false);
+    end
+end
+
+function periodBits = localASMPeriodBits(tmMod, tmCode, opt)
+    numBytesTF = 1115;
+    if isfield(opt,'NumBytesInTransferFrame') && ~isempty(opt.NumBytesInTransferFrame)
+        numBytesTF = double(opt.NumBytesInTransferFrame);
+    end
+    hasASM = true;
+    if isfield(opt,'hasASM')
+        hasASM = logical(opt.hasASM);
+    end
+    asmLen = 32 * double(hasASM);
+    codeKey = lower(string(tmCode));
+
+    if contains(codeKey, 'convolutional')
+        rate = localNominalCodeRate(tmCode, opt);
+        periodBits = round((numBytesTF*8 + asmLen) / max(rate, eps));
+    elseif contains(codeKey, 'ldpc') || contains(codeKey, 'turbo')
+        k = 1024;
+        if isfield(opt,'NumBitsInInformationBlock') && ~isempty(opt.NumBitsInInformationBlock)
+            k = double(opt.NumBitsInInformationBlock);
+        end
+        rate = localNominalCodeRate(tmCode, opt);
+        periodBits = round(k / max(rate, eps)) + asmLen;
+    elseif contains(codeKey, 'tpc')
+        periodBits = 64*64 + asmLen;
+    elseif contains(codeKey, 'rs')
+        periodBits = 255*8 + asmLen;
+    else
+        periodBits = numBytesTF*8 + asmLen;
+    end
+
+    if contains(upper(string(tmMod)), 'UQPSK')
+        periodBits = round(periodBits);
+    end
+end
+
+function syncASM = localBuildConvEncodedASMSync(asmBits, initState, pcmFormat, trellis, puncturePattern, offsetLength, flipSecondBranch)
+    asmBits = int8(asmBits(:) ~= 0);
+    pcmFormat = upper(string(pcmFormat));
+    if any(strcmp(pcmFormat, ["NRZ-M","NRZ-S"]))
+        diffBits = zeros(size(asmBits), 'int8');
+        state = int8(initState ~= 0);
+        for k = 1:numel(asmBits)
+            inBit = asmBits(k);
+            if strcmp(pcmFormat, "NRZ-S")
+                inBit = int8(~logical(inBit));
+            end
+            state = int8(xor(logical(state), logical(inBit)));
+            diffBits(k) = state;
+        end
+        asmBits = diffBits;
+    end
+
+    enc = comm.ConvolutionalEncoder('TrellisStructure', trellis);
+    motherBits = int8(enc(asmBits));
+    if flipSecondBranch
+        motherBits(2:2:end) = int8(~logical(motherBits(2:2:end)));
+    end
+
+    p = puncturePattern(:);
+    pp = repmat(p, ceil(length(motherBits)/length(p)), 1);
+    pp = pp(1:length(motherBits));
+    codedASM = motherBits(logical(pp));
+    offsetLength = min(offsetLength, length(codedASM)-1);
+    syncASM = int8(codedASM(offsetLength+1:end));
+end
+
 function [bestErr, bestPos] = localBestASMError(hardBits, asmBits)
     hardBits = int8(hardBits(:));
     asmBits = int8(asmBits(:));
@@ -1465,10 +1988,131 @@ function [bestErr, bestPos] = localBestASMError(hardBits, asmBits)
     end
 end
 
-function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTxFrames, tmMod, tmCode, opt, hasRandomizer, hasASM, btVal, numWarmUp)
+function [bestErr, bestPos, meanErr, nFrames, score] = localBestASMPeriodicScore(hardBits, asmTemplates, periodBits, opt)
+    hardBits = int8(hardBits(:));
+    asmTemplates = int8(asmTemplates);
+    if isempty(asmTemplates)
+        asmTemplates = localTMASM();
+    end
+
+    bestErr = inf;
+    bestPos = 0;
+    meanErr = inf;
+    nFrames = 0;
+    score = -inf;
+
+    nTop = 32;
+    maxFrames = 8;
+    errMargin = 4;
+    if isfield(opt,'phaseResolveASMPeriodicCandidates')
+        nTop = max(1, round(double(opt.phaseResolveASMPeriodicCandidates)));
+    end
+    if isfield(opt,'phaseResolveASMPeriodicFrames')
+        maxFrames = max(1, round(double(opt.phaseResolveASMPeriodicFrames)));
+    end
+    if isfield(opt,'phaseResolveASMErrMargin')
+        errMargin = max(0, round(double(opt.phaseResolveASMErrMargin)));
+    end
+
+    for iTpl = 1:size(asmTemplates, 2)
+        tpl = asmTemplates(:, iTpl);
+        [errVec, posVec] = localASMErrorVector(hardBits, tpl);
+        if isempty(errVec)
+            continue;
+        end
+
+        [sortedErr, order] = sort(errVec, 'ascend');
+        keep = min(nTop, numel(order));
+        if isfinite(sortedErr(1))
+            keep = min(numel(order), max(keep, nnz(sortedErr <= sortedErr(1) + errMargin)));
+        end
+
+        for kk = 1:keep
+            posNow = posVec(order(kk));
+            errNow = sortedErr(kk);
+            [meanNow, framesNow] = localPeriodicASMMeanError(hardBits, tpl, posNow, periodBits, maxFrames);
+            if framesNow <= 0
+                meanNow = errNow;
+                framesNow = 1;
+            end
+
+            scoreNow = (numel(tpl) - meanNow) + 0.75*min(framesNow, maxFrames) - 0.10*errNow;
+            if scoreNow > score
+                score = scoreNow;
+                bestErr = errNow;
+                bestPos = posNow;
+                meanErr = meanNow;
+                nFrames = framesNow;
+            end
+        end
+    end
+end
+
+function [errVec, posVec] = localASMErrorVector(hardBits, asmBits)
+    hardBits = int8(hardBits(:));
+    asmBits = int8(asmBits(:) ~= 0);
+    asmLen = numel(asmBits);
+    maxStart = numel(hardBits) - asmLen + 1;
+    if maxStart < 1
+        errVec = [];
+        posVec = [];
+        return;
+    end
+
+    asmInv = int8(~logical(asmBits));
+    errVec = inf(maxStart, 1);
+    posVec = (1:maxStart).';
+    for iPos = 1:maxStart
+        seg = hardBits(iPos:iPos+asmLen-1);
+        err0 = nnz(seg ~= asmBits);
+        err1 = nnz(seg ~= asmInv);
+        errVec(iPos) = min(err0, err1);
+    end
+end
+
+function [meanErr, nFrames] = localPeriodicASMMeanError(hardBits, asmBits, firstPos, periodBits, maxFrames)
+    hardBits = int8(hardBits(:));
+    asmBits = int8(asmBits(:) ~= 0);
+    asmInv = int8(~logical(asmBits));
+    asmLen = numel(asmBits);
+    meanErr = inf;
+    nFrames = 0;
+    if ~isfinite(periodBits) || periodBits <= 0 || firstPos <= 0
+        return;
+    end
+
+    errs = [];
+    pos = firstPos;
+    while pos + asmLen - 1 <= numel(hardBits) && numel(errs) < maxFrames
+        seg = hardBits(pos:pos+asmLen-1);
+        err0 = nnz(seg ~= asmBits);
+        err1 = nnz(seg ~= asmInv);
+        errs(end+1) = min(err0, err1); %#ok<AGROW>
+        pos = pos + periodBits;
+    end
+
+    if ~isempty(errs)
+        meanErr = mean(errs);
+        nFrames = numel(errs);
+    end
+end
+
+function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSynced, validTxFrames, tmMod, tmCode, opt, hasRandomizer, hasASM, btVal, numWarmUp)
     berVal = 0.5; lockRate = 0;
+
+    randomizerModeRaw = getfieldwithdefault(opt, 'RandomizerMode', 'standard');
+    randomizerMode = lower(strtrim(char(randomizerModeRaw)));
+    validRandomizerModes = {'standard','beforecoding','aftercoding','bypass'};
+    if ~any(strcmp(randomizerMode, validRandomizerModes))
+        error('run_ccsds_tm_evaluation:InvalidRandomizerMode', ...
+            'Unsupported RandomizerMode="%s". Use standard, beforeCoding, afterCoding, or bypass.', ...
+            randomizerMode);
+    end
+
+
     errs = 0;
     bitsComp = 0;
+    frameStats = localEmptyBERStats();
     numBytesTF = 1115;
     if isfield(opt,'NumBytesInTransferFrame') && ~isempty(opt.NumBytesInTransferFrame)
         numBytesTF = double(opt.NumBytesInTransferFrame);
@@ -1482,6 +2126,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
         bestLocalLock = -1;
         bestLocalErrs = 0;
         bestLocalBits = 0;
+        bestLocalStats = localEmptyBERStats();
         bestLocalSkip = 0;
 
         optLocal = opt;
@@ -1494,7 +2139,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
                 rxCandidate = fineSynced;
             end
 
-            [candBer, candLock, candErrs, candBits] = tryOneRotation( ...
+            [candBer, candLock, candErrs, candBits, candStats] = tryOneRotation( ...
                 rxCandidate, validTxFrames, tmMod, tmCode, optLocal, ...
                 hasRandomizer, hasASM, btVal, numWarmUp);
 
@@ -1509,6 +2154,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
                     bestLocalLock = candLock;
                     bestLocalErrs = candErrs;
                     bestLocalBits = candBits;
+                    bestLocalStats = candStats;
                     bestLocalSkip = symSkip;
                 end
                 if candBer == 0 && candLock >= 0.999
@@ -1520,6 +2166,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
                 bestLocalLock = candLock;
                 bestLocalErrs = candErrs;
                 bestLocalBits = candBits;
+                bestLocalStats = candStats;
                 bestLocalSkip = symSkip;
             end
         end
@@ -1532,6 +2179,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
         lockRate = max(bestLocalLock, 0);
         errs = bestLocalErrs;
         bitsComp = bestLocalBits;
+        frameStats = bestLocalStats;
         return;
     end
     enable4DGroupSearch = isfield(opt,'tcmSearchAll') && logical(opt.tcmSearchAll);
@@ -1552,6 +2200,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
         bestLocalLock = -1;
         bestLocalErrs = 0;
         bestLocalBits = 0;
+        bestLocalStats = localEmptyBERStats();
         bestLocalSkip = 0;
         optLocal = opt;
         optLocal.tcmSkipInternal = true;
@@ -1564,7 +2213,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
                 rxCandidate = fineSynced;
             end
 
-            [candBer, candLock, candErrs, candBits] = tryOneRotation( ...
+            [candBer, candLock, candErrs, candBits, candStats] = tryOneRotation( ...
                 rxCandidate, validTxFrames, tmMod, tmCode, optLocal, ...
                 hasRandomizer, hasASM, btVal, numWarmUp);
 
@@ -1577,6 +2226,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
                     bestLocalLock = candLock;
                     bestLocalErrs = candErrs;
                     bestLocalBits = candBits;
+                    bestLocalStats = candStats;
                     bestLocalSkip = symSkip;
                 end
                 if candBer == 0 && candLock >= 0.999
@@ -1587,6 +2237,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
                 bestLocalLock = candLock;
                 bestLocalErrs = candErrs;
                 bestLocalBits = candBits;
+                bestLocalStats = candStats;
                 bestLocalSkip = symSkip;
             end
         end
@@ -1596,6 +2247,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
         lockRate = max(bestLocalLock, 0);
         errs = bestLocalErrs;
         bitsComp = bestLocalBits;
+        frameStats = bestLocalStats;
         return;
     end
 
@@ -1702,30 +2354,49 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
         end
     end
 
+    if strcmpi(string(tmCode), "TPC") && isfield(opt,'debugTPC') && logical(opt.debugTPC)
+        fprintf('   [TPC DEBUG] demod soft: len=%d, mean=%+.4g, std=%.4g, min=%+.4g, max=%+.4g, hard1=%.1f%%\n', ...
+            numel(demodData), mean(double(demodData(:))), std(double(demodData(:))), ...
+            min(double(demodData(:))), max(double(demodData(:))), 100*mean(demodData(:) > 0));
+        if evalin('base','exist(''debugTPC_encodedBits'',''var'')')
+            txEnc = evalin('base','debugTPC_encodedBits');
+            localTPCPrintEncodedBoundaryDebug(demodData, txEnc, tmMod);
+        end
+    end
+
     if strcmpi(string(tmCode), "TPC") && hasASM && ~isempty(demodData)
         asmBits = int8([0;0;0;1;1;0;1;0;1;1;0;0;1;1;1;1;1;1;1;1;1;1;0;0;0;0;0;1;1;1;0;1]);
         asmLen = numel(asmBits);
-        maxStart = min(numel(demodData) - asmLen + 1, 3*(64*64 + asmLen));
-        if maxStart > 0
-            hardBits = int8(demodData(:) > 0);
+        tpcFullFrameLen = 64*64*getfieldwithdefault(opt, 'TPCBlocksPerTF', 1) + asmLen;
+        searchLimit = min(numel(demodData) - asmLen + 1, tpcFullFrameLen);
+        if searchLimit > 0
             bestPos = 1;
             bestErr = asmLen + 1;
-            for iPos = 1:maxStart
+            bestMeanErr = inf;
+            bestFrames = 0;
+            hardBits = int8(demodData(:) > 0);
+            for iPos = 1:searchLimit
                 errNow = nnz(hardBits(iPos:iPos+asmLen-1) ~= asmBits);
-                if errNow < bestErr
+                errsPeriodic = errNow;
+                nPeriodic = 1;
+                nextPos = iPos + tpcFullFrameLen;
+                while nextPos + asmLen - 1 <= numel(hardBits) && nPeriodic < 8
+                    errsPeriodic(end+1,1) = nnz(hardBits(nextPos:nextPos+asmLen-1) ~= asmBits); %#ok<AGROW>
+                    nPeriodic = nPeriodic + 1;
+                    nextPos = nextPos + tpcFullFrameLen;
+                end
+                meanErr = mean(errsPeriodic);
+                if meanErr < bestMeanErr || ...
+                        (abs(meanErr - bestMeanErr) < 1e-12 && errNow < bestErr)
+                    bestMeanErr = meanErr;
                     bestErr = errNow;
                     bestPos = iPos;
-                    if bestErr == 0
-                        break;
-                    end
+                    bestFrames = nPeriodic;
                 end
             end
-            if bestPos > 1 && bestErr <= 6
-                demodData = demodData(bestPos:end);
-            end
             if isfield(opt,'debugTPC') && logical(opt.debugTPC)
-                fprintf('   [TPC DEBUG] pre-decoder ASM align pos=%d err=%d, demodBits=%d\n', ...
-                    bestPos, bestErr, numel(demodData));
+                fprintf('   [TPC DEBUG] pre-decoder ASM scan pos=%d err=%d mean=%.2f frames=%d, demodBits=%d (no external trim)\n', ...
+                    bestPos, bestErr, bestMeanErr, bestFrames, numel(demodData));
             end
         end
     end
@@ -1742,6 +2413,9 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
     end
     decArgs = {'ChannelCoding',tmCode,'Modulation',decoderMod, ...
                'HasRandomizer',hasRandomizer,'HasASM',hasASM};
+    if ~strcmp(randomizerMode, 'standard')
+        decArgs = [decArgs, {'RandomizerMode', char(randomizerMode)}];
+    end
     if isfield(opt,'PCMFormat') && ~isempty(opt.PCMFormat)
         decArgs = [decArgs, {'PCMFormat', string(opt.PCMFormat)}];
     end
@@ -1753,6 +2427,10 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
     end
     tmCodeKey = lower(string(tmCode));
     usesTransferFrameBytes = any(strcmp(tmCodeKey, ["none", "convolutional", "tpc"])) || isLDPCOnSMTF;
+    if contains(tmCodeKey,'tpc')
+        decArgs = [decArgs, {'TPCCodeRate', localTPCCodeRateValue(opt), ...
+                             'TPCBlocksPerTF', getfieldwithdefault(opt, 'TPCBlocksPerTF', 1)}];
+    end
     if usesTransferFrameBytes
         decArgs = [decArgs, {'NumBytesInTransferFrame',numBytesTF}];
     end
@@ -1787,7 +2465,9 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
     bitsPerFrame = length(validTxFrames{1});
     txMap = containers.Map('KeyType','double','ValueType','any');
     for k=1:length(validTxFrames)
-        fr = validTxFrames{k}; id = bi2de(fr(1:8)','left-msb'); txMap(id)=fr;
+        fr = validTxFrames{k};
+        id = localTMFrameID(fr);
+        txMap(id)=fr;
     end
 
     if contains(tmMod,'GMSK') && length(decodedBits) >= bitsPerFrame
@@ -1846,7 +2526,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
         ids = nan(1, sample);
         for jj = 1:sample
             rxFr_dbg = double(decodedBits((jj-1)*bitsPerFrame+1:jj*bitsPerFrame));
-            ids(jj) = bi2de(rxFr_dbg(1:8)','left-msb');
+            ids(jj) = localTMFrameID(rxFr_dbg);
         end
 
         maxShift = min(64, max(0, bitsPerFrame-1));
@@ -1864,7 +2544,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
             for jj = 1:nShiftRx
                 idx0 = sh + (jj-1)*bitsPerFrame + 1;
                 rxFr_dbg = double(decodedBits(idx0:idx0+bitsPerFrame-1));
-                rxId_dbg = bi2de(rxFr_dbg(1:8)','left-msb');
+                rxId_dbg = localTMFrameID(rxFr_dbg);
                 if jj <= numel(idsShift)
                     idsShift(jj) = rxId_dbg;
                 end
@@ -1905,7 +2585,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
         ids = zeros(1,sample);
         for jj=1:sample
             rxFr_dbg = double(decodedBits((jj-1)*bitsPerFrame+1:jj*bitsPerFrame));
-            ids(jj) = bi2de(rxFr_dbg(1:8)','left-msb');
+            ids(jj) = localTMFrameID(rxFr_dbg);
         end
         fprintf('   [OQPSK DEBUG] decodedBits len=%d, numRx=%d, 头 %d 帧 ID = [%s]\n', ...
             length(decodedBits), numRx, sample, num2str(ids));
@@ -1919,15 +2599,17 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
 
     framesMatched=0;
     perFrameBER = nan(1,numRx);
+    countedFrames = 0;
+    frameErrors = 0;
+    acquisitionFrames = NaN;
 
     % 从 decodedBits 里按 bitsPerFrame 切一帧。
-    % 取这一帧前 8 bit，转成 rxId。
-    % 如果这个 ID 在发送帧 Map 里，说明"认为这帧锁到了"。
+    % 取 TM Primary Header 中 bit 25~32 的 Virtual Channel Frame Count，
+    % 转成 rxId。如果这个 ID 在发送帧 Map 里，说明"认为这帧锁到了"。
     % 用 biterr() 比较接收帧和对应发送帧。
-    % 如果 rxId >= numWarmUp，才计入 BER。
     for j=1:numRx
         rxFr = double(decodedBits((j-1)*bitsPerFrame+1:j*bitsPerFrame));
-        rxId = bi2de(rxFr(1:8)','left-msb');
+        rxId = localTMFrameID(rxFr);
         if isKey(txMap,rxId)
             framesMatched = framesMatched + 1;          % 所有匹配帧计入 lockRate
             thisErrs = biterr(txMap(rxId), rxFr);
@@ -1958,12 +2640,30 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
 %                 j, rxId, perFrameBER(j), counted);
         
             if counted
+                if isnan(acquisitionFrames)
+                    acquisitionFrames = j;
+                end
+                countedFrames = countedFrames + 1;
+                if thisErrs > 0
+                    frameErrors = frameErrors + 1;
+                end
                 errs = errs + thisErrs;
                 bitsComp = bitsComp + bitsPerFrame;
             end
                 end
     end
     if bitsComp>0, berVal = errs/bitsComp; else, berVal = 0.5; end
+    frameStats.NumRxFrames = numRx;
+    frameStats.MatchedFrames = framesMatched;
+    frameStats.CountedFrames = countedFrames;
+    frameStats.FrameErrors = frameErrors;
+    if countedFrames > 0
+        frameStats.FER = frameErrors / countedFrames;
+    else
+        frameStats.FER = NaN;
+    end
+    frameStats.AcquisitionFrames = acquisitionFrames;
+    frameStats.AcquisitionTime_s = localAcquisitionTimeSeconds(acquisitionFrames, bitsPerFrame, tmMod, tmCode, opt);
     % numRx 太少说明解码器同步失败,只输出了 1 帧 zeros (header=0 偶然命中 warmup 帧 0),
     % 这种"虚假 100% lockRate"不能参与竞选,直接置零
     if numRx < 3
@@ -1996,24 +2696,7 @@ function [berVal, lockRate, errs, bitsComp] = tryOneRotation(fineSynced, validTx
     end
 end
 
-% =========================================================
-% 打印 + 出图
-% =========================================================
-% function printMetrics(res, opt)
-%     fprintf('\n========= CCSDS 评估结果 =========\n');
-%     fprintf(' 调制方式 : %s\n', res.modType);
-%     fprintf(' 输入 SNR : %.1f dB,  CFO=%.1f Hz,  Phase=%.1f deg,  Delay=%.3f\n', ...
-%         res.snr_in, res.cfo_in, res.phase_in, res.delay_in);
-%     fprintf(' --------------------------------\n');
-%     fprintf(' BER          : %.6f\n', res.BER);
-%     fprintf(' EVM (sync前) : %6.2f %%\n', res.EVM_pre_pct);
-%     fprintf(' EVM (sync后) : %6.2f %%\n', res.EVM_post_pct);
-%     fprintf(' MER (sync后) : %6.2f dB\n', res.MER_dB);
-%     fprintf(' SNR_est      : %6.2f dB  (输入是 %.1f dB)\n', res.SNR_est_dB, res.snr_in);
-%     fprintf(' PAPR (Tx)    : %6.2f dB\n', res.PAPR_dB);
-%     fprintf(' Frame Lock   : %6.2f %%\n', res.LockRate*100);
-%     fprintf('==================================\n\n');
-% end
+
 function [matched, maxRun] = scoreFrameIds(bits, bitsPerFrame, txMap)
     matched = 0;
     maxRun = 0;
@@ -2022,7 +2705,7 @@ function [matched, maxRun] = scoreFrameIds(bits, bitsPerFrame, txMap)
     numRx = floor(length(bits) / bitsPerFrame);
     for j = 1:numRx
         rxFr = double(bits((j-1)*bitsPerFrame+1:j*bitsPerFrame));
-        rxId = bi2de(rxFr(1:8)', 'left-msb');
+        rxId = localTMFrameID(rxFr);
         if isKey(txMap, rxId)
             matched = matched + 1;
             if isempty(lastId) || rxId == mod(lastId + 1, 256)
@@ -2037,6 +2720,75 @@ function [matched, maxRun] = scoreFrameIds(bits, bitsPerFrame, txMap)
             lastId = [];
         end
     end
+end
+
+function localTPCPrintEncodedBoundaryDebug(demodData, txEncodedBits, tmMod)
+    rxHard0 = int8(demodData(:) > 0);
+    txBits = int8(txEncodedBits(:) ~= 0);
+    if isempty(rxHard0) || isempty(txBits)
+        return;
+    end
+
+    maxOffset = min(256, max(0, numel(rxHard0)-1));
+    best = struct('err', inf, 'offset', 0, 'polarity', 1, 'len', 0);
+    for polarity = [1 -1]
+        if polarity > 0
+            rxHard = rxHard0;
+        else
+            rxHard = int8(~logical(rxHard0));
+        end
+        for offset = 0:maxOffset
+            L = min(numel(txBits), numel(rxHard)-offset);
+            if L <= 0
+                continue;
+            end
+            err = nnz(rxHard(offset+1:offset+L) ~= txBits(1:L));
+            if err < best.err
+                best.err = err;
+                best.offset = offset;
+                best.polarity = polarity;
+                best.len = L;
+            end
+        end
+    end
+
+    if best.len > 0
+        fprintf('   [TPC DEBUG] demod-vs-encoded (%s): bestOffset=%d bits, polarity=%+d, hardBER=%.6g (%d/%d)\n', ...
+            char(tmMod), best.offset, best.polarity, best.err / best.len, best.err, best.len);
+    end
+end
+
+function id = localTMFrameID(frameBits)
+    frameBits = uint8(frameBits(:) ~= 0);
+    if numel(frameBits) < 32
+        error('run_ccsds_tm_evaluation:FrameTooShortForVCFC', ...
+            'TM frame is too short to read Virtual Channel Frame Count.');
+    end
+    vcfcBits = frameBits(25:32);
+    id = bi2de(double(vcfcBits(:).'), 'left-msb');
+end
+
+function localPrintTMFrameInfo(fields, frameBytes, frameIndex)
+    if isempty(fields) || isempty(frameBytes)
+        return;
+    end
+    primaryHeader = frameBytes(1:min(6, numel(frameBytes)));
+    primaryHeaderHex = strtrim(sprintf('%02X ', primaryHeader));
+
+    fprintf('\n[TM FRAME DEBUG] frame=%d\n', frameIndex);
+    fprintf('  Primary Header bytes : %s\n', primaryHeaderHex);
+    fprintf('  TFVN=%d, SCID=%d, VCID=%d, OCF=%d\n', ...
+        fields.TransferFrameVersionNumber, fields.SpacecraftID, ...
+        fields.VirtualChannelID, fields.HasOCF);
+    fprintf('  MCFC=%d, VCFC=%d\n', ...
+        fields.MasterChannelFrameCount, fields.VirtualChannelFrameCount);
+    fprintf('  SHF=%d, SyncFlag=%d, PacketOrder=%d, SLID=%d, FHP=%d\n', ...
+        fields.HasSecondaryHeader, fields.SynchronizationFlag, ...
+        fields.PacketOrderFlag, fields.SegmentLengthID, fields.FirstHeaderPointer);
+    fprintf('  Length: frame=%d bytes, primary=%d, secondary=%d, data=%d, OCF=%d, FECF=%d\n', ...
+        fields.FrameLengthBytes, fields.PrimaryHeaderLengthBytes, ...
+        fields.SecondaryHeaderLengthBytes, fields.TransferFrameDataFieldLengthBytes, ...
+        fields.OperationalControlFieldLengthBytes, fields.FrameErrorControlFieldLengthBytes);
 end
 
 function printMetrics(res, opt)
@@ -2065,9 +2817,27 @@ function printMetrics(res, opt)
         fprintf(' SNR_est      : %6.2f dB  (输入是 %.1f dB)\n', ...
             res.SNR_est_dB, res.snr_in);
     end
-
+    if isfield(res,'ResidualCFO_Hz') && isfinite(res.ResidualCFO_Hz)
+        fprintf(' Residual CFO : %8.3f Hz\n', res.ResidualCFO_Hz);
+    else
+        fprintf(' Residual CFO : N/A\n');
+    end
     fprintf(' PAPR (Tx)    : %6.2f dB\n', res.PAPR_dB);
     fprintf(' Frame Lock   : %6.2f %%\n', res.LockRate*100);
+    if isfield(res,'FER')
+        fprintf(' FER          : %.6f', res.FER);
+        if isfield(res,'FrameErrors') && isfield(res,'CountedFrames')
+            fprintf('  (%d/%d frames)', res.FrameErrors, res.CountedFrames);
+        end
+        fprintf('\n');
+    end
+    if isfield(res,'AcquisitionFrames') && isfinite(res.AcquisitionFrames)
+        fprintf(' Acquisition  : %.0f frames', res.AcquisitionFrames);
+        if isfield(res,'AcquisitionTime_s') && isfinite(res.AcquisitionTime_s)
+            fprintf('  (%.6g s)', res.AcquisitionTime_s);
+        end
+        fprintf('\n');
+    end
     if isfield(res,'HEnabled') && res.HEnabled
         fprintf(' H channel    : %s, taps=%d, effective taps=%d, gain=%+.2f dB\n', ...
             res.HMode, res.HNumTaps, res.HEffectiveTaps, res.HGain_dB);
@@ -2091,9 +2861,10 @@ function fe = buildFrontendArrays(ctx, res) %#ok<INUSD>
         'centerFrequencyHz', getCenterFrequencyHz(res, 0), ...
         'IFHz', getCenterFrequencyHz(res, 0));
     fe.spectrum.cfo_estimator = buildCFOEstimatorSpectrum(ctx, res);
-
-    % --- 星座: 修复前 (raw, 信道损伤后, 无任何同步) ---
+    % --- 星座: 发送端兜底显示（未经过信道损伤）---
     fe.constTx   = sampleConst(normPwr(ctx.txWaveform(1:sps:end)), 1500);
+    % --- 星座: 修复前 (raw, 信道损伤后, 无任何同步) ---
+    
     fe.constRaw  = sampleConst(ctx.rawSym,     1500);
     % --- 星座: 修复后 (载波同步对齐到参考相位) ---
     fe.constSync = sampleConst(ctx.fineSynced, 1500);
@@ -2126,36 +2897,17 @@ function fe = buildFrontendArrays(ctx, res) %#ok<INUSD>
         'labels',     {{'信道损伤后','粗频偏后','定时同步后','载波同步后'}});
 
     % --- 残余 CFO / 相偏 (决策导向: 剥掉数据相位再线性回归) ---
-    fe.residCFO = NaN; fe.residPhase = NaN;
-    s = ctx.fineSynced;
-    if isGMSKMod && ~isempty(s) && length(s) > 50
-        L = min(length(s), 5000);
-        s_use = s(end-L+1:end);
-        ph = unwrap(angle(s_use));
-        n = (0:L-1).';
-        fSym = Fs / sps;
-        coef = polyfit(n, ph, 1);
-        fe.residCFO   = coef(1) * fSym / (2*pi);
-        fe.residPhase = rad2deg(coef(2));
-    elseif ~isempty(s) && length(s) > 50 && isfield(ctx,'refConst') && ~isempty(ctx.refConst)
-        L = min(length(s), 5000);
-        s_use = s(end-L+1:end);
-        refC  = ctx.refConst(:).';
-        [~, idx] = min(abs(s_use - refC), [], 2);
-        ideal = ctx.refConst(idx);
-        phErr = unwrap(angle(s_use ./ ideal));
-        n = (0:L-1).';
-        fSym = Fs / sps;
-        coef = polyfit(n, phErr, 1);
-        fe.residCFO   = coef(1) * fSym / (2*pi);
-        fe.residPhase = rad2deg(coef(2));
-    end
+    fe.residCFO = getfieldnumeric(res, 'ResidualCFO_Hz', NaN);
+    fe.residPhase = getfieldnumeric(res, 'ResidualPhase_deg', NaN);
 end
 
 function out = sampleConst(s, Lmax)
     if isempty(s), out = struct('i', [], 'q', []); return; end
     s = s(:);
-    if length(s) > Lmax, s = s(end-Lmax+1:end); end
+    if length(s) > Lmax
+        idx = unique(round(linspace(1, length(s), Lmax)));
+        s = s(idx);
+    end
     out = struct('i', reshape(real(s),1,[]), 'q', reshape(imag(s),1,[]));
 end
 
@@ -2254,11 +3006,14 @@ function [res, ctx] = runFACMOneShot(opt, fSym, sps)
     simParams.DisableRFImpairments = true;
     simParams.DisableAWGN = true;
     simParams.InitalSyncFrames = getf(opt,'facmWarmupFrames',15);
-    simParams.NumFramesForBER = getf(opt,'facmBERFrames',100);
+    simParams.NumFramesForBER = getf(opt,'facmBERFrames',30);
     simParams.NumPLFrames = simParams.InitalSyncFrames + simParams.NumFramesForBER;
     simParams.AttenuationFactor = 1;
 
+    fprintf('[FACM] generating %d PL frames: warmup=%d, berFrames=%d, ACM=%d, sps=%d ...\n', ...
+        simParams.NumPLFrames, simParams.InitalSyncFrames, simParams.NumFramesForBER, acmFmt, sps);
     [bits, txWaveform, ~, phyParams, rxParams] = HelperCCSDSFACMRxInputGenerate(cfg, simParams);
+    fprintf('[FACM] waveform generated: %d samples\n', length(txWaveform));
 
     Fs = fSym*sps;
     rxWaveform = txWaveform;
@@ -2284,7 +3039,7 @@ function [res, ctx] = runFACMOneShot(opt, fSym, sps)
         rxWaveform = applyKnownHMMSEEqualizer(rxWaveform, opt, rxSNRForAWGN, false);
     end
 
-    [fineSynced, payloadSym, decodedTFBits, rxWork, syncSym, decodedFrames, snrFrame] = ...
+    [fineSynced, payloadSym, decodedTFBits, rxWork, syncSym, decodedFrames, snrFrame, facmStats] = ...
         facmReceiveAndDecode(rxWaveform, cfg, rxParams, phyParams, simParams, fSym, acmFmt, opt);
 
     refConst = HelperCCSDSFACMReferenceConstellation(acmFmt);
@@ -2323,6 +3078,22 @@ function [res, ctx] = runFACMOneShot(opt, fSym, sps)
     res.PAPR_dB = papr_dB;
     res.LockRate = lockRate;
     res.Fs = Fs;
+    if isfield(facmStats,'cfo_est_Hz')
+        res.cfo_est_Hz = facmStats.cfo_est_Hz;
+        res.FACMCFOEstimates_Hz = facmStats.cfoEstimates_Hz;
+    end
+    if isfield(facmStats,'residualCFO_Hz')
+        res.FACMResidualCFO_Hz = facmStats.residualCFO_Hz;
+        res.FACMResidualCFOEstimates_Hz = facmStats.residualCFOEstimates_Hz;
+    end
+    if isfield(facmStats,'FDOK'), res.FDOK = facmStats.FDOK; end
+    if isfield(facmStats,'FDFail'), res.FDFail = facmStats.FDFail; end
+    if isfield(facmStats,'TFOK'), res.TFOK = facmStats.TFOK; end
+    if isfield(facmStats,'TFEmpty'), res.TFEmpty = facmStats.TFEmpty; end
+    if isfield(facmStats,'AcquisitionFrames')
+        res.AcquisitionFrames = facmStats.AcquisitionFrames;
+        res.AcquisitionTime_s = facmStats.AcquisitionTime_s;
+    end
     res.HEnabled = hInfo.Enabled;
     res.HMode = char(hInfo.Mode);
     res.HNumTaps = hInfo.NumTaps;
@@ -2341,7 +3112,7 @@ function [res, ctx] = runFACMOneShot(opt, fSym, sps)
     ctx.bestRot = 0;
 end
 
-function [fineSynced, payloadAll, decodedTFBits, filteredRx, syncSym, decodedFrames, snrMean] = facmReceiveAndDecode(rxWaveform, cfg, rxParams, phyParams, simParams, fSym, acmFmt, opt)
+function [fineSynced, payloadAll, decodedTFBits, filteredRx, syncSym, decodedFrames, snrMean, facmStats] = facmReceiveAndDecode(rxWaveform, cfg, rxParams, phyParams, simParams, fSym, acmFmt, opt)
     sps = cfg.SamplesPerSymbol;
     rrcfilt = comm.RaisedCosineReceiveFilter( ...
         'RolloffFactor', cfg.RolloffFactor, ...
@@ -2368,6 +3139,10 @@ function [fineSynced, payloadAll, decodedTFBits, filteredRx, syncSym, decodedFra
     decodedTFBits = [];
     decodedFrames = 0;
     snrVals = [];
+    cfoEstVals = [];
+    residualCFOVals = [];
+    acquisitionFrame = NaN;
+    facmStats = struct();
     debugFACM = isfield(opt,'debugFACM') && logical(opt.debugFACM);
     dbgPhaseOK = 0;
     dbgPhaseFail = 0;
@@ -2402,6 +3177,8 @@ function [fineSynced, payloadAll, decodedTFBits, filteredRx, syncSym, decodedFra
             fprintf('   [FACM DEBUG] frame sync failed: no sync index found, syncSym=%d\n', length(syncChunk));
         end
         snrMean = NaN;
+        facmStats = localFACMStats(cfoEstVals, residualCFOVals, dbgFDOK, dbgFDFail, dbgTFOK, dbgTFEmpty, ...
+            acquisitionFrame, plFrameSize, fSym);
         return;
     end
     leftOutSym = syncChunk(syncidx(1):end);
@@ -2445,9 +3222,12 @@ function [fineSynced, payloadAll, decodedTFBits, filteredRx, syncSym, decodedFra
 
         [fllOut, ~] = fll(oneFrame);
         cfoEst = HelperCCSDSFACMFMFrequencyEstimate(fllOut(1:256), rxParams.RefFM, fSym);
+        cfoEstVals(end+1,1) = cfoEst; %#ok<AGROW>
         fineCFOSync.FrequencyOffset = -cfoEst;
         cfoCorrected = fineCFOSync(fllOut);
         cfoCorrected = facmFrameMarkerEqualize(cfoCorrected, rxParams, opt, acmFmt);
+        residualCFOVals(end+1,1) = localFACMResidualCFOFromFrameMarker( ...
+            cfoCorrected(1:min(256,end)), rxParams.RefFM, fSym); %#ok<AGROW>
 
         frameSNR = HelperCCSDSFACMSNREstimate(cfoCorrected(1:256), rxParams.RefFM);
         if ~isfinite(frameSNR) || frameSNR <= 0
@@ -2547,6 +3327,9 @@ function [fineSynced, payloadAll, decodedTFBits, filteredRx, syncSym, decodedFra
                     [extraBits; fullFrameDecoded], phyParams.ASM, phyParams.NumInputBits);
                 if ~isempty(decodedBuffer)
                     decodedCols = size(decodedBuffer,2);
+                    if isnan(acquisitionFrame)
+                        acquisitionFrame = frameIndex;
+                    end
                     prnSeq = satcom.internal.ccsds.tmrandseq(phyParams.NumInputBits);
                     finalBits = xor(decodedBuffer(33:end,:) > 0, prnSeq);
                     if frameIndex > simParams.InitalSyncFrames
@@ -2587,6 +3370,8 @@ function [fineSynced, payloadAll, decodedTFBits, filteredRx, syncSym, decodedFra
     else
         snrMean = mean(snrVals);
     end
+    facmStats = localFACMStats(cfoEstVals, residualCFOVals, dbgFDOK, dbgFDFail, dbgTFOK, dbgTFEmpty, ...
+        acquisitionFrame, plFrameSize, fSym);
 end
 
 function tf = useFACMPostPilotLS(opt)
@@ -2598,6 +3383,59 @@ function tf = useFACMPostPilotLS(opt)
         mode = lower(string(opt.equalizerMode));
     end
     tf = any(strcmp(mode, ["pilot-ls", "pilot-post-ls"]));
+end
+
+function stats = localFACMStats(cfoEstVals, residualCFOVals, fdOK, fdFail, tfOK, tfEmpty, acquisitionFrame, plFrameSize, fSym)
+    stats = struct();
+    cfoEstVals = cfoEstVals(:);
+    cfoEstVals = cfoEstVals(isfinite(cfoEstVals));
+    stats.cfoEstimates_Hz = cfoEstVals;
+    if isempty(cfoEstVals)
+        stats.cfo_est_Hz = NaN;
+    else
+        nTail = min(10, numel(cfoEstVals));
+        stats.cfo_est_Hz = median(cfoEstVals(end-nTail+1:end));
+    end
+
+    residualCFOVals = residualCFOVals(:);
+    residualCFOVals = residualCFOVals(isfinite(residualCFOVals));
+    stats.residualCFOEstimates_Hz = residualCFOVals;
+    if isempty(residualCFOVals)
+        stats.residualCFO_Hz = NaN;
+    else
+        nTail = min(10, numel(residualCFOVals));
+        stats.residualCFO_Hz = median(residualCFOVals(end-nTail+1:end));
+    end
+
+    stats.FDOK = fdOK;
+    stats.FDFail = fdFail;
+    stats.TFOK = tfOK;
+    stats.TFEmpty = tfEmpty;
+    stats.AcquisitionFrames = acquisitionFrame;
+    if isfinite(acquisitionFrame) && isfinite(plFrameSize) && isfinite(fSym) && fSym > 0
+        stats.AcquisitionTime_s = acquisitionFrame * plFrameSize / fSym;
+    else
+        stats.AcquisitionTime_s = NaN;
+    end
+end
+
+function residCFO_Hz = localFACMResidualCFOFromFrameMarker(frameMarker, refFM, fSym)
+    residCFO_Hz = NaN;
+    if isempty(frameMarker) || isempty(refFM) || ~isfinite(fSym) || fSym <= 0
+        return;
+    end
+
+    y = frameMarker(:);
+    ref = refFM(:);
+    L = min([numel(y), numel(ref), 256]);
+    if L < 16
+        return;
+    end
+
+    phErr = unwrap(angle(y(1:L) .* conj(ref(1:L))));
+    n = (0:L-1).';
+    coef = polyfit(n, phErr, 1);
+    residCFO_Hz = coef(1) * fSym / (2*pi);
 end
 
 function [payloadWithPilots, frameDescriptor] = facmPhaseRecoveryKeepPilots(framesym, pilots, refFM)
@@ -3221,7 +4059,8 @@ function r = codeRateNum(opt)
     if isfield(opt,'channelCoding')
         code = canonicalChannelCoding(opt.channelCoding);
         if strcmp(code,'TPC')
-            r = (57*57)/(64*64);
+            r = localTPCEffectiveRate(getfieldwithdefault(opt, 'TPCCodeRate', ...
+                getfieldwithdefault(opt, 'tpcCodeRate', 'native')));
             return;
         end
         if any(strcmp(code, {'RS','concatenated'}))
