@@ -136,6 +136,8 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     elseif isfield(opt,'tpcCodeRate'), frontResult.TPCCodeRate = opt.tpcCodeRate; end
     if isfield(opt,'TPCBlocksPerTF'), frontResult.TPCBlocksPerTF = opt.TPCBlocksPerTF;
     elseif isfield(opt,'tpcBlocksPerTF'), frontResult.TPCBlocksPerTF = opt.tpcBlocksPerTF; end
+    if isfield(opt,'TPCInterleaver'), frontResult.TPCInterleaver = opt.TPCInterleaver;
+    elseif isfield(opt,'tpcInterleaver'), frontResult.TPCInterleaver = opt.tpcInterleaver; end
     if isfield(res,'CodeRate'), frontResult.CodeRate = res.CodeRate;
     elseif isfield(opt,'CodeRate') && ~strcmp(char(opt.CodeRate),'N/A'), frontResult.CodeRate = opt.CodeRate; end
     if isfield(opt,'channelCoding'),         frontResult.channelCoding = opt.channelCoding; end
@@ -281,7 +283,8 @@ function [res, ctx] = runOneShot(opt)
         end
         if contains(codeKey,'tpc')
             args = [args, {'TPCCodeRate', localTPCCodeRateValue(opt), ...
-                           'TPCBlocksPerTF', tpcBlocksPerTF}];
+                           'TPCBlocksPerTF', tpcBlocksPerTF, ...
+                           'TPCInterleaver', localTPCInterleaverValue(opt)}];
         end
 
         if isfield(opt,'RolloffFactor'), rolloff = str2double(string(opt.RolloffFactor)); else, rolloff = 0.5; end
@@ -1721,6 +1724,14 @@ function value = localTPCCodeRateValue(opt)
     end
 end
 
+function value = localTPCInterleaverValue(opt)
+    value = getfieldwithdefault(opt, 'TPCInterleaver', ...
+        getfieldwithdefault(opt, 'tpcInterleaver', 'auto'));
+    if isstring(value)
+        value = char(value);
+    end
+end
+
 function rate = localTPCEffectiveRate(rawRate)
     side = localTPCPayloadSideLength(rawRate);
     rate = (side * side) / (64 * 64);
@@ -2429,7 +2440,8 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     usesTransferFrameBytes = any(strcmp(tmCodeKey, ["none", "convolutional", "tpc"])) || isLDPCOnSMTF;
     if contains(tmCodeKey,'tpc')
         decArgs = [decArgs, {'TPCCodeRate', localTPCCodeRateValue(opt), ...
-                             'TPCBlocksPerTF', getfieldwithdefault(opt, 'TPCBlocksPerTF', 1)}];
+                             'TPCBlocksPerTF', getfieldwithdefault(opt, 'TPCBlocksPerTF', 1), ...
+                             'TPCInterleaver', localTPCInterleaverValue(opt)}];
     end
     if usesTransferFrameBytes
         decArgs = [decArgs, {'NumBytesInTransferFrame',numBytesTF}];
@@ -2753,8 +2765,56 @@ function localTPCPrintEncodedBoundaryDebug(demodData, txEncodedBits, tmMod)
     end
 
     if best.len > 0
+        assignin('base', 'debugTPC_demodBestOffset', best.offset);
+        assignin('base', 'debugTPC_demodBestPolarity', best.polarity);
         fprintf('   [TPC DEBUG] demod-vs-encoded (%s): bestOffset=%d bits, polarity=%+d, hardBER=%.6g (%d/%d)\n', ...
             char(tmMod), best.offset, best.polarity, best.err / best.len, best.err, best.len);
+        localTPCPrintBitPlaneDebug(demodData, txBits, tmMod, best);
+    end
+end
+
+function localTPCPrintBitPlaneDebug(demodData, txBits, tmMod, best)
+    bitsPerSym = localBitsPerSymbolForDebug(tmMod);
+    if bitsPerSym <= 1 || best.len <= 0
+        return;
+    end
+
+    rxSoft = double(demodData(:));
+    rxSoft = rxSoft(best.offset+1:best.offset+best.len);
+    if best.polarity < 0
+        rxSoft = -rxSoft;
+    end
+    rxHard = int8(rxSoft > 0);
+    txAlign = int8(txBits(1:best.len));
+
+    fprintf('   [TPC DEBUG] bit-plane hardBER/soft | ');
+    for iPlane = 1:bitsPerSym
+        idx = iPlane:bitsPerSym:best.len;
+        if isempty(idx)
+            continue;
+        end
+        nErr = nnz(rxHard(idx) ~= txAlign(idx));
+        planeBER = nErr / numel(idx);
+        meanAbsSoft = mean(abs(rxSoft(idx)));
+        hardOnePct = 100 * mean(rxHard(idx) ~= 0);
+        fprintf('b%d:BER=%.4g,|s|=%.3g,1=%.1f%%; ', ...
+            iPlane, planeBER, meanAbsSoft, hardOnePct);
+    end
+    fprintf('\n');
+end
+
+function bitsPerSym = localBitsPerSymbolForDebug(tmMod)
+    modKey = upper(strtrim(char(tmMod)));
+    if contains(modKey, '32QAM')
+        bitsPerSym = 5;
+    elseif contains(modKey, '16QAM') || contains(modKey, '16APSK')
+        bitsPerSym = 4;
+    elseif contains(modKey, '8PSK')
+        bitsPerSym = 3;
+    elseif contains(modKey, 'QPSK') || contains(modKey, 'OQPSK') || contains(modKey, 'UQPSK')
+        bitsPerSym = 2;
+    else
+        bitsPerSym = 1;
     end
 end
 

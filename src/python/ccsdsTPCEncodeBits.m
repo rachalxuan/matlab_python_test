@@ -5,6 +5,7 @@ function [encodedBits, info] = ccsdsTPCEncodeBits(bits, hasASM, asmBits, varargi
     p = inputParser;
     addParameter(p, 'TPCCodeRate', 'native');
     addParameter(p, 'TPCBlocksPerTF', 1);
+    addParameter(p, 'TPCInterleaver', 'auto');
     parse(p, varargin{:});
 
     m = 6;
@@ -18,6 +19,9 @@ function [encodedBits, info] = ccsdsTPCEncodeBits(bits, hasASM, asmBits, varargi
     codeLen = N * N;
     [payloadSideLen, rateLabel] = localTPCPayloadSideLength(p.Results.TPCCodeRate, k);
     payloadLen = payloadSideLen * payloadSideLen;
+    payloadIdx = localTPCPayloadIndices(rateLabel, payloadSideLen, k);
+    interleaverMode = localTPCInterleaverMode(p.Results.TPCInterleaver, rateLabel);
+    interleaverIdx = localTPCInterleaverIndices(codeLen, interleaverMode);
     blocksPerTF = localPositiveInteger(p.Results.TPCBlocksPerTF, 1);
     tfPayloadLen = payloadLen * blocksPerTF;
 
@@ -46,10 +50,10 @@ function [encodedBits, info] = ccsdsTPCEncodeBits(bits, hasASM, asmBits, varargi
             globalBlock = (iTF-1)*blocksPerTF + jBlock;
             inIdx = (globalBlock-1)*payloadLen+1:globalBlock*payloadLen;
             msg = zeros(k, k);
-            msg(1:payloadSideLen, 1:payloadSideLen) = ...
-                reshape(double(bits(inIdx)), payloadSideLen, payloadSideLen);
+            msg(payloadIdx) = double(bits(inIdx));
             encout = TPC_encoder(msg, n, k, G, genpoly);
             cw = int8(encout(:));
+            cw = cw(interleaverIdx);
 
             codedFrame(writePos:writePos+codeLen-1) = cw;
             writePos = writePos + codeLen;
@@ -65,6 +69,8 @@ function [encodedBits, info] = ccsdsTPCEncodeBits(bits, hasASM, asmBits, varargi
     info.TPCCodeRate = rateLabel;
     info.NativeInfoBlockBits = infoLen;
     info.PayloadSideBits = payloadSideLen;
+    info.PayloadMaskMode = localTPCPayloadMaskMode(rateLabel);
+    info.TPCInterleaver = interleaverMode;
     info.InfoBlockBits = payloadLen;
     info.CodeBlockBits = codeLen;
     info.TPCBlocksPerTF = blocksPerTF;
@@ -75,6 +81,50 @@ function [encodedBits, info] = ccsdsTPCEncodeBits(bits, hasASM, asmBits, varargi
     info.InfoBitsPerTransferFrame = tfPayloadLen;
     info.CodeRate = payloadLen / codeLen;
     info.NativeCodeRate = infoLen / codeLen;
+end
+
+function idx = localTPCPayloadIndices(rateLabel, payloadSideLen, nativeSideLen)
+    mask = false(nativeSideLen, nativeSideLen);
+    mask(1:payloadSideLen, 1:payloadSideLen) = true;
+    idx = find(mask);
+end
+
+function mode = localTPCPayloadMaskMode(rateLabel)
+    mode = 'top-left-square';
+    if strcmp(rateLabel, '1/2')
+        mode = 'top-left-square-with-codeword-interleaver';
+    end
+end
+
+function mode = localTPCInterleaverMode(rawMode, rateLabel)
+    if nargin < 1 || isempty(rawMode)
+        rawMode = 'auto';
+    end
+    mode = lower(strtrim(char(rawMode)));
+    switch mode
+        case {'auto','default'}
+            if strcmp(rateLabel, '1/2')
+                mode = 'block';
+            else
+                mode = 'none';
+            end
+        case {'none','off','bypass'}
+            mode = 'none';
+        case {'block','codeword','on'}
+            mode = 'block';
+        otherwise
+            error('ccsdsTPCEncodeBits:InvalidTPCInterleaver', ...
+                'Unsupported TPCInterleaver="%s". Use auto, none, or block.', ...
+                char(string(rawMode)));
+    end
+end
+
+function idx = localTPCInterleaverIndices(codeLen, mode)
+    idx = (1:codeLen).';
+    if strcmp(mode, 'block')
+        step = 257;
+        idx = mod((0:codeLen-1).' * step, codeLen) + 1;
+    end
 end
 
 function [payloadSideLen, label] = localTPCPayloadSideLength(rawRate, nativeSideLen)

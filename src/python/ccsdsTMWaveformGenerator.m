@@ -282,6 +282,10 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
         TPCCodeRate = 'native'
         % TPCBlocksPerTF Number of TPC codewords in one coded transfer frame.
         TPCBlocksPerTF = 1
+        % TPCInterleaver Codeword interleaver mode for TPC.
+        %   "auto" enables a 4096-bit codeword interleaver for TPC 1/2 and
+        %   leaves other TPC rates unchanged. Use "none" to bypass it.
+        TPCInterleaver = 'auto'
     end
     % Read-only properties
     properties(SetAccess = private)
@@ -682,6 +686,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             s.RandomizerMode = obj.RandomizerMode;
             s.TPCCodeRate = obj.TPCCodeRate;
             s.TPCBlocksPerTF = obj.TPCBlocksPerTF;
+            s.TPCInterleaver = obj.TPCInterleaver;
             if isLocked(obj)
                 % Save inherited properties
                 s.pIsFACM = obj.pIsFACM;
@@ -739,6 +744,9 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             end
             if isfield(s,'TPCBlocksPerTF')
                 obj.TPCBlocksPerTF = s.TPCBlocksPerTF;
+            end
+            if isfield(s,'TPCInterleaver')
+                obj.TPCInterleaver = s.TPCInterleaver;
             end
             if wasLocked
                 % Save inherited properties
@@ -843,6 +851,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             elseif strcmp(prop,'TPCCodeRate')
                 flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
             elseif strcmp(prop,'TPCBlocksPerTF')
+                flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
+            elseif strcmp(prop,'TPCInterleaver')
                 flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
             elseif strcmp(prop,'HasRandomizer')
                 flag = smtfFlag;
@@ -1007,6 +1017,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 'CodeRate',...
                 'TPCCodeRate',...
                 'TPCBlocksPerTF',...
+                'TPCInterleaver',...
                 'RSMessageLength',...
                 'RSInterleavingDepth',...
                 'IsRSMessageShortened',...
@@ -1256,7 +1267,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     end
                     encoded = ccsdsTPCEncodeBits(randomized, HasASM, obj.pASM, ...
                         'TPCCodeRate', obj.TPCCodeRate, ...
-                        'TPCBlocksPerTF', obj.TPCBlocksPerTF);
+                        'TPCBlocksPerTF', obj.TPCBlocksPerTF, ...
+                        'TPCInterleaver', obj.TPCInterleaver);
                 case 'LDPC'
                     numBitsInCADU = obj.pInverseCodeRate*tfl+HasASM*length(obj.pASM);
                     encoded = zeros(numBitsInCADU*numTF,1,'int8');

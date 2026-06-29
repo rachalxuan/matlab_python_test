@@ -110,6 +110,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         TPCCodeRate = 'native'
         % TPCBlocksPerTF Number of TPC codewords contained in one coded TF.
         TPCBlocksPerTF = 1
+        % TPCInterleaver Codeword deinterleaver mode for TPC.
+        %   Must match the transmitter-side TPCInterleaver setting.
+        TPCInterleaver = 'auto'
     end
 
     methods
@@ -806,10 +809,11 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                         txEncDbg = evalin('base','debugTPC_encodedBits');
                                         localTPCDecoderBoundaryDebug(cwSoft(:,iWord), txEncDbg, ...
                                             length(obj.pASM)*obj.HasASM, codeLen, iWord, ...
-                                            localPositiveInteger(obj.TPCBlocksPerTF, 1));
+                                            localPositiveInteger(obj.TPCBlocksPerTF, 1), bestPos);
                                     end
                                     [msg, ~] = ccsdsTPCDecodeSoft(cwSoft(:,iWord), ...
-                                        'TPCCodeRate', obj.TPCCodeRate);
+                                        'TPCCodeRate', obj.TPCCodeRate, ...
+                                        'TPCInterleaver', obj.TPCInterleaver);
                                     y((iWord-1)*infoLen+1:iWord*infoLen) = msg(:);
                                 end
 
@@ -1184,6 +1188,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             s.RandomizerMode = obj.RandomizerMode;
             s.TPCCodeRate = obj.TPCCodeRate;
             s.TPCBlocksPerTF = obj.TPCBlocksPerTF;
+            s.TPCInterleaver = obj.TPCInterleaver;
             s.ViterbiTraceBackDepth = obj.ViterbiTraceBackDepth;
             s.ViterbiTrellis = obj.ViterbiTrellis;
             s.ViterbiWordLength = obj.ViterbiTrellis;
@@ -1209,6 +1214,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             end
             if isfield(s,'TPCBlocksPerTF')
                 obj.TPCBlocksPerTF = s.TPCBlocksPerTF;
+            end
+            if isfield(s,'TPCInterleaver')
+                obj.TPCInterleaver = s.TPCInterleaver;
             end
 
             if wasLocked
@@ -1258,6 +1266,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
             elseif strcmp(prop,'TPCBlocksPerTF')
                 flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
+            elseif strcmp(prop,'TPCInterleaver')
+                flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
             elseif strcmp(prop,'NumBitsInInformationBlock')
                 flag = ~any(strcmp(obj.ChannelCoding,{'LDPC','turbo'})) || isFACM;
             elseif strcmp(prop,'IsLDPCOnSMTF')
@@ -1303,6 +1313,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 'CodeRate',...
                 'TPCCodeRate',...
                 'TPCBlocksPerTF',...
+                'TPCInterleaver',...
                 'NumBitsInInformationBlock',...
                 'IsLDPCOnSMTF',...
                 'LDPCCodeblockSize',...
@@ -1579,9 +1590,12 @@ function value = localPositiveInteger(rawValue, defaultValue)
     value = max(1, round(value));
 end
 
-function localTPCDecoderBoundaryDebug(cwSoft, txEncodedBits, syncLen, codeLen, wordIndex, blocksPerTF)
+function localTPCDecoderBoundaryDebug(cwSoft, txEncodedBits, syncLen, codeLen, wordIndex, blocksPerTF, rxSyncPos)
     if nargin < 6 || isempty(blocksPerTF)
         blocksPerTF = 1;
+    end
+    if nargin < 7 || isempty(rxSyncPos)
+        rxSyncPos = NaN;
     end
     blocksPerTF = localPositiveInteger(blocksPerTF, 1);
     txEncodedBits = int8(txEncodedBits(:) ~= 0);
@@ -1594,6 +1608,42 @@ function localTPCDecoderBoundaryDebug(cwSoft, txEncodedBits, syncLen, codeLen, w
     numTxFrames = floor(numel(txEncodedBits) / codedTFLen);
     if numTxFrames < 1
         return;
+    end
+
+    if evalin('base','exist(''debugTPC_demodBestOffset'',''var'')') && isfinite(rxSyncPos)
+        demodOffset = evalin('base','debugTPC_demodBestOffset');
+        demodOffset = double(demodOffset);
+        rxFrameIndex = floor((wordIndex-1) / blocksPerTF) + 1;
+        rxBlockInFrame = mod(wordIndex-1, blocksPerTF) + 1;
+        rxCodeStart = double(rxSyncPos) + syncLen + ...
+            (rxFrameIndex-1) * codedTFLen + (rxBlockInFrame-1) * codeLen;
+        txCodeStart = round(rxCodeStart - demodOffset);
+        txCodeStop = txCodeStart + codeLen - 1;
+
+        if txCodeStart >= 1 && txCodeStop <= numel(txEncodedBits)
+            txFrameIndex = floor((txCodeStart-1) / codedTFLen) + 1;
+            txFrameStart = (txFrameIndex-1) * codedTFLen + 1;
+            txBlockInFrame = floor((txCodeStart - txFrameStart - syncLen) / codeLen) + 1;
+            txCW = txEncodedBits(txCodeStart:txCodeStop);
+            errPos = nnz(cwHard0 ~= txCW);
+            errNeg = nnz(int8(~logical(cwHard0)) ~= txCW);
+            if errPos <= errNeg
+                expectedPolarity = 1;
+                expectedErr = errPos;
+                expectedSoft = double(cwSoft(:));
+            else
+                expectedPolarity = -1;
+                expectedErr = errNeg;
+                expectedSoft = -double(cwSoft(:));
+            end
+            fprintf('[TPC DEBUG] decoder cwSoft word=%d expectedTxFrame=%d block=%d txStart=%d polarity=%+d hardBER=%.6g (%d/%d), |soft|=%.3g, softMean=%+.3g, hard1=%.1f%%\n', ...
+                wordIndex, txFrameIndex, txBlockInFrame, txCodeStart, ...
+                expectedPolarity, expectedErr/codeLen, expectedErr, codeLen, ...
+                mean(abs(expectedSoft)), mean(expectedSoft), 100*mean(expectedSoft > 0));
+        else
+            fprintf('[TPC DEBUG] decoder cwSoft word=%d expectedTxStart=%d outside tx range (rxSyncPos=%g, demodOffset=%g)\n', ...
+                wordIndex, txCodeStart, rxSyncPos, demodOffset);
+        end
     end
 
     bestErr = inf;
@@ -1632,7 +1682,7 @@ function localTPCDecoderBoundaryDebug(cwSoft, txEncodedBits, syncLen, codeLen, w
     end
 
     if bestLen > 0
-        fprintf('[TPC DEBUG] decoder cwSoft word=%d bestTxFrame=%d block=%d globalBlock=%d polarity=%+d hardBER=%.6g (%d/%d)\n', ...
+        fprintf('[TPC DEBUG] decoder cwSoft word=%d globalBestTxFrame=%d block=%d globalBlock=%d polarity=%+d hardBER=%.6g (%d/%d)\n', ...
             wordIndex, bestFrame, bestBlockInFrame, bestGlobalBlock, ...
             bestPolarity, bestErr/bestLen, bestErr, bestLen);
     end

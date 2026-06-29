@@ -33,8 +33,8 @@ function results = sweep_tpc_modulations(snrList, modList, tpcCodeRateList, tpcB
         snrList = 0:2:20;
     end
     if nargin < 2 || isempty(modList)
-%         modList = ["BPSK","QPSK","8PSK","GMSK","16QAM","32QAM"];
-        modList = ["32QAM"];
+        modList = ["BPSK","QPSK","8PSK","GMSK","16QAM","32QAM"];
+%         modList = ["32QAM"];
     end
     modList = localStringList(modList);
     if nargin < 3 || isempty(tpcCodeRateList)
@@ -98,16 +98,21 @@ function cfg = localDefaultConfig(snrList, modList, tpcCodeRateList, tpcBlocksPe
 %     validTPC = localValidTPCCases(cfg.tpcCodeRateList, cfg.tpcBlocksPerTFList);
     % =========================
     % FIXED VALID TPC DESIGN SPACE
-    % =========================
+%     % =========================
+%            struct('TPCCodeRate',"2/3",'TPCBlocksPerTF',2)
+%        struct('TPCCodeRate',"2/3",'TPCBlocksPerTF',3)
+%        struct('TPCCodeRate',"2/3",'TPCBlocksPerTF',4)
+%        struct('TPCCodeRate',"2/3",'TPCBlocksPerTF',5)
+%        struct('TPCCodeRate',"2/3",'TPCBlocksPerTF',6)
    validTPC = [
        struct('TPCCodeRate',"2/3",'TPCBlocksPerTF',1)
-       struct('TPCCodeRate',"2/3",'TPCBlocksPerTF',2)
-       struct('TPCCodeRate',"2/3",'TPCBlocksPerTF',3)
        struct('TPCCodeRate',"2/3",'TPCBlocksPerTF',4)
        struct('TPCCodeRate',"2/3",'TPCBlocksPerTF',5)
        struct('TPCCodeRate',"2/3",'TPCBlocksPerTF',6)
 
+
        struct('TPCCodeRate',"1/2",'TPCBlocksPerTF',8)
+
        ];
     cfg.cases = repmat(struct('Name',"", 'TPCCodeRate',"", 'TPCBlocksPerTF',0, ...
     'Params',common, 'Note',""), 0, 1);
