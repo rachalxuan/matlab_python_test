@@ -645,10 +645,11 @@ const CCSDSPlatform = () => {
       delete payload.hDamageLevel;
 
       if (payload.modType === "16APSK" || payload.modType === "32APSK") {
-        payload.ACMFormat = Number(payload.acmFormat);
-        payload.hasPilots = true;
-        payload.facmWarmupFrames = 7;
-        payload.facmBERFrames = 20;
+        payload.useFACM = false;
+        payload.HasTMAPSKPilots = true;
+        payload.TMAPSKPilotInterval = 512;
+        payload.TMAPSKPilotLength = 32;
+        payload.TMAPSKPilotPreambleLength = 64;
       }
       delete payload.acmFormat;
 

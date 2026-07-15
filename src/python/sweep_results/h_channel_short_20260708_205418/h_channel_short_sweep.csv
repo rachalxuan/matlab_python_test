@@ -1,0 +1,2 @@
+CaseIndex,Scenario,ModType,ChannelCoding,Rate,NumBytesInTransferFrame,NumBitsInInformationBlock,IsLDPCOnSMTF,TPCBlocksPerTF,HEnabled,EqualizerEnabled,NormalizeHChannel,NormalizeEqualizerOutput,BER,LockRate_pct,FER,CountedFrames,MatchedFrames,EVM_post_pct,MER_dB,SNR_est_dB,ResidualCFO_Hz,HGain_dB,HNormalizationGain_dB,HMeanCoeffMagnitude,Success,Status,ErrorMessage,Runtime_s
+1,NoH_baseline,QPSK,none,none,1115,NaN,0,NaN,0,0,0,0,0,100,0,24,45,1.51323471604189,36.4018740770005,36.4018740769964,-0.00193352109573784,0,NaN,NaN,1,OK,,8.5460481

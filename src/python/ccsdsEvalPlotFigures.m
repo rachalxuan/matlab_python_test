@@ -16,6 +16,8 @@ switch kind
         plotPipeline(res, ctx, opt);
     case {'damagebudget', 'damage_budget', 'budget'}
         plotDamageBudget(res, ctx, opt);
+    case {'channelpower', 'channel_power', 'power', 'rfpower', 'rf_power'}
+        plotChannelPowerAndSpectrum(res, ctx, opt);
     otherwise
         error('Unknown CCSDS plot kind: %s', kind);
 end
@@ -254,6 +256,92 @@ function plotDamageBudget(res, ctx, opt) %#ok<INUSD>
         res.modType, res.LockRate*100));
 end
 
+function plotChannelPowerAndSpectrum(res, ctx, opt)
+    if isfield(ctx,'channelInput') && ~isempty(ctx.channelInput)
+        sigIn = ctx.channelInput(:);
+    else
+        sigIn = ctx.txWaveform(:);
+    end
+
+    if isfield(ctx,'channelOutput') && ~isempty(ctx.channelOutput)
+        sigOut = ctx.channelOutput(:);
+        outLabel = '信道输出';
+    elseif isfield(ctx,'rxNoisyWaveform') && ~isempty(ctx.rxNoisyWaveform)
+        sigOut = ctx.rxNoisyWaveform(:);
+        outLabel = '加噪后接收信号';
+    else
+        sigOut = ctx.rxWaveform(:);
+        outLabel = '接收端波形';
+    end
+
+    if isempty(sigIn) || isempty(sigOut)
+        return;
+    end
+
+    Fs = ctx.Fs;
+    inputLevelDbm = getPlotNumeric(opt, ...
+        {'inputLevelDbm','input_level_dbm','outputPowerDbm','output_power_dbm'}, 0);
+    centerHz = getPlotNumeric(res, ...
+        {'centerFrequencyHz','centerFrequency','centerFreqHz','IFHz','carrierFreqHz'}, ...
+        getPlotNumeric(opt, {'centerFrequencyHz','centerFrequency','centerFreqHz','IFHz','carrierFreqHz'}, 0));
+
+    inputColor = [0.00 0.28 0.85];
+    outputColor = [0.90 0.22 0.05];
+
+    fig = figure('Name','CCSDS 信道功率与频谱','NumberTitle','off', ...
+        'Position',[120 90 1250 760]);
+    set(fig, 'DefaultAxesFontName', 'Microsoft YaHei', ...
+        'DefaultTextFontName', 'Microsoft YaHei');
+
+    subplot(2,1,1);
+    sampleCount = min([5000, numel(sigIn), numel(sigOut)]);
+    tMs = (0:sampleCount-1) / Fs * 1000;
+    pInDbm = calibratedPowerDbm(sigIn(1:sampleCount), sigIn, inputLevelDbm);
+    pOutDbm = calibratedPowerDbm(sigOut(1:sampleCount), sigIn, inputLevelDbm);
+    avgInDbm = calibratedAveragePowerDbm(sigIn, sigIn, inputLevelDbm);
+    avgOutDbm = calibratedAveragePowerDbm(sigOut, sigIn, inputLevelDbm);
+
+    hOut = plot(tMs, pOutDbm, 'Color', outputColor, 'LineWidth', 0.75); hold on;
+    hIn = plot(tMs, pInDbm, 'Color', inputColor, 'LineWidth', 1.05);
+    hAvgIn = line([tMs(1) tMs(end)], [avgInDbm avgInDbm], ...
+        'Color', inputColor, 'LineStyle', '--', 'LineWidth', 1.2);
+    hAvgOut = line([tMs(1) tMs(end)], [avgOutDbm avgOutDbm], ...
+        'Color', outputColor, 'LineStyle', ':', 'LineWidth', 1.4);
+    grid on;
+    xlabel('时间 (ms)');
+    ylabel('瞬时功率 (dBm)');
+    title(sprintf('信道输入/输出瞬时功率 | 输出-输入 = %+0.2f dB', ...
+        avgOutDbm - avgInDbm));
+    legend([hIn hOut hAvgIn hAvgOut], ...
+        '信道输入瞬时功率', [outLabel '瞬时功率'], ...
+        sprintf('输入平均 %.2f dBm', avgInDbm), ...
+        sprintf('输出平均 %.2f dBm', avgOutDbm), ...
+        'Location','best');
+
+    subplot(2,1,2);
+    fftCount = min(65536, 2^nextpow2(max(16, min([numel(sigIn), numel(sigOut), 65536]))));
+    specInSeg = sigIn(1:min(numel(sigIn), fftCount));
+    specOutSeg = sigOut(1:min(numel(sigOut), fftCount));
+    winIn = localRaisedCosineWindow(numel(specInSeg));
+    winOut = localRaisedCosineWindow(numel(specOutSeg));
+    specIn = fftshift(fft(specInSeg(:).*winIn(:), fftCount));
+    specOut = fftshift(fft(specOutSeg(:).*winOut(:), fftCount));
+    psdIn = calibratedPsdDbmHz(specIn, winIn, Fs, sigIn, inputLevelDbm);
+    psdOut = calibratedPsdDbmHz(specOut, winOut, Fs, sigIn, inputLevelDbm);
+    fHz = (-fftCount/2:fftCount/2-1).' / fftCount * Fs + centerHz;
+    hPsdOut = plot(fHz/1e6, psdOut, 'Color', outputColor, 'LineWidth', 0.85); hold on;
+    hPsdIn = plot(fHz/1e6, psdIn, 'Color', inputColor, 'LineWidth', 1.15);
+    grid on;
+    xlabel('频率 (MHz)');
+    ylabel('功率谱密度 (dBm/Hz)');
+    if centerHz > 0
+        title(sprintf('频谱对比 | 中心频率 %.6g MHz', centerHz/1e6));
+    else
+        title('基带频谱对比');
+    end
+    legend([hPsdIn hPsdOut], '信道输入 PSD', [outLabel ' PSD'], 'Location','best');
+end
+
 function plotConstellation(sym, refConst, ttl)
     if isempty(sym)
         text(0.3,0.5,'无数据'); axis off; return;
@@ -292,6 +380,70 @@ function plotPSDPair(x1, x2, Fs, label1, label2)
     plot(f/1e3, 10*log10(P2 + eps), 'r', 'LineWidth', 1.0);
     grid on; xlabel('频率 (kHz)'); ylabel('PSD (dB/Hz)');
     legend(label1, label2, 'Location', 'best');
+end
+
+function powerDbm = calibratedPowerDbm(x, referenceSignal, totalPowerDbm)
+    referencePower = mean(abs(referenceSignal(:)).^2);
+    if ~isfinite(referencePower) || referencePower <= 0
+        referencePower = 1;
+    end
+    relativePower = abs(x(:)).^2 / referencePower;
+    powerDbm = totalPowerDbm + 10*log10(max(relativePower, realmin));
+end
+
+function avgDbm = calibratedAveragePowerDbm(x, referenceSignal, totalPowerDbm)
+    referencePower = mean(abs(referenceSignal(:)).^2);
+    if ~isfinite(referencePower) || referencePower <= 0
+        referencePower = 1;
+    end
+    relativePower = mean(abs(x(:)).^2) / referencePower;
+    avgDbm = totalPowerDbm + 10*log10(max(relativePower, realmin));
+end
+
+function psdDbmHz = calibratedPsdDbmHz(spec, window, sampleRateHz, referenceSignal, totalPowerDbm)
+    windowPower = max(sum(abs(window(:)).^2), eps);
+    relativePsdHz = abs(spec(:)).^2/(sampleRateHz * windowPower);
+    referencePower = mean(abs(referenceSignal(:)).^2);
+    if ~isfinite(referencePower) || referencePower <= 0
+        referencePower = 1;
+    end
+    normalizedPsdHz = relativePsdHz / referencePower;
+    psdDbmHz = totalPowerDbm + 10*log10(max(normalizedPsdHz, realmin));
+end
+
+function window = localRaisedCosineWindow(n)
+    if n <= 1
+        window = ones(n, 1);
+    else
+        idx = (0:n-1).';
+        window = 0.5 - 0.5*cos(2*pi*idx/(n-1));
+    end
+end
+
+function value = getPlotNumeric(s, names, defaultValue)
+    value = defaultValue;
+    if nargin < 3
+        defaultValue = NaN;
+        value = defaultValue;
+    end
+    if isempty(s)
+        return;
+    end
+    for k = 1:numel(names)
+        name = names{k};
+        if isfield(s, name) && ~isempty(s.(name))
+            raw = s.(name);
+            if ischar(raw) || isstring(raw)
+                raw = str2double(strrep(string(raw), ',', ''));
+            end
+            raw = double(raw);
+            raw = raw(1);
+            if isfinite(raw)
+                value = raw;
+                return;
+            end
+        end
+    end
 end
 
 function plotSimpleEye(sym, modType)

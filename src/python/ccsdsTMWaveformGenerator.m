@@ -158,9 +158,9 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
     %                         % ACMFormat of 14 means that the modulation
     %                         % scheme is 16 APSK along with the number of
     %                         % input bits to SCCC encoder is 21358.
-    %   
+    %
     %   rng default % To get reproducible results
-    %   
+    %
     %   hasfilt = ~strcmp(tmWaveGen.PulseShapingFilter,"none");
     %
     %   % As there are 16 codewords in one PL frame for flexible advanced
@@ -168,15 +168,15 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
     %   % standard [3], multiply MinNumTransferFrames by 16 to get number
     %   % of transfer frames needed to generate one PL frame.
     %
-    %   NumTFForOnePLFrame = tmWaveGen.MinNumTransferFrames*16 
+    %   NumTFForOnePLFrame = tmWaveGen.MinNumTransferFrames*16
     %
     %   waveform = [];
-    %   
+    %
     %   for iTF = 1:NumTFForOnePLFrame
     %       bits = randi([0 1], tmWaveGen.NumInputBits, 1);
     %       waveform = [waveform;tmWaveGen(bits)];
     %   end
-    %   
+    %
     %   scatterplot(waveform); % Plot the constellation
     %   legend off;
     %
@@ -199,9 +199,9 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
     %
     %   % Generate waveform by passing all bits at once
     %   waveform = tmWaveGen(bits);
-    %   
+    %
     %   % Example 4:
-    %   % Generate CCSDS telemetry waveform with turbo channel coding with 
+    %   % Generate CCSDS telemetry waveform with turbo channel coding with
     %   % QPSK modulation and generate the waveform in multiple system
     %   % object calls.
     %
@@ -212,14 +212,14 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
     %   numTF = 10;
     %
     %   rng default % To get reproducible results
-    %   
+    %
     %   waveform = []; % Initialize waveform as null
     %
     %   for iTF = 1:numTF
     %       bits = randi([0 1], tmWaveGen.NumInputBits, 1);
     %       waveform = [waveform; tmWaveGen(bits)];
     %   end
-    %   
+    %
     %   % Example 5:
     %   % Generate CCSDS telemetry waveform with LDPC on stream of sync
     %   % marked transfer frames (SMTF) for one LDPC codeblock.
@@ -228,54 +228,59 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
     %       "NumBitsInInformationBlock", 4096, ...
     %       "IsLDPCOnSMTF", true, ...
     %       "Modulation", "BPSK")
-    %   
+    %
     %   % Calculate number of bits in one LDPC codeword
     %   n = tmWaveGen.NumBitsInInformationBlock/...
     %            tmWaveGen.info.ActualCodeRate
-    %   
+    %
     %   % Calculate number of transfer frames such that one LDPC
     %   % codeblock is generated
     %   NumTFForOneCodeblock = tmWaveGen.MinNumTransferFrames*...
     %                         tmWaveGen.LDPCCodeblockSize
-    %   
+    %
     %   % Calculate number of bits in one LDPC codeblock
     %   csmlen = 32*strcmp(tmWaveGen.CodeRate,"7/8") + ...
     %       64*(~strcmp(tmWaveGen.CodeRate,"7/8"));
     %   NumBitsInOneCodeblock = n*tmWaveGen.LDPCCodeblockSize + csmlen
-    %   
+    %
     %   % Calculate the number of samples that are there in one LDPC code
     %   % block
     %   NumSamplesInOneCodeblock = ceil(NumBitsInOneCodeblock*...
     %                              tmWaveGen.SamplesPerSymbol/...
     %                              tmWaveGen.info.NumBitsPerSymbol)
-    %   
+    %
     %   rng default % To get reproducible results
     %
     %   % Generate the bits that are needed to generate the waveform for
     %   % one LDPC codeblock
     %   bits = ...
     %        randi([0 1], NumTFForOneCodeblock*tmWaveGen.NumInputBits, 1);
-    %   
+    %
     %   % While generating waveform, pass additional zeros to flush any
     %   % bits in the buffers that are handled internal to the
     %   % ccsdsTMWaveformGenerator system object
     %   waveform = tmWaveGen([bits; ...
     %              zeros(NumTFForOneCodeblock*tmWaveGen.NumInputBits, 1)]);
-    %   
+    %
     %   txWaveform = waveform(1:NumSamplesInOneCodeblock);
     %
     %   See also ccsdsTCConfig, ccsdsTCWaveform, ccsdsTCIdealReceiver.
-    
+
     %   Copyright 2020 The MathWorks, Inc.
-    
+
     %#codegen
     properties
-        % RandomizerMode Randomizer insertion mode
-        %   "standard" uses the original CCSDS/MathWorks randomizer placement.
+        % RandomizerPosition Randomizer insertion position.
+        %   "preDecode" randomizes after coding so RX can derandomize before decoding.
+        %   "postDecode" randomizes before coding so RX can derandomize after decoding.
+        RandomizerPosition = 'preDecode'
+        % RandomizerPathMode Randomizer path mode.
+        %   "merge" randomizes the merged frame payload.
+        %   "split" randomizes split-path frame payloads.
         %   "bypass" disables randomizer.
-        %   "beforeCoding" randomizes before channel coding.
-        %   "afterCoding" randomizes after channel coding.
-        RandomizerMode = 'standard'
+        RandomizerPathMode = 'merge'
+        % SplitPathDebug Print TX split-path rail/interleave diagnostics.
+        SplitPathDebug = false
         % TPCCodeRate Effective shortened TPC rate.
         %   "native" uses 57x57/64x64. "1/2" uses 45x45/64x64.
         %   "2/3" uses 52x52/64x64.
@@ -286,6 +291,16 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
         %   "auto" enables a 4096-bit codeword interleaver for TPC 1/2 and
         %   leaves other TPC rates unchanged. Use "none" to bypass it.
         TPCInterleaver = 'auto'
+        % HasTMAPSKPilots Insert ordinary-TM APSK pilot symbols after mapping.
+        %   These pilots are physical-layer helpers and are removed before
+        %   APSK demapping at the receiver.
+        HasTMAPSKPilots = false
+        % TMAPSKPilotInterval Number of APSK data symbols between pilots.
+        TMAPSKPilotInterval = 512
+        % TMAPSKPilotLength Number of pilot symbols in each periodic block.
+        TMAPSKPilotLength = 32
+        % TMAPSKPilotPreambleLength Number of pilot symbols at stream start.
+        TMAPSKPilotPreambleLength = 64
     end
     % Read-only properties
     properties(SetAccess = private)
@@ -308,16 +323,18 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
         %   give non-empty output. This property is read-only.
         MinNumTransferFrames
     end
-    
+
     % Pre-computed constants
     properties(Nontunable, Access = private)
         pConvEncInLen
         pNumModInBits = 0 % This property is defined to be non-tunable to make code generation work
     end
-    
+
     properties(Access = private)
         pTransmitFilter % Filter object
         pDiffEnc % comm.DifferentialEncoder object to be used while using NRZ-M
+        pDiffEncI
+        pDiffEncQ
         pConvEnc % Convolutional encoder object to be used for convolutional coding, concatenated coding and 4D 8PSK TCM
         pConvEnc1 % 1st Convolutional encoder object to be used inside turbo encoder
         pConvEnc2 % 2nd Convolutional encoder object to be used inside turbo encoder
@@ -335,8 +352,14 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
         pInputBuffer
         pNumBitsInInputBuffer
         pCodewordIndex
+        pConvEncI
+        pConvEncQ
+        pInputBufferI
+        pInputBufferQ
+        pNumBitsInInputBufferI = 0
+        pNumBitsInInputBufferQ = 0
     end
-    
+
     methods
         % Constructor
         function obj = ccsdsTMWaveformGenerator(varargin)
@@ -344,11 +367,35 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             setProperties(obj,nargin,varargin{:})
         end
     end
-    
+
     methods(Access = protected)
         function setupImpl(obj)
             % Perform one-time calculations, such as computing constants
             setupImpl@satcom.internal.ccsds.tmBase(obj);
+            % 分路
+            isSplit = strcmpi(obj.RandomizerPathMode, 'split');
+            if isSplit
+                splitOkMods = {'QPSK','OQPSK','8PSK','16QAM','32QAM'};
+                splitOkCodes = {'none','RS','convolutional','LDPC','turbo'};
+
+                if obj.pIsFACM || (strcmp(obj.ChannelCoding,'LDPC') && obj.IsLDPCOnSMTF)
+                    error('ccsdsTMWaveformGenerator:SplitUnsupported', ...
+                        'split is only for ordinary TM path in Phase 1.');
+                end
+                if ~any(strcmp(obj.Modulation, splitOkMods))
+                    error('ccsdsTMWaveformGenerator:SplitUnsupportedModulation', ...
+                        ['split does not support Modulation="%s" in Phase 1. ', ...
+                         'Use QPSK, OQPSK, 8PSK, 16QAM, or 32QAM.'], ...
+                        obj.Modulation);
+                end
+                if ~any(strcmp(obj.ChannelCoding, splitOkCodes))
+                    error('ccsdsTMWaveformGenerator:SplitUnsupportedCoding', ...
+                        'split supports only none/RS/convolutional/ordinary LDPC/turbo in Phase 1. Add state duplication before enabling "%s".', obj.ChannelCoding);
+                end
+            end
+            localValidateHighRateConvFrameLength(obj);
+
+
             sps = double(obj.SamplesPerSymbol);
             if obj.pIsFACM
                 obj.pInputBuffer = zeros(obj.pK,1,'int8');
@@ -376,6 +423,14 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         end
                         temp = obj.pPRNSequenceLength + length(obj.pASM)*obj.HasASM;
                         obj.pConvEncInLen = temp - mod(temp,length(obj.pConvEnc.PuncturePattern)/2)*(~strcmp(obj.ConvolutionalCodeRate,'1/2'));
+                        if isSplit && strcmp(obj.ChannelCoding,'convolutional')
+                            obj.pConvEncI = createConvEncoder(obj);
+                            obj.pConvEncQ = createConvEncoder(obj);
+                            obj.pInputBufferI = zeros(obj.pConvEncInLen,1,'int8');
+                            obj.pInputBufferQ = zeros(obj.pConvEncInLen,1,'int8');
+                            obj.pNumBitsInInputBufferI = 0;
+                            obj.pNumBitsInInputBufferQ = 0;
+                        end
                     case 'turbo'
                         obj.pConvEnc1 = comm.ConvolutionalEncoder('TrellisStructure',...
                             obj.TurboTrellis, 'TerminationMethod', 'Terminated');
@@ -395,7 +450,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         end
                         obj.pLDPCGeneratorMatrix = satcom.internal.ccsds.getTMLDPCGeneratorMatrix(k, invr);
                 end
-                
+
                 if any(strcmp(obj.ChannelCoding, {'convolutional','concatenated'}))
                     temp = obj.pInverseCodeRate*obj.pConvEncInLen;
                 else
@@ -419,6 +474,16 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                          obj.pNumBitsInpModInputBuffer = 0;
                      % additional 32QAM
                     case '32QAM'
+                        bitsPerSymbol = 5;
+                        obj.pNumModInBits = temp - mod(temp,bitsPerSymbol);
+                        obj.pModInputBuffer = zeros(obj.pNumModInBits,1,'int8');
+                        obj.pNumBitsInpModInputBuffer = 0;
+                    case '16APSK'
+                        bitsPerSymbol = 4;
+                        obj.pNumModInBits = temp - mod(temp,bitsPerSymbol);
+                        obj.pModInputBuffer = zeros(obj.pNumModInBits,1,'int8');
+                        obj.pNumBitsInpModInputBuffer = 0;
+                    case '32APSK'
                         bitsPerSymbol = 5;
                         obj.pNumModInBits = temp - mod(temp,bitsPerSymbol);
                         obj.pModInputBuffer = zeros(obj.pNumModInBits,1,'int8');
@@ -470,11 +535,15 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 obj.pModInputBuffer = zeros(obj.pNumModInBits,1,'int8');
                 obj.pNumBitsInpModInputBuffer = 0;
             end
-            
+
             if any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
                 obj.pDiffEnc = comm.DifferentialEncoder;
+                if isSplit && strcmp(obj.ChannelCoding,'convolutional')
+                    obj.pDiffEncI = comm.DifferentialEncoder;
+                    obj.pDiffEncQ = comm.DifferentialEncoder;
+                end
             end
-            
+
             if ~strcmp(obj.PulseShapingFilter,'none') && ~any(strcmp(obj.Modulation,{'GMSK','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'}))
                 obj.pTransmitFilter = comm.RaisedCosineTransmitFilter(...
                     'RolloffFactor', double(obj.RolloffFactor), 'FilterSpanInSymbols', ...
@@ -490,42 +559,42 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 obj.pGain =  1/sum(b);
             end
         end
-        
+
         function [waveform,encodedBits] = stepImpl(obj,bits)
-            
+
             if isempty(bits)
                 waveform = complex(zeros(0,1));
                 encodedBits = zeros(0,1,'int8');
                 return;
             end
-            
+
             validateattributes(bits,{'double','int8','logical'},...
                 {'nonnan','finite','column','binary'},mfilename,'BITS');
-            
-            
+
+
             if obj.pIsFACM || (obj.IsLDPCOnSMTF && strcmp(obj.ChannelCoding,'LDPC'))
                 k = obj.pK;
                 IVal = round(3*(k+2)/2); % See the Note in section 4.1.1.2 in [3]
                 n = obj.pLDPCCodeWordLength;
                 pilots = repmat((1+1j)/sqrt(2),16,15); % Pilots are 1+1j with 16 symbols in each sub-codeblock. See section 5.3.4 of [3]
                 NumTF = length(bits)/(obj.pTFLen*8);
-                
+
                 % Mode adaptation - see figure 2-2 in [3]
                 if obj.pIsFACM
                     randomized = bitxor(int8(bits(:)),repmat(obj.pPRNSequence,NumTF,1));
                 else % LDPC on SMTF
                     randomized = int8(bits);
                 end
-                
+
                 asmlen = length(obj.pASM);
-                
+
                 cadus = zeros(NumTF*asmlen+length(bits),1,'int8');
                 tflen = obj.pTFLen*8;
                 tfasmlen = tflen + asmlen;
                 for iTF = 1:NumTF
                     cadus((iTF-1)*tfasmlen+1:iTF*tfasmlen) = [obj.pASM;randomized((iTF-1)*tflen+1:iTF*tflen)];
                 end
-                
+
                 % Slicing, encoding and modulation
                 [slices,numSlices] = updateInputBuffer(obj,cadus);
                 OutputBuffer = complex(zeros(0,1));
@@ -541,7 +610,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                                 obj.pNumBitsPerSymbol,IVal,obj.pInterleavingIndices,obj.pSCCCPuncturePattern2);
                             % Modulation
                             sym = satcom.internal.ccsds.facmModulate(cw,obj.pNumBitsPerSymbol,obj.pRadii);
-                            
+
                             % Insert pilots
                             if obj.HasPilots
                                 s = [reshape(sym,540,15);pilots]; % See section 5.3.4 of [3]
@@ -549,11 +618,11 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                             else
                                 tsymbols = sym(:);
                             end
-                            
+
                             % Apply PL randomizer
                             randsym = obj.pPLRandomSymbols(:,obj.pCodewordIndex);
                             tsymbols = tsymbols.*randsym;
-                            
+
                             % Header insertion
                             if obj.pCodewordIndex == 1
                                 PLSymbols = [obj.pHeader; tsymbols];
@@ -570,13 +639,13 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                             end
                             PLSymbols = tmModulate(obj,cw);
                         end
-                        
+
                         % Update codeword index
                         obj.pCodewordIndex = mod(obj.pCodewordIndex + 1,obj.pMaxNumCW);
                         if obj.pCodewordIndex == 0
                             obj.pCodewordIndex = obj.pMaxNumCW;
                         end
-                        
+
                         previousSymbols = OutputBuffer;
                         OutputBuffer = [previousSymbols;PLSymbols];
                         previousbits = OutputBitsBuffer(:);
@@ -587,12 +656,35 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 encodedBits = OutputBitsBuffer(:);
             else
                 % Channel encoding, randomization and ASM insertion
-                encodedBits = tmEncode(obj,int8(bits));
-                
+                if strcmpi(obj.RandomizerPathMode, 'split')
+                    bits = int8(bits(:));
+                    if mod(numel(bits), 2) ~= 0
+                        error('ccsdsTMWaveformGenerator:SplitInputLength', ...
+                            'split input must be [msgI; msgQ] with equal lengths.');
+                    end
+
+                    half = numel(bits)/2;
+                    encI = tmEncode(obj, bits(1:half), 'I');
+                    encQ = tmEncode(obj, bits(half+1:end), 'Q');
+
+                    encodedBits = localSplitPackIQForModulation( ...
+                        encI, encQ, obj.Modulation, obj.SplitPathDebug);
+                    if obj.SplitPathDebug
+                        fprintf(['[SplitPath TX interleave] mode=split, input=[I;Q]=%d bits, ', ...
+                            'railInput=%d bits, encI=%d, encQ=%d, interleaved=%d, ', ...
+                            'mod=%s, coding=%s, randomizer=%s/%s\n'], ...
+                            numel(bits), half, numel(encI), numel(encQ), numel(encodedBits), ...
+                            char(obj.Modulation), char(obj.ChannelCoding), ...
+                            char(obj.RandomizerPosition), char(obj.RandomizerPathMode));
+                    end
+                else
+                    encodedBits = tmEncode(obj,int8(bits));
+                end
+
                 % Modulate the encoded bits
                 symbols = tmModulate(obj,encodedBits);
             end
-            
+
             % Pass the symbols through filter
             if strcmp(obj.PulseShapingFilter,"root raised cosine") && ~any(strcmp(obj.Modulation,{'GMSK','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'}))
                 if ~isempty(symbols)
@@ -604,35 +696,47 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 waveform = symbols;
             end
         end
-        
+
         function resetImpl(obj)
             % Initialize / reset discrete-state properties
-            
+
             % Reset the system objects that are used if they are defined
             if ~isempty(obj.pTransmitFilter)
                 reset(obj.pTransmitFilter);
             end
-            
+
             if ~isempty(obj.pDiffEnc)
                 reset(obj.pDiffEnc);
             end
-            
+            if ~isempty(obj.pDiffEncI)
+                reset(obj.pDiffEncI);
+            end
+            if ~isempty(obj.pDiffEncQ)
+                reset(obj.pDiffEncQ);
+            end
+
             if ~isempty(obj.pConvEnc)
                 reset(obj.pConvEnc);
             end
-            
+            if ~isempty(obj.pConvEncI)
+                reset(obj.pConvEncI);
+            end
+            if ~isempty(obj.pConvEncQ)
+                reset(obj.pConvEncQ);
+            end
+
             if ~isempty(obj.pConvEnc1)
                 reset(obj.pConvEnc1);
             end
-            
+
             if ~isempty(obj.pConvEnc2)
                 reset(obj.pConvEnc2);
             end
-            
+
             if ~isempty(obj.pMod)
                 reset(obj.pMod);
             end
-            
+
             % Reset the states of the system object
             obj.pInputBuffer = zeros(obj.pK,1,'int8');
             obj.pNumBitsInInputBuffer = 0;
@@ -641,11 +745,17 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             obj.pDiffEncState = zeros(3,1,'int8');
             obj.pSubcarrierPhase = 0;
             obj.pGMSKState = struct('altersymb',int8(1),'PrevLastSymb',int8(1));
-            
+
             if any(strcmp(obj.ChannelCoding,{'concatenated','convolutional'}))
                 obj.pInputBuffer = zeros(obj.pConvEncInLen,1,'int8');
             end
-            
+            if strcmpi(obj.RandomizerPathMode,'split') && strcmp(obj.ChannelCoding,'convolutional')
+                obj.pInputBufferI = zeros(obj.pConvEncInLen,1,'int8');
+                obj.pInputBufferQ = zeros(obj.pConvEncInLen,1,'int8');
+                obj.pNumBitsInInputBufferI = 0;
+                obj.pNumBitsInInputBufferQ = 0;
+            end
+
             obj.pModInputBuffer = zeros(round(obj.pNumModInBits(1)),1,'int8');
             obj.pNumBitsInpModInputBuffer = 0;
         end
@@ -655,35 +765,49 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             if ~isempty(obj.pTransmitFilter)
                 release(obj.pTransmitFilter);
             end
-            
+
             if ~isempty(obj.pDiffEnc)
                 release(obj.pDiffEnc);
             end
-            
+            if ~isempty(obj.pDiffEncI)
+                release(obj.pDiffEncI);
+            end
+            if ~isempty(obj.pDiffEncQ)
+                release(obj.pDiffEncQ);
+            end
+
             if ~isempty(obj.pConvEnc)
                 release(obj.pConvEnc);
             end
-            
+            if ~isempty(obj.pConvEncI)
+                release(obj.pConvEncI);
+            end
+            if ~isempty(obj.pConvEncQ)
+                release(obj.pConvEncQ);
+            end
+
             if ~isempty(obj.pConvEnc1)
                 release(obj.pConvEnc1);
             end
-            
+
             if ~isempty(obj.pConvEnc2)
                 release(obj.pConvEnc2);
             end
-            
+
             if ~isempty(obj.pMod)
                 release(obj.pMod);
             end
         end
-        
+
         %% Backup/restore functions
         function s = saveObjectImpl(obj)
             % Set properties in structure s to values in object obj
-            
+
             % Set public properties and states
             s = saveObjectImpl@satcom.internal.ccsds.tmBase(obj);
-            s.RandomizerMode = obj.RandomizerMode;
+            s.RandomizerPosition = obj.RandomizerPosition;
+            s.RandomizerPathMode = obj.RandomizerPathMode;
+            s.SplitPathDebug = obj.SplitPathDebug;
             s.TPCCodeRate = obj.TPCCodeRate;
             s.TPCBlocksPerTF = obj.TPCBlocksPerTF;
             s.TPCInterleaver = obj.TPCInterleaver;
@@ -717,7 +841,27 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 s.NumInputBits = obj.NumInputBits;
                 s.pTransmitFilter = matlab.System.saveObject(obj.pTransmitFilter);
                 s.pDiffEnc = matlab.System.saveObject(obj.pDiffEnc);
+                if ~isempty(obj.pDiffEncI)
+                    s.pDiffEncI = matlab.System.saveObject(obj.pDiffEncI);
+                else
+                    s.pDiffEncI = [];
+                end
+                if ~isempty(obj.pDiffEncQ)
+                    s.pDiffEncQ = matlab.System.saveObject(obj.pDiffEncQ);
+                else
+                    s.pDiffEncQ = [];
+                end
                 s.pConvEnc = matlab.System.saveObject(obj.pConvEnc);
+                if ~isempty(obj.pConvEncI)
+                    s.pConvEncI = matlab.System.saveObject(obj.pConvEncI);
+                else
+                    s.pConvEncI = [];
+                end
+                if ~isempty(obj.pConvEncQ)
+                    s.pConvEncQ = matlab.System.saveObject(obj.pConvEncQ);
+                else
+                    s.pConvEncQ = [];
+                end
                 s.pConvEnc1 = matlab.System.saveObject(obj.pConvEnc1);
                 s.pConvEnc2 = matlab.System.saveObject(obj.pConvEnc2);
                 s.pN = obj.pN;
@@ -728,16 +872,26 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 s.pGain = obj.pGain;
                 s.pGMSKState = obj.pGMSKState;
                 s.pConvEncInLen = obj.pConvEncInLen;
+                s.pInputBufferI = obj.pInputBufferI;
+                s.pInputBufferQ = obj.pInputBufferQ;
+                s.pNumBitsInInputBufferI = obj.pNumBitsInInputBufferI;
+                s.pNumBitsInInputBufferQ = obj.pNumBitsInInputBufferQ;
                 s.pModInputBuffer = obj.pModInputBuffer;
                 s.pNumBitsInpModInputBuffer = obj.pNumBitsInpModInputBuffer;
                 s.pNumModInBits = obj.pNumModInBits;
             end
         end
-        
+
         function loadObjectImpl(obj,s,wasLocked)
             % Set properties in object obj to values in structure s
-            if isfield(s,'RandomizerMode')
-                obj.RandomizerMode = s.RandomizerMode;
+            if isfield(s,'RandomizerPosition')
+                obj.RandomizerPosition = s.RandomizerPosition;
+            end
+            if isfield(s,'RandomizerPathMode')
+                obj.RandomizerPathMode = s.RandomizerPathMode;
+            end
+            if isfield(s,'SplitPathDebug')
+                obj.SplitPathDebug = s.SplitPathDebug;
             end
             if isfield(s,'TPCCodeRate')
                 obj.TPCCodeRate = s.TPCCodeRate;
@@ -770,7 +924,27 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 obj.NumInputBits = s.NumInputBits;
                 obj.pTransmitFilter = matlab.System.loadObject(s.pTransmitFilter);
                 obj.pDiffEnc = matlab.System.loadObject(s.pDiffEnc);
+                if isfield(s,'pDiffEncI') && ~isempty(s.pDiffEncI)
+                    obj.pDiffEncI = matlab.System.loadObject(s.pDiffEncI);
+                else
+                    obj.pDiffEncI = [];
+                end
+                if isfield(s,'pDiffEncQ') && ~isempty(s.pDiffEncQ)
+                    obj.pDiffEncQ = matlab.System.loadObject(s.pDiffEncQ);
+                else
+                    obj.pDiffEncQ = [];
+                end
                 obj.pConvEnc = matlab.System.loadObject(s.pConvEnc);
+                if isfield(s,'pConvEncI') && ~isempty(s.pConvEncI)
+                    obj.pConvEncI = matlab.System.loadObject(s.pConvEncI);
+                else
+                    obj.pConvEncI = [];
+                end
+                if isfield(s,'pConvEncQ') && ~isempty(s.pConvEncQ)
+                    obj.pConvEncQ = matlab.System.loadObject(s.pConvEncQ);
+                else
+                    obj.pConvEncQ = [];
+                end
                 obj.pConvEnc1 = matlab.System.loadObject(s.pConvEnc1);
                 obj.pConvEnc2 = matlab.System.loadObject(s.pConvEnc2);
                 obj.pN = s.pN;
@@ -782,6 +956,10 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 obj.pSubcarrierPhase = s.pSubcarrierPhase;
                 obj.pGMSKState = s.pGMSKState;
                 obj.pConvEncInLen = s.pConvEncInLen;
+                if isfield(s,'pInputBufferI'), obj.pInputBufferI = s.pInputBufferI; end
+                if isfield(s,'pInputBufferQ'), obj.pInputBufferQ = s.pInputBufferQ; end
+                if isfield(s,'pNumBitsInInputBufferI'), obj.pNumBitsInInputBufferI = s.pNumBitsInInputBufferI; end
+                if isfield(s,'pNumBitsInInputBufferQ'), obj.pNumBitsInInputBufferQ = s.pNumBitsInInputBufferQ; end
                 obj.pModInputBuffer = s.pModInputBuffer;
                 obj.pNumBitsInpModInputBuffer = s.pNumBitsInpModInputBuffer;
                 obj.pNumModInBits = s.pNumModInBits;
@@ -797,7 +975,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 obj.pPLRandomSymbols = s.pPLRandomSymbols;
             end
         end
-        
+
         %% Advanced functions
         function validateInputsImpl(obj,bits)
             % Validate inputs to the step method at initialization
@@ -805,19 +983,19 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             coder.internal.errorIf(logical(mod(numBits,obj.NumInputBits)),...
                 'satcom:ccsdsTMWaveformGenerator:InvalidTMDataLength');
         end
-        
+
         function validatePropertiesImpl(obj)
             % Validate related or interdependent property values
             validatePropertiesImpl@satcom.internal.ccsds.tmBase(obj);
         end
-        
+
         function processTunedPropertiesImpl(obj)
             % Perform actions when tunable properties change
             % between calls to the System object
             processTunedPropertiesImpl@satcom.internal.ccsds.tmBase(obj);
             if obj.pIsFACM
                 k = obj.pK; % pK is updated in the tmBase class
-                
+
                 if obj.pNumBitsInInputBuffer<=k
                     bufferBits = obj.pInputBuffer(1:obj.pNumBitsInInputBuffer);
                     obj.pInputBuffer = zeros(k,1,'int8');
@@ -825,7 +1003,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 end
             end
         end
-        
+
         function flag = isInactivePropertyImpl(obj,prop)
             flag = false;
             if strcmp(obj.WaveformSource, 'flexible advanced coding and modulation')
@@ -854,10 +1032,12 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
             elseif strcmp(prop,'TPCInterleaver')
                 flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
-            elseif strcmp(prop,'HasRandomizer')
+            elseif any(strcmp(prop,{'HasRandomizer','RandomizerPosition','RandomizerPathMode'}))
                 flag = smtfFlag;
             elseif strcmp(prop,'HasASM')
                 flag = smtfFlag;
+            elseif any(strcmp(prop,{'ASMLength','ASMHex'}))
+                flag = ~obj.HasASM || smtfFlag;
             elseif strcmp(prop,'NumBitsInInformationBlock')
                 flag = ~any(strcmp(obj.ChannelCoding,{'LDPC','turbo'})) || isFACM;
             elseif any(strcmp(prop,{'RSMessageLength','RSInterleavingDepth','IsRSMessageShortened'}))
@@ -918,7 +1098,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 flag = ~smtfFlag;
             end
         end
-        
+
         function s = infoImpl(obj)
             %info Returns physical layer information about CCSDS TM
             %waveform generation
@@ -938,7 +1118,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             %                         this property is not applicable and
             %                         returns empty value as output in
             %                         such cases.
-            
+
             if strcmp(obj.WaveformSource,'flexible advanced coding and modulation')
                 k = obj.K_Values(obj.ACMFormat);
                 m = obj.m_Values(obj.ACMFormat);
@@ -967,7 +1147,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     s.ActualCodeRate = localTPCEffectiveRate(obj.TPCCodeRate);
                     s.TPCBlocksPerTF = localPositiveInteger(obj.TPCBlocksPerTF, 1);
                     s.TPCInfoBitsPerTransferFrame = localTPCPayloadBits(obj.TPCCodeRate) * s.TPCBlocksPerTF;
-                    syncLen = 32 * double(logical(obj.HasASM));
+                    syncLen = localConfiguredASMLength(obj) * double(logical(obj.HasASM));
                     s.TPCCodedTransferFrameBits = syncLen + 64*64*s.TPCBlocksPerTF;
                 end
                 switch(obj.Modulation)
@@ -980,6 +1160,10 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         m = 4;
                      % additional 32QAM
                     case '32QAM'
+                        m = 5;
+                    case '16APSK'
+                        m = 4;
+                    case '32APSK'
                         m = 5;
                     case 'UQPSK'
                         m = 1.5;
@@ -1000,17 +1184,21 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             end
         end
     end
-    
+
     methods(Static, Access=protected)
         function groups = getPropertyGroupsImpl
             genprops = {'WaveformSource',...
                 'ACMFormat',...
                 'NumBytesInTransferFrame',...
                 'HasRandomizer',...
-                'RandomizerMode',...
+                'RandomizerPosition',...
+                'RandomizerPathMode',...
+                'SplitPathDebug',...
                 'HasASM',...
+                'ASMLength',...
+                'ASMHex',...
                 'PCMFormat'};
-            
+
             encProps = {'ChannelCoding',...
                 'NumBitsInInformationBlock',...
                 'ConvolutionalCodeRate',...
@@ -1024,7 +1212,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 'RSShortenedMessageLength',...
                 'IsLDPCOnSMTF',...
                 'LDPCCodeblockSize'};
-            
+
             modProps = {'Modulation',...
                 'PulseShapingFilter',...
                 'RolloffFactor',...
@@ -1038,14 +1226,14 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 'SamplesPerSymbol',...
                 'HasPilots',...
                 'ScramblingCodeNumber'};
-            
+
             readonlyprops = {'NumInputBits',...
                 'MinNumTransferFrames'};
-            
+
             encoderGroupTitle = "Channel coding";
             modulationGroupTitle = "Digital modulation and filter";
             readonlyGroupTitle = "Read-only";
-            
+
             generalGroup = matlab.system.display.SectionGroup('PropertyList', genprops);
             encoderGroup = matlab.system.display.SectionGroup('Title', ...
                 encoderGroupTitle, 'PropertyList', encProps);
@@ -1055,16 +1243,19 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             modulationGroup.IncludeInShortDisplay = true;
             readonlyGroup = matlab.system.display.SectionGroup('Title', ...
                 readonlyGroupTitle, 'PropertyList', readonlyprops);
-            
+
             groups = [generalGroup encoderGroup modulationGroup readonlyGroup];
         end
     end
-    
+
     methods % get and set methods
         function l = get.NumInputBits(obj)
             l = getNumBytesInTransferFrame(obj)*8;
+            if strcmpi(obj.RandomizerPathMode, 'split')
+                l = 2*l;
+            end
         end
-        
+
         function n = get.MinNumTransferFrames(obj)
             if strcmp(obj.WaveformSource,'flexible advanced coding and modulation') || (strcmp(obj.ChannelCoding,'LDPC') && obj.IsLDPCOnSMTF)
                 if strcmp(obj.WaveformSource, 'flexible advanced coding and modulation')
@@ -1072,28 +1263,91 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 else % LDPC on SMTF
                     k = double(obj.NumBitsInInformationBlock);
                 end
-                n = ceil(k/(32+getNumBytesInTransferFrame(obj)*8)); % 32 is the number of bits in ASM
+                asmLen = localConfiguredASMLength(obj);
+                n = ceil(k/(double(logical(obj.HasASM))*asmLen+getNumBytesInTransferFrame(obj)*8));
             else
                 n = 1;
             end
         end
     end
-    
+
     methods(Access = private)
-        function encoded = tmEncode(obj,bits)
+        function enc = createConvEncoder(obj)
+            switch obj.ConvolutionalCodeRate
+                case '1/2'
+                    enc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis);
+                case '2/3'
+                    enc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis,...
+                        'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1]);
+                case '3/4'
+                    enc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis,...
+                        'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;1;0]);
+                case '5/6'
+                    enc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis,...
+                        'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;1;0;0;1;1;0]);
+                otherwise % case '7/8'
+                    enc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis,...
+                        'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;0;1;0;1;1;0;0;1;1;0]);
+            end
+        end
+
+        function y = convEncodeForRail(obj,bits,rail)
+            switch upper(char(rail))
+                case 'I'
+                    y = obj.pConvEncI(bits);
+                case 'Q'
+                    y = obj.pConvEncQ(bits);
+                otherwise
+                    y = obj.pConvEnc(bits);
+            end
+        end
+
+        function diffEnc = diffEncoderForRail(obj,rail)
+            switch upper(char(rail))
+                case 'I'
+                    diffEnc = obj.pDiffEncI;
+                case 'Q'
+                    diffEnc = obj.pDiffEncQ;
+                otherwise
+                    diffEnc = obj.pDiffEnc;
+            end
+        end
+
+        function [bits, n] = updateInputBufferForRail(obj,u,rail)
+            if strcmpi(obj.RandomizerPathMode,'split') && strcmp(obj.ChannelCoding,'convolutional')
+                switch upper(char(rail))
+                    case 'I'
+                        [bits,n,railBuffer,railNumBits] = ...
+                            localUpdateBufferedBits(obj.pInputBufferI, obj.pNumBitsInInputBufferI, u, obj.pConvEncInLen);
+                        obj.pInputBufferI = railBuffer;
+                        obj.pNumBitsInInputBufferI = railNumBits;
+                    case 'Q'
+                        [bits,n,railBuffer,railNumBits] = ...
+                            localUpdateBufferedBits(obj.pInputBufferQ, obj.pNumBitsInInputBufferQ, u, obj.pConvEncInLen);
+                        obj.pInputBufferQ = railBuffer;
+                        obj.pNumBitsInInputBufferQ = railNumBits;
+                    otherwise
+                        [bits,n] = updateInputBuffer(obj,u);
+                end
+            else
+                [bits,n] = updateInputBuffer(obj,u);
+            end
+        end
+
+        function encoded = tmEncode(obj,bits,rail)
+            if nargin < 3 || isempty(rail)
+                rail = 'M';
+            end
             % TM synchronization and channel coding
             HasASM = obj.HasASM;
             tfl = obj.pTFLen*8;
             numTF = length(bits)/tfl;
 
-            randomizerMode = lower(strtrim(char(obj.RandomizerMode)));
-            validRandomizerModes = {'standard','beforecoding','aftercoding','bypass'};
-            if ~any(strcmp(randomizerMode, validRandomizerModes))
-                error('ccsdsTMWaveformGenerator:InvalidRandomizerMode', ...
-                    'Unsupported RandomizerMode="%s".', randomizerMode);
+            localHasRandomizer = obj.HasRandomizer && ~strcmpi(obj.RandomizerPathMode, 'bypass');
+            railPathMode = obj.RandomizerPathMode;
+            if strcmpi(railPathMode, 'split')
+                railPathMode = 'merge';
             end
-
-            localHasRandomizer = obj.HasRandomizer && ~strcmp(randomizerMode, 'bypass');
 
             switch(obj.ChannelCoding)
                 case 'none'
@@ -1119,12 +1373,25 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     encoded = zeros(numBitsInCADU*numTF,1,'int8');
                     for itf = 1:numTF
                         tbits = bits((itf-1)*tfl+1:itf*tfl);
+                        % 后解扰 就是前加扰
+                        if localHasRandomizer && strcmpi(obj.RandomizerPosition, 'postDecode')
+                            if strcmpi(railPathMode, 'merge')
+                                tbits = bitxor(tbits, obj.pPRNSequence(1:tfl));
+
+                            end
+                        end
+%                         编码
                         cw = int8(ccsdsRSEncode(logical(tbits),k,i,s));
-                        if localHasRandomizer
-                            randomized = bitxor(cw,obj.pPRNSequence);
+                        % 前解扰 就是后加扰
+                        if localHasRandomizer && strcmpi(obj.RandomizerPosition, 'preDecode')
+                            if strcmpi(railPathMode, 'merge')
+                                randomized = bitxor(cw,obj.pPRNSequence);
+
+                            end
                         else
                             randomized = cw;
                         end
+
                         if HasASM
                             code = [obj.pASM; randomized];
                         else
@@ -1133,11 +1400,16 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         encoded((itf-1)*numBitsInCADU+1:itf*numBitsInCADU) = code;
                     end
                 case 'convolutional'
-                    if localHasRandomizer
-                        randomized = bitxor(bits,repmat(obj.pPRNSequence,numTF,1));
+                    % 后解扰
+                    if localHasRandomizer && strcmpi(obj.RandomizerPosition, 'postDecode')
+                        if strcmpi(railPathMode, 'merge')
+                            randomized = bitxor(bits,repmat(obj.pPRNSequence,numTF,1));
+
+                        end
                     else
                         randomized = bits;
                     end
+
                     if HasASM
                         trandbits = reshape(randomized, tfl, numTF);
                         tcadu = [repmat(obj.pASM,1,numTF); trandbits];
@@ -1145,8 +1417,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         tcadu = randomized;
                     end
                     cadu = tcadu(:);
-                    
-                    [encin,numcw] = updateInputBuffer(obj,cadu);
+
+                    [encin,numcw] = updateInputBufferForRail(obj,cadu,rail);
                     bLen = length(encin);
                     temp = 1:bLen;
                     indices = reshape(temp,obj.pConvEncInLen,numcw);
@@ -1158,11 +1430,11 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                             % Refer section 3.3.3 of [1], which specifies
                             % that differential PCM coding should be done before
                             % convolutional encoder.
-                            tfullcadu = localPCMDifferentialEncode(obj.pDiffEnc, tempbits, obj.PCMFormat);
+                            tfullcadu = localPCMDifferentialEncode(diffEncoderForRail(obj,rail), tempbits, obj.PCMFormat);
                         else % Case of NRZ-L
                             tfullcadu = tempbits;
                         end
-                        encodedTemp(symIdx(:,iSlice)) = obj.pConvEnc(tfullcadu);
+                        encodedTemp(symIdx(:,iSlice)) = convEncodeForRail(obj,tfullcadu,rail);
                     end
                     if strcmp(obj.ConvolutionalCodeRate,'1/2')
                         % Flip the bit on the second line of the
@@ -1182,12 +1454,14 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     cadu = zeros(numBitsInCADU*numTF,1,'int8');
                     for itf = 1:numTF
                         tbits = bits((itf-1)*tfl+1:itf*tfl);
-                        cw = int8(ccsdsRSEncode(logical(tbits),k,i,s));
-                        if localHasRandomizer
-                            randomized = bitxor(cw,obj.pPRNSequence);
-                        else
-                            randomized = cw;
+                        if localHasRandomizer && strcmpi(obj.RandomizerPosition, 'postDecode')
+                            if strcmpi(railPathMode, 'merge')
+                                tbits = bitxor(tbits, obj.pPRNSequence(1:tfl));
+
+                            end
                         end
+                        cw = int8(ccsdsRSEncode(logical(tbits),k,i,s));
+                        randomized = cw;
                         if HasASM
                             code = int8([obj.pASM; randomized]);
                         else
@@ -1227,9 +1501,23 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     encoded = zeros(numBitsInCADU*numTF,1,'int8');
                     for itf = 1:numTF
                         tbits = bits((itf-1)*tfl+1:itf*tfl);
+%                         后解扰
+                        if localHasRandomizer && strcmpi(obj.RandomizerPosition, 'postDecode')
+                            if strcmpi(railPathMode, 'merge')
+                                tbits = bitxor(tbits, obj.pPRNSequence(1:tfl));
+
+                            end
+                        end
+
+                        % Split mode calls tmEncode once per rail. Resetting
+                        % the terminated constituent encoders per frame keeps
+                        % I/Q rail state independent and also preserves the
+                        % ordinary merge framing semantics.
+                        reset(obj.pConvEnc1);
+                        reset(obj.pConvEnc2);
                         y1 = obj.pConvEnc1(tbits);
                         y2 = obj.pConvEnc2(tbits(obj.pTurboInterleaverIndices));
-                        
+
                         % Reshape the bits in y1 and y2 into a matrix form so
                         % that they can be concatenated. Each one is reshaped
                         % into a matrix with number of rows equal to the number
@@ -1240,14 +1528,18 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         % variable pN.
                         y1R = reshape(y1, obj.pN, tfl+4);
                         y2R = reshape(y2, obj.pN, tfl+4); % 4 is for the tail bits processing
-                        
+
                         y = [y1R; y2R(2:end,:)]; % First row of y2R is the interleaved data itself which is not an output as per CCSDS standard, [1]
                         encodedWithoutPuncturing = y(:); % This includes tail bits too
-                        
+
                         % Puncture the codeword as per the rate of the code.
                         cw = encodedWithoutPuncturing(obj.pTurboPuncturePattern);
-                        if localHasRandomizer
-                            randomized = bitxor(cw,obj.pPRNSequence);
+                        % 前解扰
+                        if localHasRandomizer && strcmpi(obj.RandomizerPosition, 'preDecode')
+                            if strcmpi(railPathMode, 'merge')
+                                randomized = bitxor(cw,obj.pPRNSequence);
+
+                            end
                         else
                             randomized = cw;
                         end
@@ -1259,9 +1551,12 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         encoded((itf-1)*numBitsInCADU+1:itf*numBitsInCADU) = code;
                     end
                 case 'TPC'
-                    if localHasRandomizer
-                        prn = repmat(obj.pPRNSequence, ceil(numel(bits)/numel(obj.pPRNSequence)), 1);
-                        randomized = bitxor(bits, prn(1:numel(bits)));
+                    if localHasRandomizer && strcmpi(obj.RandomizerPosition, 'postDecode')
+                        if strcmpi(railPathMode, 'merge')
+                            prn = repmat(obj.pPRNSequence, ceil(numel(bits)/numel(obj.pPRNSequence)), 1);
+                            randomized = bitxor(bits, prn(1:numel(bits)));
+
+                        end
                     else
                         randomized = bits;
                     end
@@ -1274,12 +1569,25 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     encoded = zeros(numBitsInCADU*numTF,1,'int8');
                     for itf = 1:numTF
                         tf = bits((itf-1)*tfl+1:itf*tfl);
+                        %后解扰
+                        if localHasRandomizer && strcmpi(obj.RandomizerPosition, 'postDecode')
+                            if strcmpi(railPathMode, 'merge')
+                                tf = bitxor(tf, obj.pPRNSequence(1:tfl));
+
+                            end
+                        end
+
                         cw = int8(satcom.internal.ccsds.tmldpcEncode(tf(:),obj.pLDPCGeneratorMatrix));
-                        if localHasRandomizer
-                            randomized = bitxor(cw,obj.pPRNSequence);
+                        %前解扰
+                        if localHasRandomizer && strcmpi(obj.RandomizerPosition, 'preDecode')
+                            if strcmpi(railPathMode, 'merge')
+                                randomized = bitxor(cw,obj.pPRNSequence);
+
+                            end
                         else
                             randomized = cw;
                         end
+
                         if HasASM
                             code = [obj.pASM; randomized];
                         else
@@ -1288,8 +1596,21 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         encoded((itf-1)*numBitsInCADU+1:itf*numBitsInCADU) = code;
                     end
             end
+
+            if localHasRandomizer && strcmpi(obj.RandomizerPosition, 'preDecode')
+                if strcmpi(railPathMode, 'merge')
+                    if any(strcmp(obj.ChannelCoding, {'convolutional','concatenated','TPC'}))
+                        encodedASMLength = localEncodedASMLength( ...
+                            obj.ChannelCoding, length(obj.pASM)*HasASM, obj.pInverseCodeRate);
+                        encodedFrameLength = floor(numel(encoded) / max(1, numTF));
+                        encoded = localFramePayloadXor( ...
+                            encoded, encodedFrameLength, encodedASMLength, []);
+                    end
+
+                end
+            end
         end
-        
+
         function waveform = tmModulate(obj,bits)
             %tmModulate Modulate the bits to symbols
             [modin,n] = updateModInputBuffer(obj,bits);
@@ -1387,6 +1708,48 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                             'InputType','bit', ...
                             'UnitAveragePower',true);
                     end
+                case {'16APSK','32APSK'}
+                    bLen = length(modin);
+                    if strcmp(obj.Modulation,'16APSK')
+                        bitsPerSymbol = 4;
+                    else
+                        bitsPerSymbol = 5;
+                    end
+
+                    temp = 1:bLen;
+                    indices = reshape(temp,obj.pNumModInBits,n);
+
+                    waveform = complex(zeros(bLen/bitsPerSymbol,1));
+                    symIdx = reshape(1:bLen/bitsPerSymbol, ...
+                        obj.pNumModInBits/bitsPerSymbol,n);
+
+                    for iSlice = 1:n
+                        if ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'}))
+                            tbits = localPCMDifferentialEncode(obj.pDiffEnc, modin(indices(:,iSlice)), obj.PCMFormat);
+                        else
+                            tbits = modin(indices(:,iSlice));
+                        end
+
+                        waveform(symIdx(:,iSlice)) = localTMAPSKModulate(tbits, obj.Modulation);
+                    end
+                    if evalin('base','exist(''DEBUG_APSK'',''var'') && logical(DEBUG_APSK)')
+                        txAPSK_samples = waveform(1:min(2000,end));
+                        assignin('base','debug_apsk_tx_symbols', txAPSK_samples);
+                        radiiRounded = unique(round(abs(waveform(:))*1000)/1000);
+                        fprintf('[APSK TX] mod=%s, symbols=%d, mean|s|^2=%.4f, unique radii=%d\n', ...
+                            obj.Modulation, length(waveform), mean(abs(waveform).^2), length(radiiRounded));
+                    end
+                    if obj.HasTMAPSKPilots
+                        dataSymbolCount = numel(waveform);
+                        waveform = localInsertTMAPSKPilots(waveform, ...
+                            obj.TMAPSKPilotInterval, obj.TMAPSKPilotLength, ...
+                            obj.TMAPSKPilotPreambleLength);
+                        if evalin('base','exist(''DEBUG_APSK'',''var'') && logical(DEBUG_APSK)')
+                            fprintf('[APSK TX pilots] data=%d, withPilots=%d, preamble=%d, interval=%d, pilotLen=%d\n', ...
+                                dataSymbolCount, numel(waveform), obj.TMAPSKPilotPreambleLength, ...
+                                obj.TMAPSKPilotInterval, obj.TMAPSKPilotLength);
+                        end
+                    end
                 case 'UQPSK'
                     bLen = length(modin);
                     temp = 1:bLen;
@@ -1468,7 +1831,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                                  mat2str(obj.pConvEncState(:).'), ...
                                  mat2str(obj.pDiffEncState(:).'));
                          end
-                        %% 
+                        %%
 
 %                         [waveform, obj.pConvEncState, obj.pDiffEncState] = satcom.internal.ccsds.cg_fourD8PSKTCMMod_int8(modin, double(obj.ModulationEfficiency), obj.pConvEncState, obj.pDiffEncState);
                     else
@@ -1483,7 +1846,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     altrsym = cast(repmat([obj.pGMSKState.altersymb;-1*obj.pGMSKState.altersymb],floor(numHalfBits),1),class(dbits));
                     dbits(1:end)=([obj.pGMSKState.PrevLastSymb;dbits(1:end-1)].*dbits(1:end)).*altrsym(1:end);
                     obj.pGMSKState.PrevLastSymb = 2*modin(end)-1;
-                    
+
                     temp = 1:bLen;
                     indices = reshape(temp,obj.pNumModInBits,n);
                     symIdx = reshape(1:bLen*sps,sps*obj.pNumModInBits,n);
@@ -1535,7 +1898,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         obj.pSubcarrierPhase = obj.pSubcarrierPhase+T;
                         x = sin(2*pi*Fc*t);
                         y = sig.*x;
-                        
+
                         % Waveform generation
                         I = sin(modidx*y);
                         Q = -1*cos(modidx*y);
@@ -1546,7 +1909,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         t = t + delta; % Add delta to take t+ value for proper square wave value
                         x = square(2*pi*Fc*t);
                         y = sig.*x;
-                        
+
                         I = y*sin(modidx);
                         Q = -1*cos(modidx);
                     end
@@ -1561,7 +1924,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     waveform = I+1j*Q;
             end
         end
-        
+
         function [bits, n] = updateInputBuffer(obj,u)
             %updateInputBuffer Updates the bits in the input buffer
             %   [BITS, N] = updateInputBuffer(OBJ,U) fills the pInputBuffer
@@ -1598,7 +1961,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 obj.pNumBitsInInputBuffer = numTotalBits; % Update number of bits in input buffer
             end
         end
-        
+
         function [bits, n] = updateModInputBuffer(obj,u)
             %updateModInputBuffer Updates the bits in the input buffer of
             %modulator
@@ -1621,28 +1984,28 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             n = numBlocksLeft + 1;
         end
     end
-    
+
     methods % Public
         function s = debugTurboInfo(obj)
             s.ChannelCoding = obj.ChannelCoding;
             s.NumInputBits = obj.NumInputBits;
             s.CodeRate = obj.CodeRate;
             s.InverseCodeRate = getInverseCodeRate(obj);
-    
+
             s.ASMLength = length(obj.pASM);
             s.ASM = obj.pASM;
-    
+
             s.TurboInterleaverLength = length(obj.pTurboInterleaverIndices);
             s.TurboInterleaverIndices = obj.pTurboInterleaverIndices;
-    
+
             s.TurboPuncturePatternLength = length(obj.pTurboPuncturePattern);
             s.TurboPuncturePatternMax = max(obj.pTurboPuncturePattern);
             s.TurboPuncturePattern = obj.pTurboPuncturePattern;
-    
+
             s.TurboN = obj.pN;
             s.TurboTrellis = obj.TurboTrellis;
         end
-        
+
         function out = flushFilter(obj)
             %flushFilter Get residual data samples in the filter state by
             %flushing zeros
@@ -1663,7 +2026,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             %   method are "BPSK", and "QPSK". This method is not
             %   applicable when WaveformSource is set to "flexible advanced
             %   coding and modulation".
-            
+
             if strcmp(obj.WaveformSource, "synchronization and channel coding")
                 isSupported = true;
                 if strcmp(obj.ChannelCoding, "LDPC") && obj.IsLDPCOnSMTF
@@ -1696,6 +2059,26 @@ function encodedBits = localPCMDifferentialEncode(diffEnc, bits, pcmFormat)
         diffIn = bits;
     end
     encodedBits = diffEnc(diffIn);
+end
+
+function [bits,n,buffer,numBits] = localUpdateBufferedBits(buffer,numBits,u,k)
+    u = int8(u(:));
+    numTotalBits = numBits + length(u);
+    if numTotalBits >= k
+        allbits = [buffer(1:numBits); u];
+        n = floor(length(allbits)/k);
+        bits = allbits(1:n*k);
+        numBits = mod(length(allbits),k);
+        buffer = zeros(k,1,'int8');
+        if numBits
+            buffer(1:numBits) = allbits(n*k+1:end);
+        end
+    else
+        bits = zeros(0,1,'int8');
+        n = 0;
+        buffer(numBits+1:numTotalBits) = u;
+        numBits = numTotalBits;
+    end
 end
 
 function rate = localTPCEffectiveRate(rawRate)
@@ -1760,5 +2143,251 @@ function side = localTPCPayloadSideLength(rawRate)
     end
 end
 
+function out = localFramePayloadXor(bits, frameLength, headerLength, prnSeq)
+    out = int8(bits(:));
+    frameLength = max(1, round(double(frameLength)));
+    headerLength = max(0, round(double(headerLength)));
+    payloadLength = frameLength - headerLength;
+    if payloadLength <= 0 || isempty(out)
+        return;
+    end
+    if nargin < 4 || isempty(prnSeq) || numel(prnSeq) < payloadLength
+        prn = satcom.internal.ccsds.tmrandseq(payloadLength);
+    else
+        prn = int8(prnSeq(1:payloadLength));
+    end
+
+    numFrames = floor(numel(out) / frameLength);
+    for iFrame = 1:numFrames
+        startIdx = (iFrame-1)*frameLength + headerLength + 1;
+        stopIdx = startIdx + payloadLength - 1;
+        out(startIdx:stopIdx) = bitxor(out(startIdx:stopIdx), prn);
+    end
+end
+
+function headerLength = localEncodedASMLength(channelCoding, rawASMLength, inverseCodeRate)
+    if rawASMLength <= 0
+        headerLength = 0;
+        return;
+    end
+
+    if any(strcmp(channelCoding, {'convolutional','concatenated'}))
+        headerLength = ceil(double(rawASMLength) * double(inverseCodeRate));
+    else
+        headerLength = rawASMLength;
+    end
+end
+
+function sym = localTMAPSKModulate(bits, modulation)
+    [acmFmt, bitsPerSymbol] = localTMAPSKFormat(modulation);
+    radii = localTMAPSKRadii(acmFmt, bitsPerSymbol);
+    sym = satcom.internal.ccsds.facmModulate(int8(bits(:)), bitsPerSymbol, radii);
+end
+
+function y = localInsertTMAPSKPilots(x, pilotInterval, pilotLen, preambleLen)
+    x = x(:);
+    pilotInterval = max(1, round(double(pilotInterval)));
+    pilotLen = max(1, round(double(pilotLen)));
+    preambleLen = max(0, round(double(preambleLen)));
+
+    blocks = {};
+    if preambleLen > 0
+        blocks{end+1} = localTMAPSKPilotSequence(preambleLen, 1); %#ok<AGROW>
+    end
+
+    pos = 1;
+    pilot = localTMAPSKPilotSequence(pilotLen, 2);
+    while pos <= numel(x)
+        nData = min(pilotInterval, numel(x)-pos+1);
+        blocks{end+1} = x(pos:pos+nData-1); %#ok<AGROW>
+        pos = pos + nData;
+        if pos <= numel(x)
+            blocks{end+1} = pilot; %#ok<AGROW>
+        end
+    end
+
+    if isempty(blocks)
+        y = complex(zeros(0,1));
+    else
+        y = vertcat(blocks{:});
+    end
+end
+
+function p = localTMAPSKPilotSequence(N, seed)
+    N = max(0, round(double(N)));
+    if N == 0
+        p = complex(zeros(0,1));
+        return;
+    end
+    n = (1:N).';
+    q = mod(floor(abs(sin((n + double(seed)*97) * 12.9898) * 43758.5453)), 4);
+    p = exp(1j * (pi/4 + pi/2*q));
+    p = p ./ sqrt(mean(abs(p).^2) + eps);
+end
+
+function [acmFmt, bitsPerSymbol] = localTMAPSKFormat(modulation)
+    modKey = upper(string(modulation));
+    if contains(modKey, '32APSK')
+        acmFmt = 21;
+        bitsPerSymbol = 5;
+    else
+        acmFmt = 14;
+        bitsPerSymbol = 4;
+    end
+end
+
+function r = localTMAPSKRadii(acmFmt, bitsPerSymbol)
+    switch acmFmt
+        case 14
+            radiiRatio = 3.15;
+        case 21
+            radiiRatio = [2.72; 4.87];
+        otherwise
+            error('ccsdsTMWaveformGenerator:UnsupportedTMAPSKFormat', ...
+                'Unsupported TM APSK ACM format %d.', acmFmt);
+    end
+
+    switch bitsPerSymbol
+        case 4
+            radius1 = sqrt(4/(1 + 3*(radiiRatio(1)^2)));
+            radius2 = radiiRatio(1)*radius1;
+            r = [radius1; radius2];
+        case 5
+            radius1 = sqrt(8/(1 + 3*(radiiRatio(1)^2) + 4*(radiiRatio(2)^2)));
+            radius2 = radiiRatio(1)*radius1;
+            radius3 = radiiRatio(2)*radius1;
+            r = [radius1; radius2; radius3];
+        otherwise
+            error('ccsdsTMWaveformGenerator:UnsupportedTMAPSKOrder', ...
+                'Unsupported TM APSK bits per symbol %d.', bitsPerSymbol);
+    end
+end
+% 交织函数
+function out = localBitInterleaveIQ(iBits, qBits)
+    iBits = int8(iBits(:));
+    qBits = int8(qBits(:));
+    if numel(iBits) ~= numel(qBits)
+        error('localBitInterleaveIQ:LengthMismatch', 'I/Q length mismatch.');
+    end
+    out = zeros(2*numel(iBits),1,'int8');
+    out(1:2:end) = iBits;
+    out(2:2:end) = qBits;
+end
+
+function out = localSplitPackIQForModulation(iBits, qBits, modulation, debugEnabled)
+    if nargin < 4
+        debugEnabled = false;
+    end
+
+    out = localBitInterleaveIQ(iBits, qBits);
+    [bitsPerSymbol, fpgaBlockBits] = localSplitFPGAPackingShape(modulation);
+
+    if debugEnabled
+        fprintf('[SplitPath TX pack input] mod=%s, iqInterleavedFirst64=%s\n', ...
+            char(modulation), localBitVectorString(out, 64));
+        assignin('base', 'debug_split_tx_pack_input_bits', out);
+    end
+
+    % Keep Phase-1 split as a plain serial I/Q bit interleave. The FPGA
+    % 96/160-bit mapper packing is intentionally disabled while debugging
+    % odd bits-per-symbol modes; RX will handle the possible I/Q parity
+    % phase before rail deinterleave.
+    % if fpgaBlockBits > 0
+    %     out = localReverseSymbolGroupsInBlocks(out, bitsPerSymbol, fpgaBlockBits);
+    % end
+
+    if debugEnabled
+        fprintf('[SplitPath TX pack output] mod=%s, fpgaBlockBits=%d, bitsPerSymbol=%d, blockReverse=off, packedFirst64=%s\n', ...
+            char(modulation), fpgaBlockBits, bitsPerSymbol, localBitVectorString(out, 64));
+        assignin('base', 'debug_split_tx_packed_bits', out);
+    end
+end
+
+function [bitsPerSymbol, fpgaBlockBits] = localSplitFPGAPackingShape(modulation)
+    switch char(modulation)
+        case '8PSK'
+            bitsPerSymbol = 3;
+            fpgaBlockBits = 96;   % 3 x 32-bit interleaved words -> 4 x 24-bit mapper words
+        case '32QAM'
+            bitsPerSymbol = 5;
+            fpgaBlockBits = 160;  % 5 x 32-bit interleaved words -> 4 x 40-bit mapper words
+        otherwise
+            bitsPerSymbol = 0;
+            fpgaBlockBits = 0;
+    end
+end
+
+function out = localReverseSymbolGroupsInBlocks(x, bitsPerSymbol, blockBits)
+    out = x(:);
+    if bitsPerSymbol <= 0 || blockBits <= 0 || mod(blockBits, bitsPerSymbol) ~= 0
+        return;
+    end
+
+    numFullBlocks = floor(numel(out) / blockBits);
+    if numFullBlocks <= 0
+        return;
+    end
+
+    symbolsPerBlock = blockBits / bitsPerSymbol;
+    for iBlock = 1:numFullBlocks
+        idx = (iBlock-1)*blockBits + (1:blockBits);
+        symbolGroups = reshape(out(idx), bitsPerSymbol, symbolsPerBlock);
+        out(idx) = reshape(symbolGroups(:, end:-1:1), [], 1);
+    end
+end
+
+function txt = localBitVectorString(bits, maxLen)
+    if nargin < 2
+        maxLen = 64;
+    end
+    bits = int8(bits(:));
+    bits = bits(1:min(maxLen, numel(bits)));
+    if isempty(bits)
+        txt = '';
+        return;
+    end
+    txt = char('0' + double(bits(:).'));
+end
+
+function localValidateHighRateConvFrameLength(obj)
+    if ~any(strcmp(obj.ChannelCoding, {'convolutional','concatenated'}))
+        return;
+    end
+    if ~obj.HasASM
+        return;
+    end
+
+    switch char(obj.ConvolutionalCodeRate)
+        case '5/6'
+            punctureInputPeriod = 5;
+            exampleText = '1116';
+        case '7/8'
+            punctureInputPeriod = 7;
+            exampleText = '1116 or 1123';
+        otherwise
+            return;
+    end
+
+    caduBits = double(obj.NumBytesInTransferFrame)*8 + length(obj.pASM);
+    if mod(caduBits, punctureInputPeriod) ~= 0
+        error('ccsdsTMWaveformGenerator:HighRateConvFrameLengthUnsupported', ...
+            ['ConvolutionalCodeRate="%s" requires ASM+TF length (%d bits) ', ...
+             'to be divisible by %d so the puncture phase resets at each frame. ', ...
+             'Use NumBytesInTransferFrame=%s, or another aligned TF length.'], ...
+            char(obj.ConvolutionalCodeRate), caduBits, punctureInputPeriod, exampleText);
+    end
+end
+
+function asmLen = localConfiguredASMLength(obj)
+    if ~isempty(obj.pASM)
+        asmLen = length(obj.pASM);
+    elseif ~isempty(obj.ASMLength)
+        asmLen = double(obj.ASMLength);
+    elseif ~isempty(obj.ASMHex)
+        asmLen = 4*numel(char(obj.ASMHex));
+    else
+        asmLen = 32;
+    end
+end
 % LocalWords:  TMWAVEGEN TXWAVEFORM tm randi hasfilt csmlen LDPCSMTF nd altersymb Prev Symb LDPCG
 % LocalWords:  invr btprod updatep Inp

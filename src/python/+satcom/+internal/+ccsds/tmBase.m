@@ -147,11 +147,11 @@ classdef tmBase < matlab.System
     properties(Nontunable)
         %Modulation Modulation scheme
         %   Specify the modulation scheme as one of "BPSK" | "QPSK" |
-        %   "8PSK" | "16QAM" | "32QAM" | "GMSK" | "OQPSK" | "4D-8PSK-TCM" | "PCM/PSK/PM" |
+        %   "8PSK" | "16QAM" | "32QAM" | "16APSK" | "32APSK" | "GMSK" | "OQPSK" | "4D-8PSK-TCM" | "PCM/PSK/PM" |
         %   "PCM/PM/biphase-L". This property is applicable when
         %   WaveformSource is set to "synchronization and channel coding".
         %   The default is "QPSK".
-        Modulation (1, 1) string {matlab.system.mustBeMember(Modulation, {'PCM/PSK/PM','PCM/PM/biphase-L','BPSK','QPSK','8PSK','16QAM','UQPSK','32QAM','4D-8PSK-TCM','GMSK','OQPSK','FM'})} = "QPSK"
+        Modulation (1, 1) string {matlab.system.mustBeMember(Modulation, {'PCM/PSK/PM','PCM/PM/biphase-L','BPSK','QPSK','8PSK','16QAM','UQPSK','32QAM','16APSK','32APSK','4D-8PSK-TCM','GMSK','OQPSK','FM'})} = "QPSK"
         %PulseShapingFilter Pulse shaping filter
         %   Specify the pulse shaping filter as one of "root raised cosine"
         %   | "none". This property is applicable when WaveformSource is
@@ -271,6 +271,16 @@ classdef tmBase < matlab.System
         %   invalid cases, this property value is set to true internally.
         %   The default is true.
         HasASM (1, 1) logical = true;
+        %ASMLength Attached sync marker length, in bits
+        %   Specify [] to use the CCSDS default ASM for the selected coding
+        %   mode. Supported custom ASM lengths are 8:8:64 bits. The default
+        %   is [], which preserves the standard 32-bit ASM for ordinary TM
+        %   synchronization and channel coding.
+        ASMLength = []
+        %ASMHex Attached sync marker value as a hexadecimal string
+        %   Specify '' only for the default 32-bit ASM. Custom ASM lengths
+        %   must provide an explicit hexadecimal marker of ASMLength bits.
+        ASMHex = ''
         %IsRSMessageShortened Option to shorten Reed-Solomon (RS) code
         %   Specify the option to shorten RS code as true | false. True
         %   indicates that RS code is shortened. This property is
@@ -340,7 +350,7 @@ classdef tmBase < matlab.System
         ChannelCoding_Values = {'none','RS','convolutional','concatenated','turbo','LDPC','TPC'};
         CodeRate_Values = {'1/2','2/3','7/8','4/5','1/3','1/4','1/6'};
         ConvolutionalCodeRate_Values = {'1/2','2/3','3/4','5/6','7/8'};
-        Modulation_Values = {'GMSK','BPSK','QPSK','8PSK','16QAM','32QAM','UQPSK','4D-8PSK-TCM','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'};
+        Modulation_Values = {'GMSK','BPSK','QPSK','8PSK','16QAM','32QAM','16APSK','32APSK','UQPSK','4D-8PSK-TCM','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'};
         SubcarrierWaveform_Values = {'sine','square'};
         PulseShapingFilter_Values = {'root raised cosine', 'none'};
         ConvolutionalCodesTrellis = poly2trellis(7, [171 133]); % Trellis structure for the convolutional encoder that is specified in
@@ -537,6 +547,11 @@ classdef tmBase < matlab.System
     % Protected methods useful for functionality implementation
     methods(Access=protected)
         function syncseq = generateASM(obj)
+            if hasCustomASM(obj)
+                syncseq = buildCustomASM(obj);
+                return;
+            end
+
             r = obj.CodeRate;
             chcode = obj.ChannelCoding;
             
@@ -582,6 +597,14 @@ classdef tmBase < matlab.System
                 syncseq = int8([0;0;0;1;1;0;1;0;1;1;0;0;1;1;1;1;1;1;1;1;1;1;0;0;0;0;...
                     0;1;1;1;0;1]); % 0x1ACFFC1D
             end
+        end
+
+        function tf = hasCustomASM(obj)
+            tf = ~isempty(obj.ASMLength) || ~isempty(localNormalizeASMHex(obj.ASMHex));
+        end
+
+        function syncseq = buildCustomASM(obj)
+            syncseq = localBuildCustomASM(obj.ASMLength, obj.ASMHex);
         end
         
         function syncseq = generateCSM(obj)
@@ -662,6 +685,30 @@ classdef tmBase < matlab.System
             prop = 'NumBytesInTransferFrame';
             validateattributes(val, {'double','single','uint16'},{'nonnan','finite','scalar','real','positive','integer','<=',2048},mfilename,prop);
             obj.(prop) = val;
+        end
+
+        function set.ASMLength(obj,val)
+            prop = 'ASMLength';
+            if isempty(val)
+                obj.(prop) = [];
+                return;
+            end
+            if ischar(val) || isstring(val)
+                val = str2double(string(val));
+            end
+            validateattributes(val, {'numeric'}, ...
+                {'nonnan','finite','scalar','real','positive','integer','>=',8,'<=',64}, ...
+                mfilename, prop);
+            if mod(double(val),8) ~= 0
+                error('satcom:ccsdsTMWaveformGenerator:InvalidASMLength', ...
+                    'ASMLength must be one of 8,16,24,32,40,48,56,64 bits.');
+            end
+            obj.(prop) = double(val);
+        end
+
+        function set.ASMHex(obj,val)
+            prop = 'ASMHex';
+            obj.(prop) = localNormalizeASMHex(val);
         end
         
         function set.RSInterleavingDepth(obj,val)
@@ -836,6 +883,84 @@ classdef tmBase < matlab.System
 end
 
 % Local functions
+function bits = localBuildCustomASM(asmLength, asmHex)
+hexText = localNormalizeASMHex(asmHex);
+if isempty(asmLength)
+    if isempty(hexText)
+        asmLength = 32;
+    else
+        asmLength = 4*numel(hexText);
+    end
+end
+
+asmLength = double(asmLength);
+if isempty(asmLength) || ~isscalar(asmLength) || ~isfinite(asmLength) || ...
+        asmLength < 8 || asmLength > 64 || mod(asmLength,8) ~= 0
+    error('satcom:ccsdsTMWaveformGenerator:InvalidASMLength', ...
+        'ASMLength must be one of 8,16,24,32,40,48,56,64 bits.');
+end
+
+if isempty(hexText)
+    if asmLength ~= 32
+        error('satcom:ccsdsTMWaveformGenerator:ASMHexRequired', ...
+            'Custom ASM lengths other than 32 bits require an explicit ASMHex value.');
+    end
+    bits = localHexToBits('1ACFFC1D');
+    return;
+end
+
+if 4*numel(hexText) ~= asmLength
+    error('satcom:ccsdsTMWaveformGenerator:ASMHexLengthMismatch', ...
+        'ASMHex must contain exactly ASMLength/4 hexadecimal digits.');
+end
+
+bits = localHexToBits(hexText);
+end
+
+function hexText = localNormalizeASMHex(value)
+if isempty(value)
+    hexText = '';
+    return;
+end
+
+if isstring(value)
+    value = char(value);
+elseif ~ischar(value)
+    error('satcom:ccsdsTMWaveformGenerator:InvalidASMHex', ...
+        'ASMHex must be a hexadecimal character vector or string scalar.');
+end
+
+hexText = upper(strtrim(value));
+if startsWith(hexText, '0X')
+    hexText = hexText(3:end);
+end
+hexText(hexText == ' ') = [];
+hexText(hexText == '_') = [];
+
+if isempty(hexText)
+    return;
+end
+
+valid = (hexText >= '0' & hexText <= '9') | (hexText >= 'A' & hexText <= 'F');
+if ~all(valid)
+    error('satcom:ccsdsTMWaveformGenerator:InvalidASMHex', ...
+        'ASMHex must contain hexadecimal digits only.');
+end
+if numel(hexText) > 16
+    error('satcom:ccsdsTMWaveformGenerator:InvalidASMHex', ...
+        'ASMHex supports at most 16 hexadecimal digits (64 bits).');
+end
+end
+
+function bits = localHexToBits(hexText)
+bits = zeros(4*numel(hexText), 1, 'int8');
+for k = 1:numel(hexText)
+    val = uint8(hex2dec(hexText(k)));
+    idx = (k-1)*4 + (1:4);
+    bits(idx) = int8(bitget(val, 4:-1:1).');
+end
+end
+
 function r = getRadiiValue(ACMFormat, m)
 
 switch(ACMFormat)

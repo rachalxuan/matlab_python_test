@@ -227,6 +227,8 @@ def run_simulation():
             "RolloffFactor": params.get("RolloffFactor"),
             "hasASM": params.get("hasASM"),
             "hasRandomizer": params.get("hasRandomizer"),
+            "RandomizerPosition": params.get("RandomizerPosition"),
+            "RandomizerPathMode": params.get("RandomizerPathMode"),
         }
         print("[Server] 参数摘要:", json.dumps(debug_params, ensure_ascii=False))
 

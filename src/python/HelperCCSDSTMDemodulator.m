@@ -10,7 +10,9 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
         pIsUQPSK
         pIs4D8PSKTCM
         pIsQAM
+        pIsAPSK
         pQAMOrder
+        pAPSKACMFormat
 
     end
     
@@ -46,12 +48,20 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             obj.pIs4D8PSKTCM = strcmp(obj.Modulation, '4D-8PSK-TCM');
             obj.pIsUQPSK = strcmp(obj.Modulation, 'UQPSK');
             obj.pIsQAM = contains(string(obj.Modulation), 'QAM');
+            obj.pIsAPSK = contains(string(obj.Modulation), 'APSK');
             if strcmp(obj.Modulation, '16QAM')
                 obj.pQAMOrder = 16;
             elseif strcmp(obj.Modulation, '32QAM')
                 obj.pQAMOrder = 32;
             else
                 obj.pQAMOrder = 0;
+            end
+            if strcmp(obj.Modulation, '16APSK')
+                obj.pAPSKACMFormat = 14;
+            elseif strcmp(obj.Modulation, '32APSK')
+                obj.pAPSKACMFormat = 21;
+            else
+                obj.pAPSKACMFormat = 0;
             end
             if strcmp(obj.Modulation, 'QPSK')
                 obj.pDemod = comm.PSKDemodulator( ...
@@ -76,6 +86,8 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                     'BitOutput', true, 'DecisionMethod', "Approximate log-likelihood ratio", ...
                     'SymbolMapping', 'Custom', 'CustomSymbolMapping', [0 4 6 2 3 7 5 1]); 
             elseif obj.pIsQAM
+                obj.pDemod = [];
+            elseif obj.pIsAPSK
                 obj.pDemod = [];
             elseif obj.pIsUQPSK
                 % UQPSK 使用自定义 soft demap，不需要 MATLAB 官方 demod 对象
@@ -299,6 +311,34 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                 % 关键：实测 MATLAB qamdemod 的 LLR 极性和当前 CCSDS decoder 期望相反
                 % 你之前 QAM 扩展脚本中显示 Soft polarity = inverted LLR
                 y = -y;
+            elseif obj.pIsAPSK
+                rxAPSK = u(:);
+                pwr = NaN;
+
+                if ~isempty(rxAPSK)
+                    pwr = mean(abs(rxAPSK).^2);
+                    if pwr > 0
+                        rxAPSK = rxAPSK / sqrt(pwr);
+                    end
+                end
+
+                noiseVar = 0.01;
+                y = HelperCCSDSFACMDemodulate(rxAPSK, obj.pAPSKACMFormat, noiseVar);
+                y = double(y(:));
+                if evalin('base','exist(''DEBUG_APSK'',''var'') && logical(DEBUG_APSK)')
+                    if isempty(y)
+                        llrMin = NaN;
+                        llrMax = NaN;
+                        llrMean = NaN;
+                    else
+                        llrMin = min(y);
+                        llrMax = max(y);
+                        llrMean = mean(y);
+                    end
+                    fprintf('[APSK RX demod] inputPwr=%.4f, LLR len=%d, LLR range=[%.2f,%.2f], LLR mean=%.3f\n', ...
+                        pwr, length(y), llrMin, llrMax, llrMean);
+                    assignin('base','debug_apsk_rx_llr', y(1:min(500,end)));
+                end
             elseif strcmp(obj.Modulation, 'BPSK')
                 y = double(real(u));
 
