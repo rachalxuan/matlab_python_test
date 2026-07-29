@@ -98,9 +98,9 @@ base.IsRSMessageShortened = false;
 base.RolloffFactor = 0.35;
 
 base.hasASM = true;
-base.hasRandomizer = false;
-base.RandomizerPosition = 'preDecode';
-base.RandomizerPathMode = 'merge';
+base.RandomizerEnabled = false;
+base.RandomizerFECPosition = 'afterEncoding';
+base.DataPathMode = 'single';
 
 base.berWarmUpFrames = 5;
 base.berFrames = 30;

@@ -1,5 +1,5 @@
 function Summary = run_tm_split_merge_system_sweep(profile, startAt, maxCases)
-%RUN_TM_SPLIT_MERGE_SYSTEM_SWEEP Comprehensive TM merge/split regression.
+%RUN_TM_SPLIT_MERGE_SYSTEM_SWEEP Comprehensive TM single/dualIQ regression.
 %
 % Usage from MATLAB:
 %   cd E:\web_code\react\fft_project\react-fft\src\python
@@ -40,10 +40,11 @@ if cfg.maxCases < inf
     cases = cases(1:min(numel(cases), cfg.maxCases));
 end
 
-fprintf('\n===== TM merge/split system sweep =====\n');
+fprintf('\n===== TM single/dualIQ data-path system sweep =====\n');
 fprintf('profile=%s, cases=%d, output=%s\n', char(cfg.profile), numel(cases), cfg.outDir);
-fprintf('pass rule: success && BER <= %.3g && FER <= %.3g (FER NaN ignored)\n', ...
-    cfg.passBER, cfg.passFER);
+fprintf(['pass rule: success && BER <= %.3g && LockRate >= %.1f%% ' ...
+    '&& FER <= %.3g (FER NaN ignored)\n'], ...
+    cfg.passBER, cfg.passLockRate * 100, cfg.passFER);
 
 if ~exist(cfg.outDir, 'dir')
     mkdir(cfg.outDir);
@@ -98,6 +99,7 @@ for iCase = cfg.startAt:numel(cases)
     end
 
     r.Pass = r.Success && isfinite(r.BER) && r.BER >= 0 && r.BER <= cfg.passBER && ...
+        isfinite(r.LockRate) && r.LockRate >= cfg.passLockRate && ...
         (~isfinite(r.FER) || r.FER <= cfg.passFER);
 
     if r.Pass
@@ -153,6 +155,7 @@ cfg.berWarmUpFrames = 6;
 cfg.berFrames = 16;
 cfg.passBER = 1e-5;
 cfg.passFER = 1e-5;
+cfg.passLockRate = 0.90;
 cfg.startAt = 1;
 cfg.maxCases = inf;
 cfg.splitPathDebug = false;
@@ -195,10 +198,10 @@ end
 
 function randCases = localRandCases(kind)
 randCases = struct('label',{},'enabled',{},'position',{});
-randCases(end+1) = struct('label',"randOff",'enabled',false,'position',"preDecode");
-randCases(end+1) = struct('label',"randPre",'enabled',true,'position',"preDecode");
+randCases(end+1) = struct('label',"randOff",'enabled',false,'position',"afterEncoding");
+randCases(end+1) = struct('label',"randAfterFEC",'enabled',true,'position',"afterEncoding");
 if kind ~= "smoke"
-    randCases(end+1) = struct('label',"randPost",'enabled',true,'position',"postDecode");
+    randCases(end+1) = struct('label',"randBeforeFEC",'enabled',true,'position',"beforeEncoding");
 end
 end
 
@@ -220,12 +223,12 @@ for iProf = 1:numel(cfg.channelProfiles)
     ch = cfg.channelProfiles(iProf);
     for iMod = 1:numel(cfg.splitMods)
         modType = cfg.splitMods{iMod};
-        pathModes = {'merge','split'};
+        pathModes = {'single','dualIQ'};
         for iPath = 1:numel(pathModes)
             pathMode = pathModes{iPath};
             for iCode = 1:numel(mainCodeCases)
                 cc = mainCodeCases(iCode);
-                if strcmp(pathMode, 'split') && ~localSplitSupports(cc.coding, modType)
+                if strcmp(pathMode, 'dualIQ') && ~localSplitSupports(cc.coding, modType)
                     continue;
                 end
                 for iRand = 1:numel(cfg.randCases)
@@ -245,10 +248,10 @@ for iProf = 1:numel(cfg.channelProfiles)
             cc = mergeOnlyCodeCases(iCode);
             for iRand = 1:numel(cfg.randCases)
                 rc = cfg.randCases(iRand);
-                if localSkipUnsupportedCase('merge', modType, cc, rc)
+                if localSkipUnsupportedCase('single', modType, cc, rc)
                     continue;
                 end
-                c = localMakeCase(cfg, ch, 'merge', modType, cc, rc);
+                c = localMakeCase(cfg, ch, 'single', modType, cc, rc);
                 cases(end+1, 1) = c; %#ok<AGROW>
             end
         end
@@ -300,8 +303,8 @@ tf = any(strcmp(modType, splitMods)) && any(strcmp(coding, splitCodes));
 end
 
 function tf = localSkipUnsupportedCase(pathMode, modType, cc, rc) %#ok<INUSD>
-tf = strcmp(pathMode, 'merge') && strcmp(cc.coding, 'TPC') && ...
-    logical(rc.enabled) && strcmp(string(rc.position), "preDecode");
+tf = strcmp(pathMode, 'single') && strcmp(cc.coding, 'TPC') && ...
+    logical(rc.enabled) && strcmp(string(rc.position), "afterEncoding");
 end
 
 function cc = localCodeCase(coding, rate, extra)
@@ -333,9 +336,9 @@ p = struct('modType', modType, ...
     'channelCoding', cc.coding, ...
     'RolloffFactor', cfg.rolloff, ...
     'hasASM', true, ...
-    'hasRandomizer', rc.enabled, ...
-    'RandomizerPosition', char(rc.position), ...
-    'RandomizerPathMode', pathMode, ...
+    'RandomizerEnabled', rc.enabled, ...
+    'RandomizerFECPosition', char(rc.position), ...
+    'DataPathMode', pathMode, ...
     'NumBytesInTransferFrame', localTFBytes(modType, cc), ...
     'SpacecraftID', 1, ...
     'VirtualChannelID', 0, ...
@@ -378,8 +381,15 @@ if strcmp(cc.coding, 'convolutional')
     elseif strcmp(rate, '7/8')
         n = 1123;
     end
-elseif strcmp(cc.coding, 'none') && any(strcmp(modType, {'8PSK','32QAM'}))
+elseif strcmp(cc.coding, 'none') && strcmp(modType, '32QAM')
+    % Two split rails with one 32-bit ASM per rail give
+    % 2*(1116*8+32)=17920 bits, divisible by 5 bits/symbol.
     n = 1116;
+elseif strcmp(cc.coding, 'none') && strcmp(modType, '8PSK')
+    % Keep 1115 bytes: 2*(1115*8+32)=17904 bits is divisible by
+    % 3 bits/symbol. 1116 bytes shifts the symbol grouping by one bit per
+    % split-frame pair and causes periodic ASM lock loss.
+    n = 1115;
 end
 end
 
@@ -402,13 +412,13 @@ for iMod = 1:numel(mods)
     p = struct('modType', mods{iMod}, 'symbolRate', cfg.symbolRate, 'sps', 8, ...
         'snr', max(ch.snr, 20), 'cfo', ch.cfo, 'phaseOffset', ch.phaseOffset, ...
         'delay', ch.delay, 'channelCoding', 'none', 'RolloffFactor', cfg.rolloff, ...
-        'hasASM', true, 'hasPilots', true, 'hasRandomizer', false, ...
-        'RandomizerPosition', 'preDecode', 'RandomizerPathMode', 'merge', ...
+        'hasASM', true, 'hasPilots', true, 'RandomizerEnabled', false, ...
+        'RandomizerFECPosition', 'afterEncoding', 'DataPathMode', 'single', ...
         'showFigures', false);
     name = sprintf('facm_%s_none_%s', mods{iMod}, char(ch.name));
-    cases(end+1, 1) = struct('name', name, 'pathMode', 'merge', ...
+    cases(end+1, 1) = struct('name', name, 'pathMode', 'single', ...
         'modType', mods{iMod}, 'coding', 'FACM-none', 'rate', '-', ...
-        'randLabel', 'randOff', 'position', 'preDecode', ...
+        'randLabel', 'randOff', 'position', 'afterEncoding', ...
         'channelProfile', ch.name, 'params', p); %#ok<AGROW>
 end
 end

@@ -120,9 +120,9 @@ baseOpts.noisePSDdBmHz = [];
 baseOpts.noiseBandwidthHz = [];
 baseOpts.gmskBT = 0.5;
 baseOpts.hasASM = true;
-baseOpts.hasRandomizer = true;
-baseOpts.RandomizerPosition = 'preDecode';
-baseOpts.RandomizerPathMode = 'merge';
+baseOpts.RandomizerEnabled = true;
+baseOpts.RandomizerFECPosition = 'afterEncoding';
+baseOpts.DataPathMode = 'single';
 baseOpts.GMSKDetectionMode = 'official-viterbi-frame-reset';
 
 if quickMode

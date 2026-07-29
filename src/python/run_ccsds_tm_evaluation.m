@@ -15,9 +15,9 @@ function varargout = run_ccsds_tm_evaluation(varargin)
 % p = struct('modType','QPSK','symbolRate',1e6,'sps',8, ...
 %            'snr',20,'cfo',2000,'phaseOffset',15,'delay',0.2, ...
 %            'channelCoding','convolutional','ConvolutionalCodeRate','1/2', ...
-%            'RolloffFactor',0.35,'hasASM',true,'hasRandomizer',true, ...
+%            'RolloffFactor',0.35,'hasASM',true,'RandomizerEnabled',true, ...
 %            'NumBytesInTransferFrame',1115, ...
-%            'RandomizerPosition','preDecode','RandomizerPathMode','merge', ...
+%            'RandomizerFECPosition','afterEncoding','DataPathMode','single', ...
 %            'SpacecraftID',1,'VirtualChannelID',0, ...
 %            'HasSecondaryHeader',false,'HasOCF',false,'HasFECF',false, ...
 %            'showFigures',false);
@@ -42,7 +42,7 @@ function varargout = run_ccsds_tm_evaluation(varargin)
 %     ...
 %     'RolloffFactor',0.35, ...
 %     'hasASM',true, ...
-%     'hasRandomizer',false, ...
+%     'RandomizerEnabled',false, ...
 %     ...
 %     'berWarmUpFrames',20, ...
 %     'berFrames',40, ...
@@ -163,6 +163,9 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     if isfield(res,'HasASM'), frontResult.HasASM = res.HasASM; end
     if isfield(res,'ASMLength'), frontResult.ASMLength = res.ASMLength; end
     if isfield(res,'ASMHex'), frontResult.ASMHex = res.ASMHex; end
+    if isfield(res,'RandomizerEnabled'), frontResult.RandomizerEnabled = res.RandomizerEnabled; end
+    if isfield(res,'RandomizerFECPosition'), frontResult.RandomizerFECPosition = res.RandomizerFECPosition; end
+    if isfield(res,'DataPathMode'), frontResult.DataPathMode = res.DataPathMode; end
     frontResult.Fs           = res.Fs;
     if isfield(res,'cfo_est_Hz'),    frontResult.cfo_est_Hz = res.cfo_est_Hz; end
     if isfield(res,'IFHz'),          frontResult.IFHz = res.IFHz; end
@@ -420,44 +423,53 @@ function [res, ctx] = runOneShot(opt)
     makeNum = @(f) str2double(strrep(string(f), ',', ''));
     if ischar(opt.symbolRate), fSym = makeNum(opt.symbolRate); else, fSym = double(opt.symbolRate); end
     if ischar(opt.sps),        sps  = makeNum(opt.sps);        else, sps  = double(opt.sps);        end
-    hasRandomizer = false; if isfield(opt,'hasRandomizer'), hasRandomizer = opt.hasRandomizer; end
+    randomizerEnabled = false;
+    if isfield(opt,'RandomizerEnabled') && ~isempty(opt.RandomizerEnabled)
+        randomizerEnabled = logical(opt.RandomizerEnabled);
+    elseif isfield(opt,'hasRandomizer') && ~isempty(opt.hasRandomizer)
+        randomizerEnabled = logical(opt.hasRandomizer);
+    end
     hasASM        = false;
     if isfield(opt,'hasASM')
         hasASM = opt.hasASM;
     elseif localHasASMOption(opt)
         hasASM = true;
     end
-    randomizerPosition = 'preDecode';
-    if isfield(opt,'RandomizerPosition') && ~isempty(opt.RandomizerPosition)
-        randomizerPosition = char(opt.RandomizerPosition);
+    randomizerFECPosition = 'afterEncoding';
+    if isfield(opt,'RandomizerFECPosition') && ~isempty(opt.RandomizerFECPosition)
+        randomizerFECPosition = char(opt.RandomizerFECPosition);
+    elseif isfield(opt,'RandomizerPosition') && ~isempty(opt.RandomizerPosition)
+        randomizerFECPosition = localLegacyRandomizerPosition(opt.RandomizerPosition);
     end
-    randomizerPathMode = 'merge';
-    if isfield(opt,'RandomizerPathMode') && ~isempty(opt.RandomizerPathMode)
-        randomizerPathMode = char(opt.RandomizerPathMode);
+    dataPathMode = 'single';
+    if isfield(opt,'DataPathMode') && ~isempty(opt.DataPathMode)
+        dataPathMode = char(opt.DataPathMode);
+    elseif isfield(opt,'RandomizerPathMode') && ~isempty(opt.RandomizerPathMode)
+        dataPathMode = localLegacyDataPathMode(opt.RandomizerPathMode);
+        if strcmpi(char(opt.RandomizerPathMode), 'bypass') && ...
+                ~(isfield(opt,'RandomizerEnabled') && ~isempty(opt.RandomizerEnabled))
+            randomizerEnabled = false;
+        end
     end
-    if ~any(strcmpi(randomizerPosition, {'preDecode','postDecode'}))
-        error('run_ccsds_tm_evaluation:InvalidRandomizerPosition', ...
-            'Unsupported RandomizerPosition="%s". Use preDecode or postDecode.', ...
-            randomizerPosition);
+    if ~any(strcmpi(randomizerFECPosition, {'afterEncoding','beforeEncoding'}))
+        error('run_ccsds_tm_evaluation:InvalidRandomizerFECPosition', ...
+            ['Unsupported RandomizerFECPosition="%s". Use ' ...
+             'afterEncoding or beforeEncoding.'], randomizerFECPosition);
     end
-    if ~any(strcmpi(randomizerPathMode, {'merge','split','bypass'}))
-        error('run_ccsds_tm_evaluation:InvalidRandomizerPathMode', ...
-            'Unsupported RandomizerPathMode="%s". Use merge, split, or bypass.', ...
-            randomizerPathMode);
-    end
-
-    if strcmpi(randomizerPathMode, 'bypass')
-        hasRandomizer = false;
+    if ~any(strcmpi(dataPathMode, {'single','dualIQ'}))
+        error('run_ccsds_tm_evaluation:InvalidDataPathMode', ...
+            'Unsupported DataPathMode="%s". Use single or dualIQ.', dataPathMode);
     end
     if ~hasASM && localHasASMOption(opt)
         hasASM = true;
         fprintf('[ASM setup] asmLength/asmHex supplied; enabling HasASM=true.\n');
     end
     splitPathDebug = getLogicalField(opt, 'splitPathDebug', false);
-    opt.RandomizerPosition = randomizerPosition;
-    opt.RandomizerPathMode = randomizerPathMode;
-    opt.hasRandomizer = hasRandomizer;
+    opt.RandomizerEnabled = randomizerEnabled;
+    opt.RandomizerFECPosition = randomizerFECPosition;
+    opt.DataPathMode = dataPathMode;
     opt.splitPathDebug = splitPathDebug;
+    hasRandomizer = randomizerEnabled; % Internal decoder API flag.
 
     if isfield(opt,'channelCoding')
         initialCodeStr = canonicalChannelCoding(opt.channelCoding);
@@ -491,9 +503,9 @@ function [res, ctx] = runOneShot(opt)
             tpcBlocksPerTF, tpcPayloadBits, numBytesTF);
     end
 
-    args = {'SamplesPerSymbol', sps, 'HasRandomizer', hasRandomizer, 'HasASM', hasASM};
-    args = [args, {'RandomizerPosition', char(randomizerPosition), ...
-                   'RandomizerPathMode', char(randomizerPathMode)}];
+    args = {'SamplesPerSymbol', sps, 'HasRandomizer', randomizerEnabled, 'HasASM', hasASM};
+    args = [args, {'RandomizerFECPosition', char(randomizerFECPosition), ...
+                   'DataPathMode', char(dataPathMode)}];
     args = appendASMArgs(args, opt);
     if splitPathDebug
         args = [args, {'SplitPathDebug', true}];
@@ -619,7 +631,7 @@ function [res, ctx] = runOneShot(opt)
     fprintf('[TX %s] NumInputBits=%d, ActualCodeRate=%.6f\n', ...
         char(codeStr), tmWaveGen.NumInputBits, tmWaveInfo.ActualCodeRate);
     Fs = fSym * sps;
-    isSplitPath = strcmpi(randomizerPathMode, 'split');
+    isSplitPath = strcmpi(dataPathMode, 'dualIQ');
     inputBitsPerCall = tmWaveGen.NumInputBits;
     if isSplitPath && mod(inputBitsPerCall, 2) ~= 0
         error('run_ccsds_tm_evaluation:SplitInputLengthNotEven', ...
@@ -1387,6 +1399,9 @@ function [res, ctx] = runOneShot(opt)
     res.carrierFreqHz = res.centerFrequencyHz;
     res.inputLevelDbm = getInputLevelDbm(opt, 0);
     res.HasASM = logical(hasASM);
+    res.RandomizerEnabled = logical(randomizerEnabled);
+    res.RandomizerFECPosition = char(randomizerFECPosition);
+    res.DataPathMode = char(dataPathMode);
     if hasASM
         res.ASMLength = numel(localTMASM(opt, codeStr));
         [asmHexForResult, hasASMHexForResult] = localASMOptionHex(opt);
@@ -2752,12 +2767,12 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
         bestStats = localEmptyBERStats();
         bestShift = 0;
 
-        randomizerPathModeBER = 'merge';
-        if isfield(opt,'RandomizerPathMode') && ~isempty(opt.RandomizerPathMode)
-            randomizerPathModeBER = char(opt.RandomizerPathMode);
+        dataPathModeBER = 'single';
+        if isfield(opt,'DataPathMode') && ~isempty(opt.DataPathMode)
+            dataPathModeBER = char(opt.DataPathMode);
         end
         bitsPerSymBER = localBitsPerSymbolForDebug(tmMod);
-        useSplitIQTwoPass = strcmpi(randomizerPathModeBER, 'split') && ...
+        useSplitIQTwoPass = strcmpi(dataPathModeBER, 'dualIQ') && ...
             bitsPerSymBER > 1 && mod(bitsPerSymBER, 2) == 1 && ...
             getLogicalField(opt, 'splitIQPhaseTwoPass', true);
         splitIQRoundSucceeded = false;
@@ -3962,8 +3977,8 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     berVal = 0.5; lockRate = 0;
     gmskDetectorUsed = "not-applicable";
 
-    randomizerPosition = opt.RandomizerPosition;
-    randomizerPathMode = opt.RandomizerPathMode;
+    randomizerFECPosition = opt.RandomizerFECPosition;
+    dataPathMode = opt.DataPathMode;
 
     errs = 0;
     bitsComp = 0;
@@ -4446,12 +4461,12 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     decArgs = {'ChannelCoding',tmCode,'Modulation',decoderMod, ...
                'HasRandomizer',hasRandomizer,'HasASM',hasASM};
     decArgs = appendASMArgs(decArgs, opt);
-    decoderPathMode = randomizerPathMode;
-    if strcmpi(decoderPathMode, 'split')
-        decoderPathMode = 'merge';
+    decoderPathMode = dataPathMode;
+    if strcmpi(decoderPathMode, 'dualIQ')
+        decoderPathMode = 'single';
     end
-    decArgs = [decArgs, {'RandomizerPosition', char(randomizerPosition), ...
-                         'RandomizerPathMode', char(decoderPathMode)}];
+    decArgs = [decArgs, {'RandomizerFECPosition', char(randomizerFECPosition), ...
+                         'DataPathMode', char(decoderPathMode)}];
     if isfield(opt,'PCMFormat') && ~isempty(opt.PCMFormat)
         decArgs = [decArgs, {'PCMFormat', string(opt.PCMFormat)}];
     end
@@ -4520,7 +4535,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         localPrintDemodDataDebug(demodData, tmMod, tmCode, bitsPerFrame);
     end
 
-    if strcmpi(randomizerPathMode, 'split')
+    if strcmpi(dataPathMode, 'dualIQ')
         splitDebug = getLogicalField(opt, 'splitPathDebug', false);
 
         iqPhaseList = 0;
@@ -7742,4 +7757,26 @@ function offset = localParabolicSpectrumPeakOffset(powerSpectrum, peakIndex)
 
     offset = 0.5 * (y(1) - y(3)) / denominator;
     offset = max(-0.5, min(0.5, offset));
+end
+
+function value = localLegacyRandomizerPosition(value)
+    switch lower(char(string(value)))
+        case 'predecode'
+            value = 'afterEncoding';
+        case 'postdecode'
+            value = 'beforeEncoding';
+        otherwise
+            value = char(string(value));
+    end
+end
+
+function value = localLegacyDataPathMode(value)
+    switch lower(char(string(value)))
+        case {'merge','bypass'}
+            value = 'single';
+        case 'split'
+            value = 'dualIQ';
+        otherwise
+            value = char(string(value));
+    end
 end

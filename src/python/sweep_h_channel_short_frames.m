@@ -16,6 +16,7 @@ function T = sweep_h_channel_short_frames(userOpts)
     thisDir = fileparts(mfilename('fullpath'));
     addpath(thisDir);
 
+    userOpts = localUpgradeLegacyRandomizerOptions(userOpts);
     opts = localDefaultOptions(thisDir);
     opts = localMergeStruct(opts, userOpts);
 
@@ -161,7 +162,9 @@ function opts = localDefaultOptions(thisDir)
     opts.delay = 0;
     opts.RolloffFactor = 0.35;
     opts.hasASM = true;
-    opts.hasRandomizer = false;
+    opts.RandomizerEnabled = false;
+    opts.RandomizerFECPosition = 'afterEncoding';
+    opts.DataPathMode = 'single';
     opts.NumBytesInTransferFrame = 1115;
     opts.forceNumBytesInTransferFrame = [];
     opts.berWarmUpFrames = 15;
@@ -235,6 +238,37 @@ function opts = localDefaultOptions(thisDir)
     end
 end
 
+function opts = localUpgradeLegacyRandomizerOptions(opts)
+    if ~isstruct(opts)
+        return;
+    end
+    hadCanonicalEnable = isfield(opts,'RandomizerEnabled');
+    if ~isfield(opts,'RandomizerEnabled') && isfield(opts,'hasRandomizer')
+        opts.RandomizerEnabled = opts.hasRandomizer;
+    end
+    if ~isfield(opts,'RandomizerFECPosition') && isfield(opts,'RandomizerPosition')
+        switch lower(char(string(opts.RandomizerPosition)))
+            case 'predecode'
+                opts.RandomizerFECPosition = 'afterEncoding';
+            case 'postdecode'
+                opts.RandomizerFECPosition = 'beforeEncoding';
+        end
+    end
+    if ~isfield(opts,'DataPathMode') && isfield(opts,'RandomizerPathMode')
+        switch lower(char(string(opts.RandomizerPathMode)))
+            case 'merge'
+                opts.DataPathMode = 'single';
+            case 'split'
+                opts.DataPathMode = 'dualIQ';
+            case 'bypass'
+                opts.DataPathMode = 'single';
+                if ~hadCanonicalEnable
+                    opts.RandomizerEnabled = false;
+                end
+        end
+    end
+end
+
 function opts = localMergeStruct(opts, userOpts)
     if ~isstruct(userOpts)
         error('sweep_h_channel_short_frames:InvalidOptions', ...
@@ -257,7 +291,9 @@ function p = localBaseParams(opts)
         'delay', opts.delay, ...
         'RolloffFactor', opts.RolloffFactor, ...
         'hasASM', opts.hasASM, ...
-        'hasRandomizer', opts.hasRandomizer, ...
+        'RandomizerEnabled', opts.RandomizerEnabled, ...
+        'RandomizerFECPosition', opts.RandomizerFECPosition, ...
+        'DataPathMode', opts.DataPathMode, ...
         'NumBytesInTransferFrame', opts.NumBytesInTransferFrame, ...
         'berWarmUpFrames', opts.berWarmUpFrames, ...
         'berFrames', opts.berFrames, ...
