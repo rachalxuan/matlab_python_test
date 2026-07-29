@@ -535,7 +535,11 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 asmlen = 0;
             end
 
-            usePeriodicASMSync = strcmp(obj.ChannelCoding, "TPC") || ...
+            isGMSKModulation = strcmpi(string(obj.Modulation), "GMSK");
+            isRawASMBlockCode = any(strcmpi(string(obj.ChannelCoding), ...
+                ["LDPC", "turbo"]));
+            usePeriodicASMSync = strcmpi(string(obj.ChannelCoding), "TPC") || ...
+                (isRawASMBlockCode && ~isGMSKModulation) || ...
                 (strcmp(obj.ChannelCoding, "RS") && contains(string(obj.Modulation), "APSK"));
             if obj.HasASM && usePeriodicASMSync
                 syncInput = [obj.pInputBuffer; llr(:)];
@@ -803,12 +807,15 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 for iWord = 1:numWords
                                     llr = double(cwSoft(:, iWord));
                                     if strcmpi(string(obj.Modulation), "GMSK")
-                                        % GMSK 的非相干差分判决目前符号很稳，但软幅度不是严格
-                                        % Turbo LLR。对 Turbo 先保留符号、统一置信度，避免迭代译码
-                                        % 被近零或幅度失真的 soft metric 带偏。
+                                        % Official/legacy GMSK soft metrics
+                                        % use positive for bit 0.  The Turbo
+                                        % decoder input convention used by
+                                        % the generic TM chain is opposite,
+                                        % so invert after applying a uniform
+                                        % hard-decision confidence.
                                         llrHard = 5 * sign(llr);
                                         llrHard(llr == 0) = 0;
-                                        llr = llrHard;
+                                        llr = -llrHard;
                                     end
 
                                     if localHasRandomizer && strcmpi(obj.RandomizerPosition, 'preDecode')
@@ -854,10 +861,15 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             for iWord = 1:numWords
                                 llrIn = double(cwSoft(:,iWord));
 
-                                % 关键：ldpcDecode 需要 bit0 正、bit1 负。
-                                % 你当前 TM demod/decoder 链路大概率是 bit1 正、bit0 负，
-                                % 所以这里先翻号。
-                                llr = -llrIn;
+                                % ldpcDecode expects bit 0 positive and bit 1
+                                % negative.  The official GMSK entry already
+                                % uses that convention; the generic TM
+                                % demodulator uses the opposite convention.
+                                if strcmpi(string(obj.Modulation), "GMSK")
+                                    llr = llrIn;
+                                else
+                                    llr = -llrIn;
+                                end
 
                                 % 如果启用了 randomizer：
                                 % 发送端是对 LDPC codeword bits 做 XOR；
@@ -881,11 +893,22 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             codeLen = 64*64;
                             infoLen = localTPCPayloadBits(obj.TPCCodeRate);
                             if n
-                                usableLen = floor(numel(u) / codeLen) * codeLen;
-                                cwSoft = reshape(u(1:usableLen), codeLen, []);
+                                tpcSoft = u;
                                 if localHasRandomizer && strcmpi(obj.RandomizerPosition, 'preDecode')
-                                    error('HelperCCSDSTMDecoder:TPCPreDecodeMergeNotImplemented', ...
-                                        'TPC preDecode + merge is not implemented yet. Validate convolutional first.');
+                                    % TX randomizes every coded TPC payload
+                                    % after its raw ASM. Undo the same PRN on
+                                    % aligned soft frames before decoding.
+                                    tpcSoft = localSoftXorByPRN(tpcSoft, ...
+                                        size(tpcSoft, 1), obj.pPRNSequence);
+                                end
+                                usableLen = floor(numel(tpcSoft) / codeLen) * codeLen;
+                                cwSoft = reshape(tpcSoft(1:usableLen), codeLen, []);
+
+                                % Official GMSK soft metrics use bit 0
+                                % positive. ccsdsTPCDecodeSoft uses the
+                                % generic TM convention: bit 1 positive.
+                                if strcmpi(string(obj.Modulation), "GMSK")
+                                    cwSoft = -cwSoft;
                                 end
                                 numWords = size(cwSoft, 2);
                                 y = zeros(infoLen*numWords, 1, 'int8');

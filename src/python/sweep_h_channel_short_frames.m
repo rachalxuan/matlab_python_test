@@ -82,6 +82,13 @@ function T = sweep_h_channel_short_frames(userOpts)
                 try
                     raw = run_ccsds_tm_evaluation(p);
                     r = localDecodeResult(raw);
+                    if isfield(r, 'success') && ~logical(r.success)
+                        evaluationError = localStructChar(r, 'errorMsg', ...
+                            localStructChar(r, 'error', ...
+                            'run_ccsds_tm_evaluation returned success=false'));
+                        error('sweep_h_channel_short_frames:EvaluationFailed', ...
+                            '%s', evaluationError);
+                    end
                     elapsed = toc(tStart);
 
                     row = localMakeRow(caseIndex, ch, modType, code, p, r, ...
@@ -184,6 +191,11 @@ function opts = localDefaultOptions(thisDir)
     opts.facmEqualizerTaps = [];
 
     opts.gmskBT = 0.5;
+    opts.GMSKDetectionMode = 'legacy-diff';
+    opts.gmskFrameResetASMMaxErrors = [];
+    opts.gmskFrameResetASMMinGap = [];
+    opts.gmskFrameResetMaxSearchFrames = 8;
+    opts.gmskFrameResetMinSearchFrames = 2;
     opts.randomSeed = 1;
     opts.maxCases = Inf;
     opts.clearFunctionCache = true;
@@ -260,6 +272,18 @@ function p = localBaseParams(opts)
     end
     if isfield(opts, 'noiseBandwidthHz') && ~isempty(opts.noiseBandwidthHz)
         p.noiseBandwidthHz = double(opts.noiseBandwidthHz);
+    end
+    if isfield(opts, 'GMSKDetectionMode') && ~isempty(opts.GMSKDetectionMode)
+        p.GMSKDetectionMode = char(opts.GMSKDetectionMode);
+    end
+    resetFields = {'gmskFrameResetASMMaxErrors', ...
+        'gmskFrameResetASMMinGap', 'gmskFrameResetMaxSearchFrames', ...
+        'gmskFrameResetMinSearchFrames'};
+    for resetIndex = 1:numel(resetFields)
+        resetName = resetFields{resetIndex};
+        if isfield(opts, resetName) && ~isempty(opts.(resetName))
+            p.(resetName) = double(opts.(resetName));
+        end
     end
 
     if isfield(opts, 'debugCodedBoundary') && ~isempty(opts.debugCodedBoundary)
@@ -490,9 +514,14 @@ function cases = localBuildCodingCases(opts)
     if opts.includeLDPC
         for i = 1:numel(opts.ldpcRates)
             rate = char(opts.ldpcRates{i});
+            if strcmp(rate, '7/8')
+                informationBits = 7136;
+            else
+                informationBits = 1024;
+            end
             extra = struct( ...
                 'CodeRate', rate, ...
-                'NumBitsInInformationBlock', 1024, ...
+                'NumBitsInInformationBlock', informationBits, ...
                 'IsLDPCOnSMTF', false);
             cases{end+1} = localCodingCase('LDPC', rate, 1115, extra); %#ok<AGROW>
         end
@@ -693,6 +722,7 @@ function row = localMakeRow(idx, ch, modType, code, p, r, ok, status, err, elaps
         localField(r, 'NoisePower_dBm', NaN), ...
         localField(r, 'NoiseEquivalentSNR_dB', NaN), ...
         string(localStructChar(p, 'equalizerMode', '')), ...
+        string(localGMSKDetectorUsed(r, p, modType)), ...
         logical(ok), ...
         string(status), ...
         string(err), ...
@@ -715,6 +745,7 @@ function names = localVariableNames()
         'NoisePlacement', 'NoiseMode', 'NoisePSD_dBmHz', ...
         'NoiseBandwidthHz', 'NoisePower_dBm', 'NoiseEquivalentSNR_dB', ...
         'EqualizerMode', ...
+        'GMSKDetectorUsed', ...
         'Success', 'Status', 'ErrorMessage', 'Runtime_s'};
 end
 
@@ -791,6 +822,22 @@ function value = localStructChar(s, fieldName, defaultValue)
     value = defaultValue;
     if isstruct(s) && isfield(s, fieldName) && ~isempty(s.(fieldName))
         value = char(string(s.(fieldName)));
+    end
+end
+
+function detector = localGMSKDetectorUsed(result, params, modType)
+    detector = 'not-applicable';
+    if ~strcmpi(string(modType), "GMSK")
+        return;
+    end
+    if isstruct(result) && isfield(result, 'GMSKDetectorUsed') && ...
+            ~isempty(result.GMSKDetectorUsed)
+        detector = char(string(result.GMSKDetectorUsed));
+        return;
+    end
+    detector = localStructChar(params, 'GMSKDetectionMode', 'legacy-diff');
+    if strcmpi(detector, 'official-viterbi-frame-reset')
+        detector = 'official';
     end
 end
 

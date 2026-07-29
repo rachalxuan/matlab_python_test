@@ -141,6 +141,7 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     if isfield(res,'CountedFrames'), frontResult.CountedFrames = res.CountedFrames; end
     if isfield(res,'MatchedFrames'), frontResult.MatchedFrames = res.MatchedFrames; end
     if isfield(res,'DecodedFrames'), frontResult.DecodedFrames = res.DecodedFrames; end
+    if isfield(res,'GMSKDetectorUsed'), frontResult.GMSKDetectorUsed = res.GMSKDetectorUsed; end
     if isfield(res,'AcquisitionFrames'), frontResult.AcquisitionFrames = res.AcquisitionFrames; end
     if isfield(res,'AcquisitionTime_s'), frontResult.AcquisitionTime_s = res.AcquisitionTime_s; end
     if isfield(res,'APSKASMEnabled'), frontResult.APSKASMEnabled = res.APSKASMEnabled; end
@@ -269,10 +270,21 @@ catch ME
         errMsg = sprintf('%s (at %s line %d)', errMsg, ME.stack(1).name, ME.stack(1).line);
     end
     fprintf(2, '[run_ccsds_tm_evaluation ERROR] %s\n', errMsg);
+    detectorOnError = 'not-applicable';
+    if isfield(opt, 'modType') && contains(upper(string(opt.modType)), 'GMSK')
+        requestedMode = lower(string(getfieldwithdefault( ...
+            opt, 'GMSKDetectionMode', 'legacy-diff')));
+        if requestedMode == "official-viterbi-frame-reset"
+            detectorOnError = 'official';
+        else
+            detectorOnError = char(requestedMode);
+        end
+    end
     err = struct( ...
         'success',  false, ...
         'error',    errMsg, ...
         'errorMsg', errMsg, ...
+        'GMSKDetectorUsed', detectorOnError, ...
         'BER', -2, 'ber', -2, ...
         'ElapsedTime', toc(tStart));
     varargout = packEvaluationOutputs(err, imagePaths, outputMode, nargout);
@@ -847,7 +859,10 @@ function [res, ctx] = runOneShot(opt)
         % --- 1) 基于 x^2 的 GMSK 粗 CFO 估计 ---
         % MSK/GMSK 信号平方后频谱有两条边带：±fSym/2 + 2*CFO
         % 取两条边带中点 = 2*CFO，再除以 2
-        Lfft   = min(length(rxWaveform), 2^17);
+        % The official Viterbi branch consumes the oversampled CPM
+        % waveform, so residual CFO accumulates throughout a coded frame.
+        % Use a longer observation than the original 2^17-point estimate.
+        Lfft   = min(length(rxWaveform), 2^19);
         Nfft   = 2^nextpow2(Lfft);
         win    = hamming(Lfft);
         sigSq  = rxWaveform(1:Lfft).^2;
@@ -859,6 +874,12 @@ function [res, ctx] = runOneShot(opt)
         [~,ip]  = max(Psq .* posMask);
         [~,in]  = max(Psq .* negMask);
         cfo_est = (fAx(ip) + fAx(in)) / 4;          % 2*CFO = 中点*2 → CFO = /4
+        binHz = Fs/Nfft;
+        ipOffset = localParabolicSpectrumPeakOffset(Psq, ip);
+        inOffset = localParabolicSpectrumPeakOffset(Psq, in);
+        positivePeakHz = fAx(ip) + ipOffset*binHz;
+        negativePeakHz = fAx(in) + inOffset*binHz;
+        cfo_est = (positivePeakHz + negativePeakHz) / 4;
         nIdx    = (0:length(rxWaveform)-1).';
         rxSynced = rxWaveform .* exp(-1j*2*pi*cfo_est*nIdx/Fs);
         coarseSynced = rxSynced;   % 统一变量名,供管线图使用
@@ -881,6 +902,18 @@ function [res, ctx] = runOneShot(opt)
         carrierSync = comm.CarrierSynchronizer('Modulation','QPSK','SamplesPerSymbol',1, ...
             'DampingFactor',1/sqrt(2),'NormalizedLoopBandwidth',0.005);
         fineSynced = carrierSync(TimeSynced);
+
+        % The official GMSK Viterbi detector must see the oversampled CPM
+        % waveform.  Keep the existing 1-sps path for plots/metrics, but
+        % route the coarse-CFO-corrected waveform to BER only when the
+        % explicit experimental mode is requested.
+        gmskModeFrontend = "legacy-diff";
+        if isfield(opt,'GMSKDetectionMode') && ~isempty(opt.GMSKDetectionMode)
+            gmskModeFrontend = lower(string(opt.GMSKDetectionMode));
+        end
+        if strcmp(gmskModeFrontend, "official-viterbi-frame-reset")
+            fineSyncedForBER = rxSynced;
+        end
 
         fprintf('   [GMSK coarse CFO] estimated = %+.1f Hz (input = %+.1f Hz)\n', ...
                 cfo_est, getf(opt,'cfo',0));
@@ -1355,7 +1388,7 @@ function [res, ctx] = runOneShot(opt)
     res.inputLevelDbm = getInputLevelDbm(opt, 0);
     res.HasASM = logical(hasASM);
     if hasASM
-        res.ASMLength = numel(localTMASM(opt));
+        res.ASMLength = numel(localTMASM(opt, codeStr));
         [asmHexForResult, hasASMHexForResult] = localASMOptionHex(opt);
         if hasASMHexForResult
             res.ASMHex = asmHexForResult;
@@ -1377,6 +1410,7 @@ function [res, ctx] = runOneShot(opt)
     res.CountedFrames = berStats.CountedFrames;
     res.MatchedFrames = berStats.MatchedFrames;
     res.DecodedFrames = berStats.NumRxFrames;
+    res.GMSKDetectorUsed = berStats.GMSKDetectorUsed;
     res.AcquisitionFrames = berStats.AcquisitionFrames;
     res.AcquisitionTime_s = berStats.AcquisitionTime_s;
     res.APSKASMEnabled = apskASMInfo.Enabled;
@@ -2686,6 +2720,14 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
         if isfield(opt,'phaseResolveMode') && ~isempty(opt.phaseResolveMode)
             phaseResolveMode = lower(string(opt.phaseResolveMode));
         end
+        if contains(tmMod,'GMSK') && isfield(opt,'GMSKDetectionMode') && ...
+                strcmpi(string(opt.GMSKDetectionMode), ...
+                "official-viterbi-frame-reset")
+            % localDemodForASM is a 1-sps legacy pre-selector.  The official
+            % branch receives an oversampled waveform, so let the complete
+            % decoder score the four phase hypotheses instead.
+            phaseResolveMode = "ber";
+        end
 
         rotationOrder = 1:length(rotations);
         asmResolveInfo = struct('enabled', false, 'selectedIdx', rotationOrder, ...
@@ -2739,7 +2781,7 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
             evaluated(ii) = true;
             rxRot = fineSynced * r;
 
-            [ber, lock, errs, bitsComp, stats] = tryOneRotation( ...
+            [ber, lock, errs, bitsComp, stats] = tryOneRotationCandidate( ...
                 rxRot, validTxFrames, tmMod, tmCode, ...
                 opt, hasRandomizer, hasASM, btVal, numWarmUp);
 
@@ -2798,7 +2840,7 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                 r = rotations(ii);
                 rxRot = fineSynced * r;
 
-                [ber, lock, errs, bitsComp, stats] = tryOneRotation( ...
+                [ber, lock, errs, bitsComp, stats] = tryOneRotationCandidate( ...
                     rxRot, validTxFrames, tmMod, tmCode, ...
                     opt, hasRandomizer, hasASM, btVal, numWarmUp);
 
@@ -2851,7 +2893,7 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                 evaluated(ii) = true;
                 rxRot = fineSynced * r;
 
-                [ber, lock, errs, bitsComp, stats] = tryOneRotation( ...
+                [ber, lock, errs, bitsComp, stats] = tryOneRotationCandidate( ...
                     rxRot, validTxFrames, tmMod, tmCode, ...
                     opt, hasRandomizer, hasASM, btVal, numWarmUp);
 
@@ -2894,7 +2936,7 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                     r = rotations(ii);
                     rxRot = fineSynced * r;
 
-                    [ber, lock, errs, bitsComp, stats] = tryOneRotation( ...
+                    [ber, lock, errs, bitsComp, stats] = tryOneRotationCandidate( ...
                         rxRot, validTxFrames, tmMod, tmCode, ...
                         opt, hasRandomizer, hasASM, btVal, numWarmUp);
 
@@ -2937,6 +2979,10 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
         fprintf('   [Phase ambiguity] best rotation = %+5.1f deg, lockRate=%.1f%%\n', ...
             rad2deg(bestRot), lockRate*100);
     catch ME_BER
+        if startsWith(string(ME_BER.identifier), ...
+                "gmsk_ccsds_official_demodulate:")
+            rethrow(ME_BER);
+        end
         berVal = -2; lockRate = 0;
         fprintf(2,'\n[computeBER ERROR] %s\n', ME_BER.message);
         if ~isempty(ME_BER.stack)
@@ -3072,6 +3118,7 @@ function stats = localEmptyBERStats()
         'CountedFrames', 0, ...
         'MatchedFrames', 0, ...
         'NumRxFrames', 0, ...
+        'GMSKDetectorUsed', 'not-applicable', ...
         'AcquisitionFrames', NaN, ...
         'AcquisitionTime_s', NaN);
 end
@@ -3542,7 +3589,7 @@ function demodData = localDemodForASM(fineSynced, tmMod, tmCode, opt, btVal)
     end
 end
 
-function asmBits = localTMASM(opt)
+function asmBits = localTMASM(opt, tmCode)
     if nargin < 1 || isempty(opt)
         opt = struct();
     end
@@ -3550,13 +3597,35 @@ function asmBits = localTMASM(opt)
     [asmHex, hasHex] = localASMOptionHex(opt);
     if hasLength || hasHex
         asmBits = localBuildCustomASMForEval(asmLength, hasLength, asmHex, hasHex);
-    else
-        asmBits = localDefaultTMASM();
+        return;
     end
+
+    if nargin >= 2 && ~isempty(tmCode)
+        codeKey = lower(string(tmCode));
+        if codeKey == "ldpc" || codeKey == "turbo"
+            rateKey = char(string(getfieldwithdefault(opt, 'CodeRate', '1/2')));
+            switch rateKey
+                case {'1/2','2/3','4/5'}
+                    asmHex = '034776C7272895B0';
+                case '1/3'
+                    asmHex = '25D5C0CE8990F6C9461BF79C';
+                case '1/4'
+                    asmHex = '034776C7272895B0FCB88938D8D76A4F';
+                case '1/6'
+                    asmHex = '25D5C0CE8990F6C9461BF79CDA2A3F31766F0936B9E40863';
+                otherwise % Ordinary LDPC rate 7/8.
+                    asmHex = '1ACFFC1D';
+            end
+            asmBits = localHexToBitsForEval(asmHex);
+            return;
+        end
+    end
+
+    asmBits = localDefaultTMASM();
 end
 
 function [asmTemplates, periodBits] = localASMTemplatesForPhaseResolve(tmMod, tmCode, opt)
-    asmBits = localTMASM(opt);
+    asmBits = localTMASM(opt, tmCode);
     codeKey = lower(string(tmCode));
     pcmFormat = "NRZ-L";
     if isfield(opt,'PCMFormat') && ~isempty(opt.PCMFormat)
@@ -3647,7 +3716,7 @@ function periodBits = localASMPeriodBits(tmMod, tmCode, opt)
         hasASM = logical(opt.hasASM);
     end
     if hasASM
-        asmLen = numel(localTMASM(opt));
+        asmLen = numel(localTMASM(opt, tmCode));
     else
         asmLen = 0;
     end
@@ -3662,9 +3731,22 @@ function periodBits = localASMPeriodBits(tmMod, tmCode, opt)
             k = double(opt.NumBitsInInformationBlock);
         end
         rate = localNominalCodeRate(tmCode, opt);
-        periodBits = round(k / max(rate, eps)) + asmLen;
+        if contains(codeKey, 'turbo')
+            codedBits = round((k + 4) / max(rate, eps));
+        else
+            rateKey = string(getfieldwithdefault(opt, 'CodeRate', '1/2'));
+            if rateKey == "7/8" && k == 7136
+                % CCSDS ordinary LDPC 7/8 is (8160,7136).  Its exact
+                % code rate is 7136/8160, not the nominal fraction 7/8.
+                codedBits = 8160;
+            else
+                codedBits = round(k / max(rate, eps));
+            end
+        end
+        periodBits = codedBits + asmLen;
     elseif contains(codeKey, 'tpc')
-        periodBits = 64*64 + asmLen;
+        blocksPerTF = getfieldwithdefault(opt, 'TPCBlocksPerTF', 1);
+        periodBits = 64*64*double(blocksPerTF) + asmLen;
     elseif contains(codeKey, 'rs')
         rsN = 255;
         rsK = getfieldnumeric(opt, 'RSMessageLength', 223);
@@ -3852,8 +3934,33 @@ function [meanErr, nFrames] = localPeriodicASMMeanError(hardBits, asmBits, first
     end
 end
 
+function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotationCandidate(fineSynced, validTxFrames, tmMod, tmCode, opt, hasRandomizer, hasASM, btVal, numWarmUp)
+%TRYONEROTATIONCANDIDATE Isolate failures from an invalid phase hypothesis.
+% A wrong GMSK phase can produce a zero-range soft stream.  Some channel
+% decoders reject that stream while quantising it; the failure belongs to
+% this phase candidate and must not overwrite a previously valid result.
+    try
+        [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation( ...
+            fineSynced, validTxFrames, tmMod, tmCode, opt, ...
+            hasRandomizer, hasASM, btVal, numWarmUp);
+    catch candidateError
+        if startsWith(string(candidateError.identifier), ...
+                "gmsk_ccsds_official_demodulate:")
+            rethrow(candidateError);
+        end
+        berVal = inf;
+        lockRate = 0;
+        errs = 0;
+        bitsComp = 0;
+        frameStats = localEmptyBERStats();
+        fprintf(2, ['\n   [phase candidate skipped] Decoder rejected ', ...
+            'this hypothesis: %s\n'], candidateError.message);
+    end
+end
+
 function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSynced, validTxFrames, tmMod, tmCode, opt, hasRandomizer, hasASM, btVal, numWarmUp)
     berVal = 0.5; lockRate = 0;
+    gmskDetectorUsed = "not-applicable";
 
     randomizerPosition = opt.RandomizerPosition;
     randomizerPathMode = opt.RandomizerPathMode;
@@ -4005,6 +4112,12 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         pcmFormatRx = "NRZ-L";
     end
 
+    % Opt-in GMSK experiment flag.  The default remains the original
+    % continuous feedback detector, so existing baseline behavior is not
+    % changed unless an explicit frame-reset mode is requested.
+    gmskFrameResetAligned = false;
+    gmskFrameResetInfo = struct();
+
     if HelperCCSDSTMPCMDemodulator.supports(tmMod)
         demodData = real(fineSynced(:));
     elseif contains(tmMod,'FM')
@@ -4041,13 +4154,183 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         demodData = demodobj(fineSynced);
 
     elseif contains(tmMod,'GMSK')
-        demodobj = HelperCCSDSTMDemodulator( ...
-            'Modulation',tmMod, ...
-            'ChannelCoding',tmCode, ...
-            'BandwidthTimeProduct',btVal);
-        demodData = demodobj(fineSynced);
         debugGMSK = getLogicalField(opt, 'debugGMSK', false) || ...
             getLogicalField(opt, 'debugCodedBoundary', false);
+        gmskDetectionMode = "legacy-diff";
+        if isfield(opt,'GMSKDetectionMode') && ~isempty(opt.GMSKDetectionMode)
+            gmskDetectionMode = lower(string(opt.GMSKDetectionMode));
+        end
+
+        useLegacyFrameReset = strcmp(gmskDetectionMode, "legacy-frame-reset");
+        useOfficialFrameReset = strcmp(gmskDetectionMode, ...
+            "official-viterbi-frame-reset");
+        supportedFrameResetCode = strcmpi(string(tmCode), "none") || ...
+            contains(lower(string(tmCode)), "convolutional");
+
+        if useOfficialFrameReset
+            officialReceiverCfg = struct();
+            officialReceiverCfg.ChannelCoding = tmCode;
+            officialCodeKey = lower(string(tmCode));
+            if contains(officialCodeKey, "convolutional")
+                officialReceiverCfg.CodeRate = getfieldwithdefault(opt, ...
+                    'ConvolutionalCodeRate', '1/2');
+            elseif officialCodeKey == "ldpc" || officialCodeKey == "turbo"
+                if ~isfield(opt, 'CodeRate') || isempty(opt.CodeRate)
+                    error('run_ccsds_tm_evaluation:MissingOfficialGMSKCodeRate', ...
+                        ['Official GMSK with ChannelCoding="%s" requires ', ...
+                         'the same CodeRate used by the transmitter.'], ...
+                        char(tmCode));
+                end
+                if ~isfield(opt, 'NumBitsInInformationBlock') || ...
+                        isempty(opt.NumBitsInInformationBlock)
+                    error(['run_ccsds_tm_evaluation:', ...
+                           'MissingOfficialGMSKInformationBlockLength'], ...
+                        ['Official GMSK with ChannelCoding="%s" requires ', ...
+                         'the same NumBitsInInformationBlock used by the ', ...
+                         'transmitter.'], char(tmCode));
+                end
+
+                officialReceiverCfg.CodeRate = opt.CodeRate;
+                officialReceiverCfg.NumBitsInInformationBlock = ...
+                    opt.NumBitsInInformationBlock;
+                if officialCodeKey == "ldpc"
+                    officialReceiverCfg.IsLDPCOnSMTF = ...
+                        getLogicalField(opt, 'IsLDPCOnSMTF', false);
+                    if isfield(opt, 'LDPCCodeblockSize') && ...
+                            ~isempty(opt.LDPCCodeblockSize)
+                        officialReceiverCfg.LDPCCodeblockSize = ...
+                            opt.LDPCCodeblockSize;
+                    end
+                end
+            elseif officialCodeKey == "tpc"
+                officialReceiverCfg.CodeRate = 'N/A';
+                officialReceiverCfg.TPCCodeRate = ...
+                    localTPCCodeRateValue(opt);
+                officialReceiverCfg.TPCBlocksPerTF = ...
+                    getfieldwithdefault(opt, 'TPCBlocksPerTF', 1);
+            else
+                % The rate is not part of the uncoded GMSK frame layout.
+                % Unsupported coding families are rejected by the official
+                % receiver entry point; do not invent a convolutional rate.
+                officialReceiverCfg.CodeRate = 'N/A';
+            end
+            officialReceiverCfg.NumBytesInTransferFrame = numBytesTF;
+            officialReceiverCfg.ASMBits = localTMASM(opt, tmCode);
+            officialReceiverCfg.HasASM = hasASM;
+            officialReceiverCfg.PCMFormat = pcmFormatRx;
+            officialReceiverCfg.SamplesPerSymbol = ...
+                getfieldnumeric(opt, 'sps', 8);
+            officialReceiverCfg.BandwidthTimeProduct = btVal;
+            officialReceiverCfg.PrintDebug = debugGMSK;
+
+            [demodData, officialReceiverInfo] = ...
+                gmsk_ccsds_official_demodulate( ...
+                fineSynced, officialReceiverCfg);
+            gmskDetectorUsed = "official";
+            gmskFrameResetAligned = true;
+            if debugGMSK
+                fprintf(['   [GMSK official receiver] detector=%s, ', ...
+                    'success=%d, input=%d, output=%d, accepted=%d/%d\n'], ...
+                    officialReceiverInfo.GMSKDetectorUsed, ...
+                    officialReceiverInfo.DetectorSucceeded, ...
+                    officialReceiverInfo.Viterbi.InputSamples, ...
+                    officialReceiverInfo.Viterbi.OutputSymbols, ...
+                    officialReceiverInfo.FrameReset.AcceptedFrames, ...
+                    officialReceiverInfo.FrameReset.TotalFrames);
+                assignin('base', 'debugGMSKOfficialReceiverInfo', ...
+                    officialReceiverInfo);
+            end
+        elseif useLegacyFrameReset && hasASM && supportedFrameResetCode
+            rateForReset = "1/2";
+            if isfield(opt,'ConvolutionalCodeRate') && ...
+                    ~isempty(opt.ConvolutionalCodeRate)
+                rateForReset = string(opt.ConvolutionalCodeRate);
+            end
+            asmForReset = localTMASM(opt);
+            resetTemplateCfg = gmsk_frame_reset_asm_config( ...
+                tmCode, rateForReset, numBytesTF, asmForReset, pcmFormatRx);
+
+            if ~isempty(resetTemplateCfg.asmTemplates)
+                resetCfg = struct();
+                resetCfg.framePeriodBits = resetTemplateCfg.framePeriodBits;
+                resetCfg.asmTemplates = resetTemplateCfg.asmTemplates;
+                resetCfg.asmOffsetBits = resetTemplateCfg.asmOffsetBits;
+                resetCfg.asmMaxErrors = getfieldnumeric(opt, ...
+                    'gmskFrameResetASMMaxErrors', ...
+                    max(2, ceil(0.20*size(resetCfg.asmTemplates,1))));
+                resetCfg.asmMinGap = getfieldnumeric(opt, ...
+                    'gmskFrameResetASMMinGap', ...
+                    max(3, ceil(0.25*size(resetCfg.asmTemplates,1))));
+                resetCfg.maxSearchFrames = getfieldnumeric(opt, ...
+                    'gmskFrameResetMaxSearchFrames', 8);
+                resetCfg.minSearchFrames = getfieldnumeric(opt, ...
+                    'gmskFrameResetMinSearchFrames', 2);
+                resetCfg.printDebug = debugGMSK;
+
+                resetInput = fineSynced;
+
+                [frameResetData, gmskFrameResetInfo] = ...
+                    gmsk_frame_reset_demodulate(resetInput, resetCfg);
+                if gmskFrameResetInfo.GridFound && ~isempty(frameResetData)
+                    demodData = frameResetData;
+                    gmskFrameResetAligned = true;
+                    gmskDetectorUsed = "legacy-frame-reset";
+                    if debugGMSK
+                        fprintf(['   [GMSK frame reset] grid start=%d, ', ...
+                            'altPhase=%d, median ASM errors=%.2f, ', ...
+                            'accepted=%d/%d\n'], ...
+                            gmskFrameResetInfo.FrameStart, ...
+                            gmskFrameResetInfo.AltPhase, ...
+                            gmskFrameResetInfo.GridMedianASMErrors, ...
+                            gmskFrameResetInfo.AcceptedFrames, ...
+                            gmskFrameResetInfo.TotalFrames);
+                        assignin('base','debugGMSKFrameResetInfo', ...
+                            gmskFrameResetInfo);
+                    end
+                else
+                    if debugGMSK
+                        fprintf(['   [GMSK frame reset] acquisition failed: %s; ', ...
+                            'mode=%s.\n'], ...
+                            gmskFrameResetInfo.FailureReason, ...
+                            char(gmskDetectionMode));
+                    end
+                    if debugGMSK
+                        fprintf('   [GMSK frame reset] falling back to legacy detector.\n');
+                    end
+                    demodobj = HelperCCSDSTMDemodulator( ...
+                        'Modulation',tmMod, ...
+                        'ChannelCoding',tmCode, ...
+                        'BandwidthTimeProduct',btVal);
+                    demodData = demodobj(fineSynced);
+                    gmskDetectorUsed = "legacy-diff";
+                end
+            else
+                if debugGMSK
+                    fprintf(['   [GMSK frame reset] ASM templates are not ', ...
+                        'rectangular for this configuration.\n']);
+                end
+                if debugGMSK
+                    fprintf('   [GMSK frame reset] using legacy detector.\n');
+                end
+                demodobj = HelperCCSDSTMDemodulator( ...
+                    'Modulation',tmMod, ...
+                    'ChannelCoding',tmCode, ...
+                    'BandwidthTimeProduct',btVal);
+                demodData = demodobj(fineSynced);
+                gmskDetectorUsed = "legacy-diff";
+            end
+        else
+            if useLegacyFrameReset && debugGMSK
+                fprintf(['   [GMSK frame reset] requires HasASM=true and ', ...
+                    'none/convolutional coding; using legacy.\n']);
+            end
+            demodobj = HelperCCSDSTMDemodulator( ...
+                'Modulation',tmMod, ...
+                'ChannelCoding',tmCode, ...
+                'BandwidthTimeProduct',btVal);
+            demodData = demodobj(fineSynced);
+            gmskDetectorUsed = "legacy-diff";
+        end
         if debugGMSK
             hard0 = demodData(:) < 0;
             fprintf('   [GMSK DEBUG] demodData len=%d, mean=%+.3f, std=%.3f, min=%+.3f, max=%+.3f, ones=%.1f%%\n', ...
@@ -4370,7 +4653,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         end
         return;
     else
-        externalASMAligned = false;
+        externalASMAligned = gmskFrameResetAligned;
         modKeyForAlign = upper(string(tmMod));
         codeKeyForAlign = lower(string(tmCode));
         isConvForAlign = contains(codeKeyForAlign, 'convolutional');
@@ -4390,7 +4673,14 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         end
         needsPeriodicASMAlign = hasASM && ...
             (strcmpi(string(tmCode), "none") || isConvForAlign || rsPeriodicASMAlign);
-        if needsPeriodicASMAlign
+        if gmskFrameResetAligned
+            decArgs = [decArgs, {'DisableFrameSynchronization', true}];
+            if getLogicalField(opt, 'debugCodedBoundary', false) || ...
+                    getLogicalField(opt, 'debugGMSK', false)
+                fprintf(['   [GMSK frame reset] decoder frame synchronization ', ...
+                    'disabled after ASM-aided GMSK alignment\n']);
+            end
+        elseif needsPeriodicASMAlign
             [demodData, asmTrim, asmFound] = localTrimDemodToPeriodicASM(demodData, tmMod, tmCode, opt);
             externalASMAligned = asmTrim > 0 || (rsPeriodicASMAlign && asmFound);
             if getLogicalField(opt, 'debugCodedBoundary', false) && asmFound
@@ -4716,6 +5006,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     end
     frameStats.AcquisitionFrames = acquisitionFrames;
     frameStats.AcquisitionTime_s = localAcquisitionTimeSeconds(acquisitionFrames, bitsPerFrame, tmMod, tmCode, opt);
+    frameStats.GMSKDetectorUsed = char(gmskDetectorUsed);
     % numRx 太少说明解码器同步失败,只输出了 1 帧 zeros (header=0 偶然命中 warmup 帧 0),
     % 这种"虚假 100% lockRate"不能参与竞选,直接置零
     if countedFrames == 0
@@ -5620,6 +5911,10 @@ function printMetrics(res, opt)
         fprintf(' Noise PSD    : %.2f dBm/Hz over %.3g Hz -> %.2f dBm, EqSNR=%.2f dB\n', ...
             res.NoisePSD_dBmHz, res.NoiseBandwidthHz, ...
             res.NoisePower_dBm, res.NoiseEquivalentSNR_dB);
+    end
+    if isfield(res,'GMSKDetectorUsed') && ...
+            ~strcmpi(char(res.GMSKDetectorUsed), 'not-applicable')
+        fprintf(' GMSK detector: %s\n', char(res.GMSKDetectorUsed));
     end
     fprintf(' --------------------------------\n');
     fprintf(' BER          : %.6f\n', res.BER);
@@ -7427,4 +7722,24 @@ function out = localFrameInterleaveDecodedRails(bitsI, bitsQ, bitsPerFrame)
         out(idxO1) = int8(bitsI(idxI));
         out(idxO2) = int8(bitsQ(idxI));
     end
+end
+
+function offset = localParabolicSpectrumPeakOffset(powerSpectrum, peakIndex)
+%LOCALPARABOLICSPECTRUMPEAKOFFSET Estimate a spectral peak between bins.
+% Fit a parabola to the log-power values immediately around the integer
+% maximum.  The result is bounded to the current FFT bin.
+    offset = 0;
+    if peakIndex <= 1 || peakIndex >= numel(powerSpectrum)
+        return;
+    end
+
+    y = log(max(double(powerSpectrum(peakIndex + (-1:1))), realmin('double')));
+    denominator = y(1) - 2*y(2) + y(3);
+    if ~all(isfinite(y)) || ~isfinite(denominator) || denominator >= 0 || ...
+            abs(denominator) <= eps(max(abs(y)))
+        return;
+    end
+
+    offset = 0.5 * (y(1) - y(3)) / denominator;
+    offset = max(-0.5, min(0.5, offset));
 end
