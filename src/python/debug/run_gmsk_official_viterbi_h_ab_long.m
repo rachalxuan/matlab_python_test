@@ -61,7 +61,7 @@ base.phaseOffset = 0;
 base.delay = 0;
 base.gmskBT = 0.5;
 base.hasASM = true;
-base.hasRandomizer = false;
+base.RandomizerEnabled = false;
 
 % Forty generated frames reproduce the duration of the old 20260715 short
 % sweep while keeping the oversampled official Viterbi run manageable.

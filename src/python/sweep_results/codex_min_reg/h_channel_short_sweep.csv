@@ -1,5 +1,0 @@
-CaseIndex,Scenario,ModType,ChannelCoding,Rate,NumBytesInTransferFrame,NumBitsInInformationBlock,IsLDPCOnSMTF,TPCBlocksPerTF,HEnabled,EqualizerEnabled,NormalizeHChannel,NormalizeEqualizerOutput,BER,LockRate_pct,FER,CountedFrames,MatchedFrames,EVM_post_pct,MER_dB,SNR_est_dB,ResidualCFO_Hz,HGain_dB,HNormalizationGain_dB,HMeanCoeffMagnitude,Success,Status,ErrorMessage,Runtime_s
-1,NoH_baseline,QPSK,none,none,1115,NaN,0,NaN,0,0,0,0,0,100,0,42,44,1.51323471604189,36.4018740770005,36.4018740769964,-0.00193352109573784,0,NaN,NaN,1,OK,,5.0927795
-2,NoH_baseline,QPSK,convolutional,1/2,1115,NaN,0,NaN,0,0,0,0,0,100,0,41,43,1.53439702975713,36.2812450173541,36.2812450173502,-0.00225619602756842,0,NaN,NaN,1,OK,,5.2152558
-3,NoH_baseline,8PSK,none,none,1115,NaN,0,NaN,0,0,0,0,0,100,0,41,44,1.52991527223014,36.3066524009265,36.3066524009225,0.00508399925390242,0,NaN,NaN,1,OK,,3.8393655
-4,NoH_baseline,8PSK,convolutional,1/2,1115,NaN,0,NaN,0,0,0,0,0,100,0,40,42,1.54094107157203,36.2442793837163,36.2442793837124,0.00421757940104268,0,NaN,NaN,1,OK,,4.3117733

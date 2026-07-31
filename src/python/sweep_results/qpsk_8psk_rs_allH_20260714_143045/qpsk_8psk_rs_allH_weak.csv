@@ -1,1 +1,0 @@
-Scenario,ModType,RSName,RSMessageLength,RSInterleavingDepth,InputBytes,CodedBytes,Seed,BER,LockRate_pct,FER,EVM_post_pct,MER_dB,SNR_est_dB,FrameErrors,CountedFrames,MatchedFrames,DecodedFrames,HGain_dB,Pass,Success,ErrorMsg,ElapsedTime_s

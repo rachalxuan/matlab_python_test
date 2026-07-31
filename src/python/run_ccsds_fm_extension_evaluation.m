@@ -110,7 +110,7 @@ function opt = localDefaults(opt)
     opt = setDefault(opt, 'channelCoding', 'convolutional');
     opt = setDefault(opt, 'ConvolutionalCodeRate', '1/2');
     opt = setDefault(opt, 'hasASM', true);
-    opt = setDefault(opt, 'hasRandomizer', false);
+    opt = setDefault(opt, 'RandomizerEnabled', false);
     opt = setDefault(opt, 'NumBytesInTransferFrame', 1115);
     opt = setDefault(opt, 'berWarmUpFrames', 4);
     opt = setDefault(opt, 'berFrames', 20);
@@ -134,7 +134,7 @@ function opt = localDefaults(opt)
     opt.delay = double(opt.delay);
     opt.channelCoding = canonicalChannelCodingLocal(opt.channelCoding);
     opt.hasASM = logical(opt.hasASM);
-    opt.hasRandomizer = logical(opt.hasRandomizer);
+    opt.RandomizerEnabled = logical(opt.RandomizerEnabled);
     opt.NumBytesInTransferFrame = double(opt.NumBytesInTransferFrame);
     opt.berWarmUpFrames = max(0, round(double(opt.berWarmUpFrames)));
     opt.berFrames = max(1, round(double(opt.berFrames)));
@@ -158,7 +158,7 @@ function [txBits, infoOut] = buildCCSDSTMFMTxBits(opt)
         'Modulation', 'BPSK', ...
         'ChannelCoding', opt.channelCoding, ...
         'SamplesPerSymbol', 2, ...
-        'HasRandomizer', opt.hasRandomizer, ...
+        'RandomizerEnabled', opt.RandomizerEnabled, ...
         'HasASM', opt.hasASM};
 
     codeKey = lower(string(opt.channelCoding));
@@ -500,7 +500,7 @@ end
 function decodedBits = decodeCCSDSTMBitsOnce(softBits, opt)
     decArgs = {'ChannelCoding', opt.channelCoding, ...
         'Modulation', 'BPSK', ...
-        'HasRandomizer', opt.hasRandomizer, ...
+        'RandomizerEnabled', opt.RandomizerEnabled, ...
         'HasASM', opt.hasASM, ...
         'DisablePhaseAmbiguityResolution', true};
 

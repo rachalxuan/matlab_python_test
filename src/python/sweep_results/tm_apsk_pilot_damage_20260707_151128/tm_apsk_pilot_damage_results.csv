@@ -1,3 +1,0 @@
-Idx,Mod,CodingName,ChannelCoding,Rate,Damage,SNR_dB,CFO_Hz,Phase_deg,Delay_sym,PilotMode,Success,Pass,BER,FER,LockRate,EVM_post_pct,MER_dB,ResidualCFO_Hz,TMAPSKPilotsApplied,TMAPSKPilotCFO_Hz,TMAPSKPilotDataSymbols,FrameErrors,CountedFrames,ElapsedTime_s,Error
-1,16APSK,none,none,-,clean,30,0,0,0,auto,1,1,0,0,1,1.83382460207897,34.7328441038761,0.0655980189167484,1,-0.0758134474417577,33560,0,10,8.6451886,
-2,16APSK,RS,RS,223/255,clean,30,0,0,0,auto,1,1,0,0,1,2.20066320226584,33.148928368285,1.32890758695555,1,-1.21175319236091,7759,0,10,0.390595,

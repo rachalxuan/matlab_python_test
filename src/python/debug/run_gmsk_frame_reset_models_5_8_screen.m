@@ -58,7 +58,7 @@ opts.phaseOffset = 0;
 opts.delay = 0;
 opts.gmskBT = 0.5;
 opts.hasASM = true;
-opts.hasRandomizer = false;
+opts.RandomizerEnabled = false;
 
 % Same frame count as the completed TDL A/B test.  Depending on code rate,
 % each case consumes about 0.054 to 0.107 seconds of its H trace.

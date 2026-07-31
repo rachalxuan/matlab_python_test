@@ -243,7 +243,7 @@ function opt = localDefaults(opt)
     opt = setDefault(opt, 'uqpskCarrierLoopBW', 0.002);
     opt = setDefault(opt, 'ddNormalizeIterations', 4);
     opt = setDefault(opt, 'hasASM', true);
-    opt = setDefault(opt, 'hasRandomizer', false);
+    opt = setDefault(opt, 'RandomizerEnabled', false);
     opt = setDefault(opt, 'NumBytesInTransferFrame', 1115);
     opt = setDefault(opt, 'berWarmUpFrames', 4);
     opt = setDefault(opt, 'berFrames', 20);
@@ -255,7 +255,7 @@ function opt = localDefaults(opt)
     opt.symbolRate = double(opt.symbolRate);
     opt.sps = max(2, round(double(opt.sps)));
     if ~isfield(opt,'uqpskMaxCFOHz') || isempty(opt.uqpskMaxCFOHz)
-        opt.uqpskMaxCFOHz = 0.01 * opt.symbolRate;   % 默认 ±1% 符号率
+        opt.uqpskMaxCFOHz = 0.05 * opt.symbolRate;   % default +/-5% symbol rate
     end
     opt = setDefault(opt, 'uqpskCFOFFTLen', 2^17);
     FsDefault = opt.symbolRate * opt.sps;
@@ -275,7 +275,7 @@ function opt = localDefaults(opt)
     opt.uqpskCarrierLoopBW = double(opt.uqpskCarrierLoopBW);
     opt.ddNormalizeIterations = max(0, round(double(opt.ddNormalizeIterations)));
     opt.hasASM = logical(opt.hasASM);
-    opt.hasRandomizer = logical(opt.hasRandomizer);
+    opt.RandomizerEnabled = logical(opt.RandomizerEnabled);
     opt.NumBytesInTransferFrame = double(opt.NumBytesInTransferFrame);
     opt.berWarmUpFrames = max(0, round(double(opt.berWarmUpFrames)));
     opt.berFrames = max(1, round(double(opt.berFrames)));
@@ -302,7 +302,7 @@ function [txWaveform, infoOut] = buildCCSDSTMUQPSKTx(opt)
         'SamplesPerSymbol', opt.sps, ...
         'RolloffFactor', opt.RolloffFactor, ...
         'FilterSpanInSymbols', opt.FilterSpanInSymbols, ...
-        'HasRandomizer', opt.hasRandomizer, ...
+        'RandomizerEnabled', opt.RandomizerEnabled, ...
         'HasASM', opt.hasASM};
 
     codeKey = lower(string(opt.channelCoding));
@@ -561,7 +561,7 @@ end
 function decodedBits = decodeCCSDSTMBitsOnce(softBits, opt)
     decArgs = {'ChannelCoding', opt.channelCoding, ...
         'Modulation', 'QPSK', ...
-        'HasRandomizer', opt.hasRandomizer, ...
+        'RandomizerEnabled', opt.RandomizerEnabled, ...
         'HasASM', opt.hasASM, ...
         'DisablePhaseAmbiguityResolution', true};
 
@@ -989,4 +989,3 @@ function [y, cfo_est] = uqpskFourthPowerFFTCoarseCFO(x, Fs, maxCFOHz, fftLen)
     n = (0:numel(x)-1).';
     y = x .* exp(-1j*2*pi*cfo_est/Fs*n);
 end
-

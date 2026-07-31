@@ -226,9 +226,10 @@ def run_simulation():
             "RSShortenedMessageLength": params.get("RSShortenedMessageLength"),
             "RolloffFactor": params.get("RolloffFactor"),
             "hasASM": params.get("hasASM"),
-            "hasRandomizer": params.get("hasRandomizer"),
-            "RandomizerPosition": params.get("RandomizerPosition"),
-            "RandomizerPathMode": params.get("RandomizerPathMode"),
+            "RandomizerEnabled": params.get("RandomizerEnabled"),
+            "RandomizerFECPosition": params.get("RandomizerFECPosition"),
+            "DataPathMode": params.get("DataPathMode"),
+            "WaveformMode": params.get("WaveformMode"),
         }
         print("[Server] 参数摘要:", json.dumps(debug_params, ensure_ascii=False))
 

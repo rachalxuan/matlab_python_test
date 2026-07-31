@@ -27,7 +27,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
         if ischar(opt.symbolRate), fSym = makeNum(opt.symbolRate); else, fSym = double(opt.symbolRate); end
         if ischar(opt.sps), sps = makeNum(opt.sps); else, sps = double(opt.sps); end
         
-        hasRandomizer = false; if isfield(opt, 'hasRandomizer'), hasRandomizer = opt.hasRandomizer; end
+        randomizerEnabled = false; if isfield(opt, 'RandomizerEnabled'), randomizerEnabled = opt.RandomizerEnabled; end
         hasASM = false; if isfield(opt, 'hasASM'), hasASM = opt.hasASM; end
 
         log("======================================================\n");
@@ -36,7 +36,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
         %% 2. 发送端：智能路由
         args = {
             'SamplesPerSymbol', sps, ...
-            'HasRandomizer', hasRandomizer, ...
+            'RandomizerEnabled', randomizerEnabled, ...
             'HasASM', hasASM
         };
         
@@ -334,7 +334,7 @@ function json_str = run_ccsds_tm_modulation(paramsJson)
                 % 译码
                 decArgs = {'ChannelCoding', tmCode, 'Modulation', tmMod, ...
                            'NumBytesInTransferFrame', 1115, ...
-                           'HasRandomizer', hasRandomizer, ...
+                           'RandomizerEnabled', randomizerEnabled, ...
                            'HasASM', hasASM};
                 
                 % 确保卷积码率被传递 (如果是 Convolutional)

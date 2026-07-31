@@ -54,7 +54,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
     %   WaveformSource              - CCSDS telemetry waveform source
     %   ACMFormat                   - Adaptive coding and modulation format
     %   NumBytesInTransferFrame     - Number of bytes in one transfer frame
-    %   HasRandomizer               - Option for randomizing the data
+    %   RandomizerEnabled           - Option for randomizing the data
     %   HasASM                      - Option for inserting attached sync
     %                                 marker (ASM)
     %   PCMFormat                   - Pulse code modulation (PCM) format
@@ -277,7 +277,9 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
         % DataPathMode Information-stream topology.
         %   "single" uses one ordinary TM information stream.
         %   "dualIQ" encodes and randomizes independent I/Q information rails.
-        % Randomizer enable/bypass is controlled only by HasRandomizer.
+        %   "unequalDualIQ" uses UQPSK with two I-rail frames for every
+        %   one Q-rail frame. Both rails have independent ASM/FEC state.
+        % Randomizer enable/bypass is controlled only by RandomizerEnabled.
         DataPathMode = 'single'
         % SplitPathDebug Print TX split-path rail/interleave diagnostics.
         SplitPathDebug = false
@@ -364,7 +366,6 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
         % Constructor
         function obj = ccsdsTMWaveformGenerator(varargin)
             % Support name-value pair arguments when constructing object
-            varargin = localUpgradeLegacyRandomizerArgs(varargin);
             setProperties(obj,numel(varargin),varargin{:})
         end
     end
@@ -379,30 +380,62 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                      'afterEncoding or beforeEncoding.'], ...
                     char(obj.RandomizerFECPosition));
             end
-            if ~any(strcmpi(obj.DataPathMode, {'single','dualIQ'}))
+            if ~any(strcmpi(obj.DataPathMode, ...
+                    {'single','dualIQ','unequalDualIQ'}))
                 error('ccsdsTMWaveformGenerator:InvalidDataPathMode', ...
-                    'Unsupported DataPathMode="%s". Use single or dualIQ.', ...
+                    ['Unsupported DataPathMode="%s". Use single, dualIQ, ', ...
+                     'or unequalDualIQ.'], ...
                     char(obj.DataPathMode));
             end
-            % Dual-rail information path
-            isSplit = strcmpi(obj.DataPathMode, 'dualIQ');
-            if isSplit
-                splitOkMods = {'QPSK','OQPSK','8PSK','16QAM','32QAM'};
-                splitOkCodes = {'none','RS','convolutional','LDPC','turbo'};
+            % Independent dual-rail information paths
+            isEqualSplit = strcmpi(obj.DataPathMode, 'dualIQ');
+            isUnequalSplit = strcmpi(obj.DataPathMode, 'unequalDualIQ');
+            isSplit = isEqualSplit || isUnequalSplit;
+            if isEqualSplit
+                splitCapabilities = tm_data_path_capabilities();
+                splitOkMods = cellstr(splitCapabilities.SupportedModulations);
+                splitOkCodes = cellstr(splitCapabilities.SupportedCodings);
 
                 if obj.pIsFACM || (strcmp(obj.ChannelCoding,'LDPC') && obj.IsLDPCOnSMTF)
                     error('ccsdsTMWaveformGenerator:SplitUnsupported', ...
-                        'split is only for ordinary TM path in Phase 1.');
+                        'dualIQ is available only on the ordinary TM path.');
                 end
                 if ~any(strcmp(obj.Modulation, splitOkMods))
                     error('ccsdsTMWaveformGenerator:SplitUnsupportedModulation', ...
-                        ['split does not support Modulation="%s" in Phase 1. ', ...
-                         'Use QPSK, OQPSK, 8PSK, 16QAM, or 32QAM.'], ...
-                        obj.Modulation);
+                        'dualIQ does not support Modulation="%s". Supported: %s.', ...
+                        obj.Modulation, ...
+                        char(strjoin(splitCapabilities.SupportedModulations, ', ')));
                 end
                 if ~any(strcmp(obj.ChannelCoding, splitOkCodes))
                     error('ccsdsTMWaveformGenerator:SplitUnsupportedCoding', ...
-                        'split supports only none/RS/convolutional/ordinary LDPC/turbo in Phase 1. Add state duplication before enabling "%s".', obj.ChannelCoding);
+                        'dualIQ does not support ChannelCoding="%s". Supported: %s.', ...
+                        obj.ChannelCoding, ...
+                        char(strjoin(splitCapabilities.SupportedCodings, ', ')));
+                end
+            end
+            if isUnequalSplit
+                splitCapabilities = tm_data_path_capabilities();
+                unequal = splitCapabilities.UnequalDualIQ;
+                if obj.pIsFACM || ...
+                        (strcmp(obj.ChannelCoding,'LDPC') && obj.IsLDPCOnSMTF)
+                    error('ccsdsTMWaveformGenerator:UnequalSplitUnsupported', ...
+                        'unequalDualIQ is available only on the ordinary TM path.');
+                end
+                if ~strcmp(obj.Modulation, char(unequal.Modulation))
+                    error('ccsdsTMWaveformGenerator:UnequalSplitRequiresUQPSK', ...
+                        ['unequalDualIQ requires Modulation="UQPSK"; ', ...
+                         'got "%s".'], obj.Modulation);
+                end
+                if ~any(strcmp(obj.ChannelCoding, ...
+                        cellstr(unequal.SupportedCodings)))
+                    error('ccsdsTMWaveformGenerator:UnequalSplitUnsupportedCoding', ...
+                        ['unequalDualIQ does not support ChannelCoding="%s". ', ...
+                         'Supported: %s.'], obj.ChannelCoding, ...
+                        char(strjoin(unequal.SupportedCodings, ', ')));
+                end
+                if ~strcmp(obj.PCMFormat, "NRZ-L")
+                    error('ccsdsTMWaveformGenerator:UnequalSplitPCMFormat', ...
+                        'unequalDualIQ currently requires PCMFormat="NRZ-L".');
                 end
             end
             localValidateHighRateConvFrameLength(obj);
@@ -678,6 +711,12 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     half = numel(bits)/2;
                     encI = tmEncode(obj, bits(1:half), 'I');
                     encQ = tmEncode(obj, bits(half+1:end), 'Q');
+                    if obj.SplitPathDebug
+                        assignin('base', 'debug_split_tx_encoded_i_bits', int8(encI(:)));
+                        assignin('base', 'debug_split_tx_encoded_q_bits', int8(encQ(:)));
+                        fprintf('[SplitPath TX rail reference] encI=%d bits, encQ=%d bits\n', ...
+                            numel(encI), numel(encQ));
+                    end
 
                     encodedBits = localSplitPackIQForModulation( ...
                         encI, encQ, obj.Modulation, obj.SplitPathDebug);
@@ -688,6 +727,36 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                             numel(bits), half, numel(encI), numel(encQ), numel(encodedBits), ...
                             char(obj.Modulation), char(obj.ChannelCoding), ...
                             char(obj.RandomizerFECPosition), char(obj.DataPathMode));
+                    end
+                elseif strcmpi(obj.DataPathMode, 'unequalDualIQ')
+                    bits = int8(bits(:));
+                    if mod(numel(bits), 3) ~= 0
+                        error('ccsdsTMWaveformGenerator:UnequalSplitInputLength', ...
+                            ['unequalDualIQ input must be [msgI;msgQ] with ', ...
+                             'numel(msgI)=2*numel(msgQ).']);
+                    end
+
+                    qLength = numel(bits)/3;
+                    iLength = 2*qLength;
+                    encI = tmEncode(obj, bits(1:iLength), 'I');
+                    encQ = tmEncode(obj, bits(iLength+1:end), 'Q');
+                    encodedBits = tm_uqpsk_unequal_bit_mux(encI, encQ, 2);
+                    if obj.SplitPathDebug
+                        assignin('base', ...
+                            'debug_uqpsk_unequal_tx_encoded_i_bits', ...
+                            int8(encI(:)));
+                        assignin('base', ...
+                            'debug_uqpsk_unequal_tx_encoded_q_bits', ...
+                            int8(encQ(:)));
+                        assignin('base', ...
+                            'debug_split_tx_encoded_i_bits', int8(encI(:)));
+                        assignin('base', ...
+                            'debug_split_tx_encoded_q_bits', int8(encQ(:)));
+                        fprintf(['[UQPSK unequal TX] input I/Q=%d/%d, ', ...
+                            'encoded I/Q=%d/%d, grouped=%d, layout=', ...
+                            '[I1,I2,Q1,...]\n'], ...
+                            iLength, qLength, numel(encI), numel(encQ), ...
+                            numel(encodedBits));
                     end
                 else
                     encodedBits = tmEncode(obj,int8(bits));
@@ -761,7 +830,9 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             if any(strcmp(obj.ChannelCoding,{'concatenated','convolutional'}))
                 obj.pInputBuffer = zeros(obj.pConvEncInLen,1,'int8');
             end
-            if strcmpi(obj.DataPathMode,'dualIQ') && strcmp(obj.ChannelCoding,'convolutional')
+            if any(strcmpi(obj.DataPathMode, ...
+                    {'dualIQ','unequalDualIQ'})) && ...
+                    strcmp(obj.ChannelCoding,'convolutional')
                 obj.pInputBufferI = zeros(obj.pConvEncInLen,1,'int8');
                 obj.pInputBufferQ = zeros(obj.pConvEncInLen,1,'int8');
                 obj.pNumBitsInInputBufferI = 0;
@@ -898,13 +969,9 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             % Set properties in object obj to values in structure s
             if isfield(s,'RandomizerFECPosition')
                 obj.RandomizerFECPosition = s.RandomizerFECPosition;
-            elseif isfield(s,'RandomizerPosition')
-                obj.RandomizerFECPosition = localLegacyRandomizerPosition(s.RandomizerPosition);
             end
             if isfield(s,'DataPathMode')
                 obj.DataPathMode = s.DataPathMode;
-            elseif isfield(s,'RandomizerPathMode')
-                obj.DataPathMode = localLegacyDataPathMode(s.RandomizerPathMode);
             end
             if isfield(s,'SplitPathDebug')
                 obj.SplitPathDebug = s.SplitPathDebug;
@@ -1048,7 +1115,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
             elseif strcmp(prop,'TPCInterleaver')
                 flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
-            elseif any(strcmp(prop,{'HasRandomizer','RandomizerFECPosition','DataPathMode'}))
+            elseif any(strcmp(prop,{'RandomizerEnabled','RandomizerFECPosition','DataPathMode'}))
                 flag = smtfFlag;
             elseif strcmp(prop,'HasASM')
                 flag = smtfFlag;
@@ -1206,7 +1273,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             genprops = {'WaveformSource',...
                 'ACMFormat',...
                 'NumBytesInTransferFrame',...
-                'HasRandomizer',...
+                'RandomizerEnabled',...
                 'RandomizerFECPosition',...
                 'DataPathMode',...
                 'SplitPathDebug',...
@@ -1269,6 +1336,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             l = getNumBytesInTransferFrame(obj)*8;
             if strcmpi(obj.DataPathMode, 'dualIQ')
                 l = 2*l;
+            elseif strcmpi(obj.DataPathMode, 'unequalDualIQ')
+                l = 3*l;
             end
         end
 
@@ -1330,7 +1399,9 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
         end
 
         function [bits, n] = updateInputBufferForRail(obj,u,rail)
-            if strcmpi(obj.DataPathMode,'dualIQ') && strcmp(obj.ChannelCoding,'convolutional')
+            if any(strcmpi(obj.DataPathMode, ...
+                    {'dualIQ','unequalDualIQ'})) && ...
+                    strcmp(obj.ChannelCoding,'convolutional')
                 switch upper(char(rail))
                     case 'I'
                         [bits,n,railBuffer,railNumBits] = ...
@@ -1359,16 +1430,16 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             tfl = obj.pTFLen*8;
             numTF = length(bits)/tfl;
 
-            localHasRandomizer = obj.HasRandomizer;
+            randomizerEnabled = obj.RandomizerEnabled;
             railPathMode = obj.DataPathMode;
-            if strcmpi(railPathMode, 'dualIQ')
+            if any(strcmpi(railPathMode, {'dualIQ','unequalDualIQ'}))
                 railPathMode = 'single';
             end
 
             switch(obj.ChannelCoding)
                 case 'none'
-%                     if obj.HasRandomizer
-                    if localHasRandomizer
+%                     if obj.RandomizerEnabled
+                    if randomizerEnabled
                         randomized = bitxor(bits,repmat(obj.pPRNSequence,numTF,1));
                     else
                         randomized = bits;
@@ -1390,7 +1461,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     for itf = 1:numTF
                         tbits = bits((itf-1)*tfl+1:itf*tfl);
                         % 后解扰 就是前加扰
-                        if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
+                        if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
                             if strcmpi(railPathMode, 'single')
                                 tbits = bitxor(tbits, obj.pPRNSequence(1:tfl));
 
@@ -1399,7 +1470,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
 %                         编码
                         cw = int8(ccsdsRSEncode(logical(tbits),k,i,s));
                         % 前解扰 就是后加扰
-                        if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
+                        if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
                             if strcmpi(railPathMode, 'single')
                                 randomized = bitxor(cw,obj.pPRNSequence);
 
@@ -1417,7 +1488,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     end
                 case 'convolutional'
                     % 后解扰
-                    if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
+                    if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
                         if strcmpi(railPathMode, 'single')
                             randomized = bitxor(bits,repmat(obj.pPRNSequence,numTF,1));
 
@@ -1470,7 +1541,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     cadu = zeros(numBitsInCADU*numTF,1,'int8');
                     for itf = 1:numTF
                         tbits = bits((itf-1)*tfl+1:itf*tfl);
-                        if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
+                        if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
                             if strcmpi(railPathMode, 'single')
                                 tbits = bitxor(tbits, obj.pPRNSequence(1:tfl));
 
@@ -1518,7 +1589,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     for itf = 1:numTF
                         tbits = bits((itf-1)*tfl+1:itf*tfl);
 %                         后解扰
-                        if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
+                        if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
                             if strcmpi(railPathMode, 'single')
                                 tbits = bitxor(tbits, obj.pPRNSequence(1:tfl));
 
@@ -1551,7 +1622,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         % Puncture the codeword as per the rate of the code.
                         cw = encodedWithoutPuncturing(obj.pTurboPuncturePattern);
                         % 前解扰
-                        if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
+                        if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
                             if strcmpi(railPathMode, 'single')
                                 randomized = bitxor(cw,obj.pPRNSequence);
 
@@ -1567,7 +1638,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         encoded((itf-1)*numBitsInCADU+1:itf*numBitsInCADU) = code;
                     end
                 case 'TPC'
-                    if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
+                    if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
                         if strcmpi(railPathMode, 'single')
                             prn = repmat(obj.pPRNSequence, ceil(numel(bits)/numel(obj.pPRNSequence)), 1);
                             randomized = bitxor(bits, prn(1:numel(bits)));
@@ -1586,7 +1657,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     for itf = 1:numTF
                         tf = bits((itf-1)*tfl+1:itf*tfl);
                         %后解扰
-                        if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
+                        if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
                             if strcmpi(railPathMode, 'single')
                                 tf = bitxor(tf, obj.pPRNSequence(1:tfl));
 
@@ -1595,7 +1666,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
 
                         cw = int8(satcom.internal.ccsds.tmldpcEncode(tf(:),obj.pLDPCGeneratorMatrix));
                         %前解扰
-                        if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
+                        if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
                             if strcmpi(railPathMode, 'single')
                                 randomized = bitxor(cw,obj.pPRNSequence);
 
@@ -1613,7 +1684,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     end
             end
 
-            if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
+            if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
                 if strcmpi(railPathMode, 'single')
                     if any(strcmp(obj.ChannelCoding, {'convolutional','concatenated','TPC'}))
                         encodedASMLength = localEncodedASMLength( ...
@@ -2279,23 +2350,12 @@ function r = localTMAPSKRadii(acmFmt, bitsPerSymbol)
     end
 end
 % 交织函数
-function out = localBitInterleaveIQ(iBits, qBits)
-    iBits = int8(iBits(:));
-    qBits = int8(qBits(:));
-    if numel(iBits) ~= numel(qBits)
-        error('localBitInterleaveIQ:LengthMismatch', 'I/Q length mismatch.');
-    end
-    out = zeros(2*numel(iBits),1,'int8');
-    out(1:2:end) = iBits;
-    out(2:2:end) = qBits;
-end
-
 function out = localSplitPackIQForModulation(iBits, qBits, modulation, debugEnabled)
     if nargin < 4
         debugEnabled = false;
     end
 
-    out = localBitInterleaveIQ(iBits, qBits);
+    out = tm_data_path_bit_interleave(int8(iBits), int8(qBits));
     [bitsPerSymbol, fpgaBlockBits] = localSplitFPGAPackingShape(modulation);
 
     if debugEnabled
@@ -2406,48 +2466,5 @@ function asmLen = localConfiguredASMLength(obj)
     end
 end
 
-function args = localUpgradeLegacyRandomizerArgs(args)
-    legacyBypass = false;
-    for k = 1:2:numel(args)
-        name = char(string(args{k}));
-        if strcmpi(name, 'RandomizerPosition')
-            args{k} = 'RandomizerFECPosition';
-            args{k+1} = localLegacyRandomizerPosition(args{k+1});
-        elseif strcmpi(name, 'RandomizerPathMode')
-            legacyBypass = strcmpi(char(string(args{k+1})), 'bypass');
-            args{k} = 'DataPathMode';
-            args{k+1} = localLegacyDataPathMode(args{k+1});
-        end
-    end
-    if legacyBypass
-        enableIdx = find(cellfun(@(x) strcmpi(char(string(x)), 'HasRandomizer'), ...
-            args(1:2:end)), 1, 'last');
-        if isempty(enableIdx)
-            args = [args, {'HasRandomizer', false}];
-        else
-            args{2*enableIdx} = false;
-        end
-    end
-end
-
-function value = localLegacyRandomizerPosition(value)
-    switch lower(char(string(value)))
-        case 'predecode'
-            value = 'afterEncoding';
-        case 'postdecode'
-            value = 'beforeEncoding';
-    end
-end
-
-function value = localLegacyDataPathMode(value)
-    switch lower(char(string(value)))
-        case 'merge'
-            value = 'single';
-        case 'split'
-            value = 'dualIQ';
-        case 'bypass'
-            value = 'single';
-    end
-end
 % LocalWords:  TMWAVEGEN TXWAVEFORM tm randi hasfilt csmlen LDPCSMTF nd altersymb Prev Symb LDPCG
 % LocalWords:  invr btprod updatep Inp

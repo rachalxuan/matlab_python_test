@@ -52,7 +52,7 @@ base.phaseOffset = 0;
 base.delay = 0;
 base.gmskBT = 0.5;
 base.hasASM = true;
-base.hasRandomizer = false;
+base.RandomizerEnabled = false;
 
 % 120 generated frames cover both observed TDL fades near 18.5 ms and
 % 39.6 ms while staying far below the MAT trace duration.
@@ -128,4 +128,3 @@ if any(bad)
 end
 
 assignin('base', 'gmskTDLComparison', comparison);
-

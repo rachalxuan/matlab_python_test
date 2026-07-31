@@ -1,2 +1,0 @@
-Idx,Mod,CodingName,ChannelCoding,Rate,Damage,SNR_dB,CFO_Hz,Phase_deg,Delay_sym,PilotMode,Success,Pass,BER,FER,LockRate,EVM_post_pct,MER_dB,ResidualCFO_Hz,TMAPSKPilotsApplied,TMAPSKPilotCFO_Hz,TMAPSKPilotDataSymbols,FrameErrors,CountedFrames,ElapsedTime_s,Error
-3,16APSK,conv_1_2,convolutional,1/2,clean,30,0,0,0,phaseinterp,1,1,0,0,1,1.8073411359016,34.8591973311081,0.0478375634951155,1,-0.0175031403677674,67129,0,11,3.8701473,

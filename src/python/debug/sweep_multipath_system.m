@@ -129,7 +129,7 @@ function cases = localBuildCases(profile)
         'PCMFormat', 'NRZ-L', ...
         'RolloffFactor', 0.35, ...
         'hasASM', true, ...
-        'hasRandomizer', false, ...
+        'RandomizerEnabled', false, ...
         'hasPilots', true, ...
         'showFigures', false, ...
         'berWarmUpFrames', 4, ...
@@ -190,6 +190,7 @@ function cases = localBuildCases(profile)
     if profile == "equalizer" || profile == "eq"
         p = base;
         p.modType = '16APSK';
+        p.WaveformMode = 'FACM';
         p.sps = 8;
         p.snr = 22;
         p.cfo = 20000;
@@ -269,6 +270,7 @@ function cases = localBuildCases(profile)
 
     p = base;
     p.modType = '16APSK';
+    p.WaveformMode = 'FACM';
     p.sps = 8;
     p.snr = 24;
     p.cfo = 20000;
@@ -286,6 +288,7 @@ function cases = localBuildCases(profile)
     if profile == "full"
         p = base;
         p.modType = '32APSK';
+        p.WaveformMode = 'FACM';
         p.sps = 8;
         p.snr = 28;
         p.cfo = 20000;
@@ -444,6 +447,7 @@ function p = localApplyModDefaults(p)
     end
 
     if modType == "16APSK"
+        p.WaveformMode = 'FACM';
         p.sps = 8;
         p.channelCoding = 'none';
         p.ACMFormat = 14;
@@ -458,6 +462,7 @@ function p = localApplyModDefaults(p)
         p.facmEqualizerReg = 1e-2;
         p.pilotLSReg = 1e-2;
     elseif modType == "32APSK"
+        p.WaveformMode = 'FACM';
         p.sps = 8;
         p.channelCoding = 'none';
         p.ACMFormat = 21;

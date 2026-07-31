@@ -27,6 +27,15 @@ __pycache__/
 *.py[cod]
 *.asv
 
+# Generated MATLAB sweep/regression artifacts
+/artifacts/
+/src/python/sweep_results/
+/src/python/*_results.csv
+/src/python/*_results.mat
+/src/python/debug/*.csv
+/src/python/debug/*.png
+/src/python/debug/*.mat
+
 # Local extraction/runtime scratch folders
 /tmp_mlx_extract/
 /temp/facm_mlx_extract/

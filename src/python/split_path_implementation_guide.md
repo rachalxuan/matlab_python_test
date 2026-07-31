@@ -2,7 +2,7 @@
 
 > Note: `ConvolutionalCodeRate` 为 `5/6` 或 `7/8` 时，推荐 `NumBytesInTransferFrame` (`TF`) 使用 `1116` 或 `1123`。其中 `1116` 同时适用于 `5/6` 和 `7/8`，`1123` 适用于 `7/8`；这些帧长能让 `ASM + TF` 长度与高码率打孔周期对齐。
 
-> 目标：让 `RandomizerPathMode='split'` 真正工作。I/Q 两路各自跑完整的 CCSDS 编码+加扰+ASM 链路，在调制器输入端按位交织成 `{I(1), Q(1), I(2), Q(2), ...}`，喂给同一个映射器。对齐 FPGA `map_data_switch.v` 的 `double_single=1` 行为。
+> 目标：让 `DataPathMode='dualIQ'` 真正工作。I/Q 两路各自跑完整的 CCSDS 编码+加扰+ASM 链路，在调制器输入端按位交织成 `{I(1), Q(1), I(2), Q(2), ...}`，喂给同一个映射器。对齐 FPGA `map_data_switch.v` 的 `double_single=1` 行为。
 >
 > 建议按最后一节的"建议顺序"逐步做，每一小步跑一次 merge 用例回归，别一口气改完。
 
@@ -45,7 +45,7 @@ pCodewordIndexI
 pCodewordIndexQ
 pASM_Q
 pPRNSequenceQ
-pIsSplit = false     % cached from RandomizerPathMode, set in setupImpl
+pIsSplit = false     % cached from DataPathMode, set in setupImpl
 ```
 
 ### 1.3 Decoder 侧对应属性
@@ -133,12 +133,12 @@ end
 在 `setupImpl` 函数的**最开始**（`setupImpl@satcom.internal.ccsds.tmBase(obj)` 那行之后）加：
 
 ```matlab
-obj.pIsSplit = strcmpi(obj.RandomizerPathMode, 'split');
+obj.pIsSplit = strcmpi(obj.DataPathMode, 'dualIQ');
 if obj.pIsSplit
     splitOkMods = {'QPSK','OQPSK','16QAM'};
     if ~ismember(obj.Modulation, splitOkMods)
         error('ccsdsTMWaveformGenerator:SplitModUnsupported', ...
-            'RandomizerPathMode="split" not supported for Modulation="%s". Phase 1 supports %s.', ...
+            'DataPathMode="dualIQ" not supported for Modulation="%s". Phase 1 supports %s.', ...
             obj.Modulation, strjoin(splitOkMods, ', '));
     end
     if obj.pIsFACM || (obj.IsLDPCOnSMTF && strcmp(obj.ChannelCoding,'LDPC'))
@@ -260,7 +260,7 @@ end
 ```matlab
 function l = get.NumInputBits(obj)
     l = getNumBytesInTransferFrame(obj)*8;
-    if strcmpi(obj.RandomizerPathMode, 'split')
+    if strcmpi(obj.DataPathMode, 'dualIQ')
         l = l * 2;
     end
 end
@@ -330,7 +330,7 @@ function [convEnc, inBuf, numInBuf, prnSeq, asm, diffEnc, cwIdx] = localGetRailS
 end
 ```
 
-**同时把所有 `error('ccsdsTMWaveformGenerator:SplitNotImplemented', ...)` 分支删除**（约 L1097-1101, 1131-1134, 1142-1145, 1162-1165, 1214-1220, 1264-1270, 1296-1299, 1311-1318, 1332-1339, 1346-1349, 1372-1375）。这些分支原来是"如果 split 就报错"，现在因为 `tmEncodeOneRail` 每次只处理一条 rail，逻辑跟 merge 一样，直接把 split 分支去掉即可，让原来的 `if strcmpi(RandomizerPathMode,'merge')` 变成无条件执行。
+**同时把所有 `error('ccsdsTMWaveformGenerator:SplitNotImplemented', ...)` 分支删除**。这些分支原来是“如果 dualIQ 就报错”，现在因为 `tmEncodeOneRail` 每次只处理一条 rail，单 rail 编码逻辑与 `single` 相同，可直接复用。
 
 ### 4.2 stepImpl 分路分支
 
@@ -453,10 +453,10 @@ end
 
 | 阶段 | 参数 | 预期 |
 |---|---|---|
-| 1 | QPSK + none + HasASM=false + HasRandomizer=false + split | 无信道 BER=0 |
-| 2 | QPSK + none + HasASM=true + split | ASM 交织后同步能锁上 |
-| 3 | QPSK + none + HasRandomizer=true + preDecode + split | 每 rail 独立复位 PRN |
-| 4 | QPSK + convolutional 1/2 + split（AWGN SNR 5-10 dB） | BER 曲线趋势跟 merge 一致 |
+| 1 | QPSK + none + HasASM=false + RandomizerEnabled=false + dualIQ | 无信道 BER=0 |
+| 2 | QPSK + none + HasASM=true + dualIQ | ASM 交织后同步能锁上 |
+| 3 | QPSK + none + RandomizerEnabled=true + afterEncoding + dualIQ | 每 rail 独立复位 PRN |
+| 4 | QPSK + convolutional 1/2 + dualIQ（AWGN SNR 5-10 dB） | BER 曲线趋势跟 single 一致 |
 | 5 | OQPSK + convolutional + split | 同上 |
 | 6 | 16QAM + none + split | 只做比特复原验证 |
 | 7 | 8PSK + convolutional + split | Phase 2：需要 symbol-lane split mapper |
@@ -485,7 +485,7 @@ end
 - **System object clone**：`pConvEncQ = clone(pConvEncI)` 或分别新建。**不要**赋值 `pConvEncQ = pConvEncI`（共享内部状态）
 - **卷积码连续状态**：I/Q 的 `pInputBuffer` 分别持有，跨 step 各自累积，不能污染
 - **ASM 交织顺序**：TX 侧和 RX 侧 `bitInterleaveIQ` 的偶奇约定必须完全一致。用 fixed pattern 测试对齐
-- **preDecode randomizer**：`tmEncodeOneRail` 尾部 XOR，绝对不能放在交织之后（否则 I/Q 加扰序列混掉）
+- **afterEncoding randomizer**：`tmEncodeOneRail` 尾部 XOR，绝对不能放在交织之后（否则 I/Q 加扰序列混掉）
 - **`saveObjectImpl`/`loadObjectImpl`**：新增所有 `pXxxI/Q` 属性必须序列化，否则 codegen / MAT 读取失败
 - **NumInputBits getter 依赖**：调用方必须用 `tmWaveGen.NumInputBits` 而不是硬编码 `getNumBytesInTransferFrame*8`
 

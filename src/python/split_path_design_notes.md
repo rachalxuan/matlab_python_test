@@ -1,6 +1,6 @@
 # CCSDS TM I/Q 分路模式 设计讨论与背景
 
-> 本文档记录设计 `RandomizerPathMode='split'` 时的概念澄清、FPGA 参考分析、设计决策。具体代码改动清单见 `split_path_implementation_guide.md`。
+> 本文档记录设计 `DataPathMode='dualIQ'` 时的概念澄清、FPGA 参考分析、设计决策。具体代码改动清单见 `split_path_implementation_guide.md`。
 
 ---
 
@@ -235,7 +235,7 @@ split 模式下：
 ## 4. 关键代码位置速查
 
 ### 发端 `ccsdsTMWaveformGenerator.m`
-- **属性定义**：L272-291（RandomizerPosition/PathMode 等）、L316-341（私有属性 pConvEnc/pInputBuffer/pCodewordIndex 等）
+- **属性定义**：`RandomizerFECPosition`、`DataPathMode` 等，以及私有属性 pConvEnc/pInputBuffer/pCodewordIndex 等
 - **setupImpl**：L352-495（编码器/调制器初始化）
 - **stepImpl**：L497-609（主 step 入口，走 FACM 分支或普通 tmEncode+tmModulate）
 - **tmEncode**：L1091-1377（split 报错在 L1097-1101，其它 case 分支里也各有 split 报错）
@@ -255,7 +255,7 @@ split 模式下：
 - **pPRNSequence 使用**：L574 / L589 / L699 等
 
 ### 评估脚本 `run_ccsds_tm_evaluation.m`
-- **RandomizerPathMode 参数入口**：L193-215
+- **DataPathMode 参数入口**
 - **传给 tmWaveGen**：L250-252
 - **传给 Decoder**：L2432-2434
 - **msg 生成**：L385-423
@@ -266,15 +266,14 @@ split 模式下：
 ## 5. 现状盘点：当前已实现 vs 待实现
 
 ### 已实现
-- `HasRandomizer` 总开关
-- `RandomizerPosition ∈ {preDecode, postDecode}`（前解扰=后加扰、后解扰=前加扰）
-- `RandomizerPathMode ∈ {merge, bypass}`：
-  - `merge`：整条 TF 上做异或
-  - `bypass`：等价于关掉 `HasRandomizer`
-- 帧头 ASM 不加扰、每帧 PRN 复位（`merge` 模式天然行为）
+- `RandomizerEnabled` 总开关
+- `RandomizerFECPosition ∈ {afterEncoding, beforeEncoding}`
+- `DataPathMode='single'`：整条 TF 使用单路信息流
+- 关闭加扰只使用 `RandomizerEnabled=false`，不再由路径模式表达
+- 帧头 ASM 不加扰、每帧 PRN 复位（`single` 模式天然行为）
 
-### 待实现（本方案）
-- `RandomizerPathMode='split'`：I/Q 双链路 + 位交织 + 分路解码
+### 当前实现
+- `DataPathMode='dualIQ'`：I/Q 双链路 + 位交织 + 分路解码
 - 对齐 FPGA `map_data_switch.v` 的 `double_single=1` 行为
 
 ---

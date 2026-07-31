@@ -250,7 +250,7 @@ classdef tmBase < matlab.System
     
     % All logical properties at single place
     
-        %HasRandomizer Option for randomizing the data
+        %RandomizerEnabled Option for randomizing the data
         %   Specify the option to randomize data as true | false. True
         %   value specifies that the data in the channel access data unit
         %   (CADU) is randomized. This property is always applicable except
@@ -258,8 +258,8 @@ classdef tmBase < matlab.System
         %   modulation" or when WaveformSource is set to "Synchronization
         %   and channel coding" along with ChannelCoding is set to "LDPC"
         %   and IsLDPCOnSMTF is set to true. In such invalid cases, this
-        %   property value is set to true internally. The default is true.
-        HasRandomizer (1, 1) logical = true
+        %   property value is set to true internally. The default is false.
+        RandomizerEnabled (1, 1) logical = false
         %HasASM Option for inserting attached sync marker (ASM)
         %   Specify the option to insert ASM to data as true | false. True
         %   value specifies that the data in the channel access data unit

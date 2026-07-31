@@ -10,7 +10,8 @@ function varargout = run_ccsds_tm_evaluation(varargin)
 %              'channelCoding','none','RolloffFactor',0.35);
 %  p = struct('modType','16APSK','symbolRate',1e6,'sps',8, ...
 %               'snr',12,'cfo',2000,'phaseOffset',30, ...
-%               'channelCoding','none','RolloffFactor',0.35,'hasASM',true,'hasPilots',true);
+%               'channelCoding','none','RolloffFactor',0.35,'hasASM',true, ...
+%               'hasPilots',true,'WaveformMode','ordinaryTM');
 %   m = run_ccsds_tm_evaluation(p);
 % p = struct('modType','QPSK','symbolRate',1e6,'sps',8, ...
 %            'snr',20,'cfo',2000,'phaseOffset',15,'delay',0.2, ...
@@ -18,6 +19,7 @@ function varargout = run_ccsds_tm_evaluation(varargin)
 %            'RolloffFactor',0.35,'hasASM',true,'RandomizerEnabled',true, ...
 %            'NumBytesInTransferFrame',1115, ...
 %            'RandomizerFECPosition','afterEncoding','DataPathMode','single', ...
+%            'WaveformMode','ordinaryTM', ...
 %            'SpacecraftID',1,'VirtualChannelID',0, ...
 %            'HasSecondaryHeader',false,'HasOCF',false,'HasFECF',false, ...
 %            'showFigures',false);
@@ -56,7 +58,7 @@ function varargout = run_ccsds_tm_evaluation(varargin)
 %     'normalizeHChannel',false, ...              % 保留真实 H 增益
 %     'enableEqualizer',true, ...
 %     'equalizerMode','mmse', ...
-%     'equalizerReg',1e-4, ...
+%     'equalizerReg',[], ...                      % empty => scale-aware automatic MMSE
 %     'normalizeEqualizerOutput',true, ...        % 接收端均衡后幅度整理/数字AGC
 %     ...
 %     'inputLevelDbm',-10, ...
@@ -144,6 +146,13 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     if isfield(res,'GMSKDetectorUsed'), frontResult.GMSKDetectorUsed = res.GMSKDetectorUsed; end
     if isfield(res,'AcquisitionFrames'), frontResult.AcquisitionFrames = res.AcquisitionFrames; end
     if isfield(res,'AcquisitionTime_s'), frontResult.AcquisitionTime_s = res.AcquisitionTime_s; end
+    railMetricFields = localSplitRailMetricFields();
+    for iRailMetric = 1:numel(railMetricFields)
+        railMetricName = railMetricFields{iRailMetric};
+        if isfield(res, railMetricName)
+            frontResult.(railMetricName) = res.(railMetricName);
+        end
+    end
     if isfield(res,'APSKASMEnabled'), frontResult.APSKASMEnabled = res.APSKASMEnabled; end
     if isfield(res,'APSKASMApplied'), frontResult.APSKASMApplied = res.APSKASMApplied; end
     if isfield(res,'APSKASMResidualCFO_Hz'), frontResult.APSKASMResidualCFO_Hz = res.APSKASMResidualCFO_Hz; end
@@ -166,6 +175,10 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     if isfield(res,'RandomizerEnabled'), frontResult.RandomizerEnabled = res.RandomizerEnabled; end
     if isfield(res,'RandomizerFECPosition'), frontResult.RandomizerFECPosition = res.RandomizerFECPosition; end
     if isfield(res,'DataPathMode'), frontResult.DataPathMode = res.DataPathMode; end
+    if isfield(res,'WaveformMode'), frontResult.WaveformMode = res.WaveformMode; end
+    if isfield(res,'UQPSKRRatio'), frontResult.UQPSKRRatio = res.UQPSKRRatio; end
+    if isfield(res,'UQPSKARatio'), frontResult.UQPSKARatio = res.UQPSKARatio; end
+    if isfield(res,'IFramesPerQFrame'), frontResult.IFramesPerQFrame = res.IFramesPerQFrame; end
     frontResult.Fs           = res.Fs;
     if isfield(res,'cfo_est_Hz'),    frontResult.cfo_est_Hz = res.cfo_est_Hz; end
     if isfield(res,'IFHz'),          frontResult.IFHz = res.IFHz; end
@@ -285,6 +298,7 @@ catch ME
     end
     err = struct( ...
         'success',  false, ...
+        'errorIdentifier', string(ME.identifier), ...
         'error',    errMsg, ...
         'errorMsg', errMsg, ...
         'GMSKDetectorUsed', detectorOnError, ...
@@ -310,14 +324,14 @@ function [opt, outputMode] = parseEvaluationEntryInputs(varargin)
     if ischar(firstArg) || isstring(firstArg)
         firstText = strtrim(char(firstArg));
         if nargin >= 2 && ~looksLikeJsonText(firstText)
-            opt = normalizeEvaluationParams(varargin{2}, defaults);
+            opt = parseEvaluationParams(varargin{2}, defaults);
             opt = configureHMatrixEntry(opt, firstText);
             outputMode = "struct";
             return;
         end
 
         if looksLikeJsonText(firstText)
-            opt = normalizeEvaluationParams(firstArg, defaults);
+            opt = parseEvaluationParams(firstArg, defaults);
             return;
         end
 
@@ -326,10 +340,10 @@ function [opt, outputMode] = parseEvaluationEntryInputs(varargin)
         return;
     end
 
-    opt = normalizeEvaluationParams(firstArg, defaults);
+    opt = parseEvaluationParams(firstArg, defaults);
 end
 
-function opt = normalizeEvaluationParams(rawParams, defaults)
+function opt = parseEvaluationParams(rawParams, defaults)
     if nargin < 1 || isempty(rawParams)
         opt = defaults;
         return;
@@ -350,7 +364,8 @@ function opt = normalizeEvaluationParams(rawParams, defaults)
             'Params must be a struct or JSON string.');
     end
 
-    opt = mergeDefaultEvaluationParams(opt, defaults);
+    rejectLegacyEvaluationFields(opt);
+    opt = applyEvaluationDefaults(opt, defaults);
 end
 
 function opt = configureHMatrixEntry(opt, matFilePath)
@@ -377,7 +392,7 @@ function opt = configureHMatrixEntry(opt, matFilePath)
     end
 end
 
-function opt = mergeDefaultEvaluationParams(opt, defaults)
+function opt = applyEvaluationDefaults(opt, defaults)
     names = fieldnames(defaults);
     for k = 1:numel(names)
         name = names{k};
@@ -390,7 +405,32 @@ end
 function defaults = defaultEvaluationParams()
     defaults = struct('modType','QPSK','symbolRate',1e6,'sps',8, ...
         'snr',12,'cfo',0,'phaseOffset',0,'delay',0, ...
-        'channelCoding','none','RolloffFactor',0.35);
+        'channelCoding','none','RolloffFactor',0.35, ...
+        'RandomizerEnabled',false, ...
+        'RandomizerFECPosition','afterEncoding', ...
+        'DataPathMode','single', ...
+        'WaveformMode','ordinaryTM');
+end
+
+function rejectLegacyEvaluationFields(opt)
+    legacyNames = { ...
+        'hasRandomizer', 'HasRandomizer', ...
+        'RandomizerPosition', 'RandomizerPathMode', ...
+        'useFACM', 'UseFACM', ...
+        'waveformSource', 'WaveformSource'};
+    canonicalNames = { ...
+        'RandomizerEnabled', 'RandomizerEnabled', ...
+        'RandomizerFECPosition', 'DataPathMode', ...
+        'WaveformMode', 'WaveformMode', ...
+        'WaveformMode', 'WaveformMode'};
+
+    for k = 1:numel(legacyNames)
+        if isfield(opt, legacyNames{k})
+            error('run_ccsds_tm_evaluation:LegacyParameterName', ...
+                'Parameter "%s" has been removed. Use "%s".', ...
+                legacyNames{k}, canonicalNames{k});
+        end
+    end
 end
 
 function tf = looksLikeJsonText(textValue)
@@ -423,42 +463,25 @@ function [res, ctx] = runOneShot(opt)
     makeNum = @(f) str2double(strrep(string(f), ',', ''));
     if ischar(opt.symbolRate), fSym = makeNum(opt.symbolRate); else, fSym = double(opt.symbolRate); end
     if ischar(opt.sps),        sps  = makeNum(opt.sps);        else, sps  = double(opt.sps);        end
-    randomizerEnabled = false;
-    if isfield(opt,'RandomizerEnabled') && ~isempty(opt.RandomizerEnabled)
-        randomizerEnabled = logical(opt.RandomizerEnabled);
-    elseif isfield(opt,'hasRandomizer') && ~isempty(opt.hasRandomizer)
-        randomizerEnabled = logical(opt.hasRandomizer);
-    end
+    randomizerEnabled = logical(opt.RandomizerEnabled);
     hasASM        = false;
     if isfield(opt,'hasASM')
         hasASM = opt.hasASM;
     elseif localHasASMOption(opt)
         hasASM = true;
     end
-    randomizerFECPosition = 'afterEncoding';
-    if isfield(opt,'RandomizerFECPosition') && ~isempty(opt.RandomizerFECPosition)
-        randomizerFECPosition = char(opt.RandomizerFECPosition);
-    elseif isfield(opt,'RandomizerPosition') && ~isempty(opt.RandomizerPosition)
-        randomizerFECPosition = localLegacyRandomizerPosition(opt.RandomizerPosition);
-    end
-    dataPathMode = 'single';
-    if isfield(opt,'DataPathMode') && ~isempty(opt.DataPathMode)
-        dataPathMode = char(opt.DataPathMode);
-    elseif isfield(opt,'RandomizerPathMode') && ~isempty(opt.RandomizerPathMode)
-        dataPathMode = localLegacyDataPathMode(opt.RandomizerPathMode);
-        if strcmpi(char(opt.RandomizerPathMode), 'bypass') && ...
-                ~(isfield(opt,'RandomizerEnabled') && ~isempty(opt.RandomizerEnabled))
-            randomizerEnabled = false;
-        end
-    end
+    randomizerFECPosition = char(opt.RandomizerFECPosition);
+    dataPathMode = char(opt.DataPathMode);
     if ~any(strcmpi(randomizerFECPosition, {'afterEncoding','beforeEncoding'}))
         error('run_ccsds_tm_evaluation:InvalidRandomizerFECPosition', ...
             ['Unsupported RandomizerFECPosition="%s". Use ' ...
              'afterEncoding or beforeEncoding.'], randomizerFECPosition);
     end
-    if ~any(strcmpi(dataPathMode, {'single','dualIQ'}))
+    if ~any(strcmpi(dataPathMode, ...
+            {'single','dualIQ','unequalDualIQ'}))
         error('run_ccsds_tm_evaluation:InvalidDataPathMode', ...
-            'Unsupported DataPathMode="%s". Use single or dualIQ.', dataPathMode);
+            ['Unsupported DataPathMode="%s". Use single, dualIQ, ', ...
+             'or unequalDualIQ.'], dataPathMode);
     end
     if ~hasASM && localHasASMOption(opt)
         hasASM = true;
@@ -469,7 +492,6 @@ function [res, ctx] = runOneShot(opt)
     opt.RandomizerFECPosition = randomizerFECPosition;
     opt.DataPathMode = dataPathMode;
     opt.splitPathDebug = splitPathDebug;
-    hasRandomizer = randomizerEnabled; % Internal decoder API flag.
 
     if isfield(opt,'channelCoding')
         initialCodeStr = canonicalChannelCoding(opt.channelCoding);
@@ -503,7 +525,7 @@ function [res, ctx] = runOneShot(opt)
             tpcBlocksPerTF, tpcPayloadBits, numBytesTF);
     end
 
-    args = {'SamplesPerSymbol', sps, 'HasRandomizer', randomizerEnabled, 'HasASM', hasASM};
+    args = {'SamplesPerSymbol', sps, 'RandomizerEnabled', randomizerEnabled, 'HasASM', hasASM};
     args = [args, {'RandomizerFECPosition', char(randomizerFECPosition), ...
                    'DataPathMode', char(dataPathMode)}];
     args = appendASMArgs(args, opt);
@@ -512,8 +534,12 @@ function [res, ctx] = runOneShot(opt)
     end
     modStr = string(opt.modType);
 
-    if useFACMEvaluation(opt, modStr)
+    if isFACMEvaluation(opt, modStr)
         [res, ctx] = runFACMOneShot(opt, fSym, sps);
+        res.RandomizerEnabled = logical(randomizerEnabled);
+        res.RandomizerFECPosition = char(randomizerFECPosition);
+        res.DataPathMode = char(dataPathMode);
+        res.WaveformMode = char(opt.WaveformMode);
         return;
     end
 
@@ -631,20 +657,35 @@ function [res, ctx] = runOneShot(opt)
     fprintf('[TX %s] NumInputBits=%d, ActualCodeRate=%.6f\n', ...
         char(codeStr), tmWaveGen.NumInputBits, tmWaveInfo.ActualCodeRate);
     Fs = fSym * sps;
-    isSplitPath = strcmpi(dataPathMode, 'dualIQ');
+    isEqualSplitPath = strcmpi(dataPathMode, 'dualIQ');
+    isUnequalSplitPath = strcmpi(dataPathMode, 'unequalDualIQ');
     inputBitsPerCall = tmWaveGen.NumInputBits;
-    if isSplitPath && mod(inputBitsPerCall, 2) ~= 0
+    if isEqualSplitPath && mod(inputBitsPerCall, 2) ~= 0
         error('run_ccsds_tm_evaluation:SplitInputLengthNotEven', ...
             'Split mode requires an even NumInputBits, got %d.', inputBitsPerCall);
     end
+    if isUnequalSplitPath && mod(inputBitsPerCall, 3) ~= 0
+        error('run_ccsds_tm_evaluation:UnequalSplitInputLength', ...
+            ['unequalDualIQ requires NumInputBits to contain two I frames ', ...
+             'and one Q frame; got %d bits.'], inputBitsPerCall);
+    end
 
-    if isSplitPath
+    if isEqualSplitPath
         bitsPerFrame = inputBitsPerCall / 2;   % 单 rail 的 TM frame
+    elseif isUnequalSplitPath
+        bitsPerFrame = inputBitsPerCall / 3;
     else
         bitsPerFrame = inputBitsPerCall;
     end
-    fprintf('[Actual TF] NumInputBits=%d, NumInputBytes=%.3f\n', ...
-             tmWaveGen.NumInputBits, tmWaveGen.NumInputBits/8);
+    if isUnequalSplitPath
+        fprintf(['[Actual TF] unequalDualIQ super-input=%d bits ', ...
+            '(I=2x%d, Q=1x%d bits), railFrameBytes=%.3f\n'], ...
+            tmWaveGen.NumInputBits, bitsPerFrame, bitsPerFrame, ...
+            bitsPerFrame/8);
+    else
+        fprintf('[Actual TF] NumInputBits=%d, NumInputBytes=%.3f\n', ...
+                 tmWaveGen.NumInputBits, tmWaveGen.NumInputBits/8);
+    end
     % 缓冲帧
     numWarmUp = 8;
     if isfield(opt,'berWarmUpFrames') && ~isempty(opt.berWarmUpFrames)
@@ -665,12 +706,18 @@ function [res, ctx] = runOneShot(opt)
     % 发送端输入现在按 CCSDS TM Transfer Frame 生成：
     % Primary Header + Data Field + 可选 Secondary Header/OCF/FECF。
     % 这里不加 ASM，ASM 仍由 ccsdsTMWaveformGenerator 按配置处理。
-    if isSplitPath
+    if isEqualSplitPath
         msgI = zeros(bitsPerFrame * totalFrames, 1, 'int8');
         msgQ = zeros(bitsPerFrame * totalFrames, 1, 'int8');
         validTxFrames = cell(2*totalFrames, 1);
         validTxFrameInfo = cell(2*totalFrames, 1);
         validTxFrameBytes = cell(2*totalFrames, 1);
+    elseif isUnequalSplitPath
+        msgI = zeros(2 * bitsPerFrame * totalFrames, 1, 'int8');
+        msgQ = zeros(bitsPerFrame * totalFrames, 1, 'int8');
+        validTxFrames = cell(3*totalFrames, 1);
+        validTxFrameInfo = cell(3*totalFrames, 1);
+        validTxFrameBytes = cell(3*totalFrames, 1);
     else
         msg = zeros(bitsPerFrame * totalFrames, 1, 'int8');
         validTxFrames = cell(totalFrames, 1);
@@ -698,7 +745,7 @@ function [res, ctx] = runOneShot(opt)
         tfOpt.IdleFillByte = uint8(getf(opt, 'IdleFillByte', hex2dec('55')));
 
         idx = (i-1)*bitsPerFrame + (1:bitsPerFrame);
-        if isSplitPath
+        if isEqualSplitPath
             tfOptI = tfOpt;
             tfOptI.MasterChannelFrameCount = mod(2*(i-1), 256);
             tfOptI.VirtualChannelFrameCount = mod(2*(i-1), 256);
@@ -731,6 +778,55 @@ function [res, ctx] = runOneShot(opt)
             validTxFrameInfo{2*i} = frameInfoQ;
             validTxFrameBytes{2*i-1} = frameBytesI;
             validTxFrameBytes{2*i} = frameBytesQ;
+        elseif isUnequalSplitPath
+            tfOptI1 = tfOpt;
+            tfOptI1.MasterChannelFrameCount = mod(2*(i-1), 256);
+            tfOptI1.VirtualChannelFrameCount = mod(2*(i-1), 256);
+            payloadBytesI1 = uint8(randi([0 255], 1, numBytesActualTF));
+            [frameBitsI1, frameBytesI1, frameInfoI1] = ...
+                make_ccsds_tm_transfer_frame(payloadBytesI1, tfOptI1);
+            currentI1 = int8(frameBitsI1(:));
+
+            tfOptI2 = tfOpt;
+            tfOptI2.MasterChannelFrameCount = mod(2*(i-1)+1, 256);
+            tfOptI2.VirtualChannelFrameCount = mod(2*(i-1)+1, 256);
+            payloadBytesI2 = uint8(randi([0 255], 1, numBytesActualTF));
+            [frameBitsI2, frameBytesI2, frameInfoI2] = ...
+                make_ccsds_tm_transfer_frame(payloadBytesI2, tfOptI2);
+            currentI2 = int8(frameBitsI2(:));
+
+            tfOptQ = tfOpt;
+            tfOptQ.MasterChannelFrameCount = mod(i-1, 256);
+            tfOptQ.VirtualChannelFrameCount = mod(i-1, 256);
+            payloadBytesQ = uint8(randi([0 255], 1, numBytesActualTF));
+            [frameBitsQ, frameBytesQ, frameInfoQ] = ...
+                make_ccsds_tm_transfer_frame(payloadBytesQ, tfOptQ);
+            currentQ = int8(frameBitsQ(:));
+
+            if any([numel(currentI1), numel(currentI2), ...
+                    numel(currentQ)] ~= bitsPerFrame)
+                error('run_ccsds_tm_evaluation:TMFrameLengthMismatch', ...
+                    ['Generated unequalDualIQ rail frame length does not ', ...
+                     'match %d bits.'], bitsPerFrame);
+            end
+
+            idxI1 = (2*(i-1))*bitsPerFrame + (1:bitsPerFrame);
+            idxI2 = (2*(i-1)+1)*bitsPerFrame + (1:bitsPerFrame);
+            idxQ = (i-1)*bitsPerFrame + (1:bitsPerFrame);
+            msgI(idxI1) = currentI1;
+            msgI(idxI2) = currentI2;
+            msgQ(idxQ) = currentQ;
+
+            refBase = 3*(i-1);
+            validTxFrames{refBase+1} = currentI1;
+            validTxFrames{refBase+2} = currentI2;
+            validTxFrames{refBase+3} = currentQ;
+            validTxFrameInfo{refBase+1} = frameInfoI1;
+            validTxFrameInfo{refBase+2} = frameInfoI2;
+            validTxFrameInfo{refBase+3} = frameInfoQ;
+            validTxFrameBytes{refBase+1} = frameBytesI1;
+            validTxFrameBytes{refBase+2} = frameBytesI2;
+            validTxFrameBytes{refBase+3} = frameBytesQ;
         else
             payloadBytes = uint8(randi([0 255], 1, numBytesActualTF));
             [frameBits, frameBytes, frameInfo] = make_ccsds_tm_transfer_frame(payloadBytes, tfOpt);
@@ -747,7 +843,7 @@ function [res, ctx] = runOneShot(opt)
             validTxFrameBytes{i} = frameBytes;
         end
     end
-    if isSplitPath
+    if isEqualSplitPath
         msg = [msgI; msgQ];
         if splitPathDebug
             firstIId = localTMFrameID(validTxFrames{1});
@@ -757,6 +853,16 @@ function [res, ctx] = runOneShot(opt)
                 totalFrames, bitsPerFrame, numel(msgI), numel(msgQ), numel(msg), ...
                 firstIId, firstQId);
             fprintf('[SplitPath input] BER reference order: validTxFrames={I1,Q1,I2,Q2,...}\n');
+        end
+    elseif isUnequalSplitPath
+        msg = [msgI; msgQ];
+        if splitPathDebug
+            fprintf(['[UQPSK unequal input] groups=%d, frameBits=%d, ', ...
+                'I frames=%d, Q frames=%d, msg=[I;Q]=%d bits\n'], ...
+                totalFrames, bitsPerFrame, 2*totalFrames, totalFrames, ...
+                numel(msg));
+            fprintf(['[UQPSK unequal input] BER reference order: ', ...
+                '{I1,I2,Q1,I3,I4,Q2,...}\n']);
         end
     end
     if getLogicalField(opt, 'debugTMFrame', false)
@@ -1029,7 +1135,7 @@ function [res, ctx] = runOneShot(opt)
                 enableUQPSKFFTCoarseCFO = logical(opt.enableUQPSKFFTCoarseCFO);
             end
 
-            uqpskMaxCFOHz = 0.01 * fSym;   % 默认搜索 ±1% 符号率
+            uqpskMaxCFOHz = 0.05 * fSym;   % default search: +/-5% symbol rate
             if isfield(opt,'uqpskMaxCFOHz') && ~isempty(opt.uqpskMaxCFOHz)
                 uqpskMaxCFOHz = double(opt.uqpskMaxCFOHz);
             end
@@ -1356,7 +1462,7 @@ function [res, ctx] = runOneShot(opt)
     papr_dB = 10*log10(max(abs(txWaveform).^2)/mean(abs(txWaveform).^2));
 
     % BER + Frame Lock（沿用主脚本逻辑的简化版）
-    [berVal, lockRate, bestRot, berStats] = computeBER(fineSyncedForBER, validTxFrames, modStr, opt, hasRandomizer, hasASM, btVal, numWarmUp);
+    [berVal, lockRate, bestRot, berStats] = computeBER(fineSyncedForBER, validTxFrames, modStr, opt, randomizerEnabled, hasASM, btVal, numWarmUp);
 
     % 用 BER 评估挑出来的 best 旋转把 fineSynced 转回参考相位,星座图视觉对齐
     if isFMMod
@@ -1402,6 +1508,12 @@ function [res, ctx] = runOneShot(opt)
     res.RandomizerEnabled = logical(randomizerEnabled);
     res.RandomizerFECPosition = char(randomizerFECPosition);
     res.DataPathMode = char(dataPathMode);
+    res.WaveformMode = char(opt.WaveformMode);
+    if isUnequalSplitPath
+        res.UQPSKRRatio = 2;
+        res.UQPSKARatio = 2;
+        res.IFramesPerQFrame = 2;
+    end
     if hasASM
         res.ASMLength = numel(localTMASM(opt, codeStr));
         [asmHexForResult, hasASMHexForResult] = localASMOptionHex(opt);
@@ -1428,6 +1540,11 @@ function [res, ctx] = runOneShot(opt)
     res.GMSKDetectorUsed = berStats.GMSKDetectorUsed;
     res.AcquisitionFrames = berStats.AcquisitionFrames;
     res.AcquisitionTime_s = berStats.AcquisitionTime_s;
+    railMetricFields = localSplitRailMetricFields();
+    for iRailMetric = 1:numel(railMetricFields)
+        railMetricName = railMetricFields{iRailMetric};
+        res.(railMetricName) = berStats.(railMetricName);
+    end
     res.APSKASMEnabled = apskASMInfo.Enabled;
     res.APSKASMApplied = apskASMInfo.Applied;
     res.APSKASMResidualCFO_Hz = apskASMInfo.CFO_Hz;
@@ -2703,7 +2820,7 @@ function snr_est = computeSNRest(rxSym, refConst)
     snr_est = 10*log10(Ps / (Pn+eps));
 end
 
-function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxFrames, modStr, opt, hasRandomizer, hasASM, btVal, numWarmUp)
+function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxFrames, modStr, opt, randomizerEnabled, hasASM, btVal, numWarmUp)
     berVal = -1; lockRate = 0; bestRot = 0; berStats = localEmptyBERStats();
     try
         tmMod = char(modStr); if contains(tmMod,'GMSK'), tmMod='GMSK'; end
@@ -2734,6 +2851,13 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
         phaseResolveMode = "asm";
         if isfield(opt,'phaseResolveMode') && ~isempty(opt.phaseResolveMode)
             phaseResolveMode = lower(string(opt.phaseResolveMode));
+        end
+        if isfield(opt,'DataPathMode') && ...
+                strcmpi(string(opt.DataPathMode), "unequalDualIQ")
+            % The grouped UQPSK stream contains two independent ASM
+            % periods, so a single-stream ASM preselector is not valid.
+            % Score the complete I/Q rail decodes for each rotation.
+            phaseResolveMode = "ber";
         end
         if contains(tmMod,'GMSK') && isfield(opt,'GMSKDetectionMode') && ...
                 strcmpi(string(opt.GMSKDetectionMode), ...
@@ -2772,9 +2896,12 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
             dataPathModeBER = char(opt.DataPathMode);
         end
         bitsPerSymBER = localBitsPerSymbolForDebug(tmMod);
+        useSplitRSPeriodicASM = localUseSplitRSPeriodicASMAlignment( ...
+            dataPathModeBER, tmMod, tmCode, hasASM, opt);
         useSplitIQTwoPass = strcmpi(dataPathModeBER, 'dualIQ') && ...
             bitsPerSymBER > 1 && mod(bitsPerSymBER, 2) == 1 && ...
-            getLogicalField(opt, 'splitIQPhaseTwoPass', true);
+            getLogicalField(opt, 'splitIQPhaseTwoPass', true) && ...
+            ~useSplitRSPeriodicASM;
         splitIQRoundSucceeded = false;
         splitRoundSuccessBER = getfieldnumeric(opt, 'splitIQPhaseRoundSuccessBER', ...
             getfieldnumeric(opt, 'splitIQPhaseEarlyStopBER', 1e-8));
@@ -2798,17 +2925,20 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
 
             [ber, lock, errs, bitsComp, stats] = tryOneRotationCandidate( ...
                 rxRot, validTxFrames, tmMod, tmCode, ...
-                opt, hasRandomizer, hasASM, btVal, numWarmUp);
+                opt, randomizerEnabled, hasASM, btVal, numWarmUp);
 
             fprintf('   [候选角度] rot=%+6.1f deg, BER=%.4g, Lock=%.1f%%, Err=%d, Bits=%d', ...
                 rad2deg(angle(r)), ber, lock*100, errs, bitsComp);
 
             % 新规则：
             % 只要锁帧率还可以，就优先选择 BER 最低的角度
-            isUsableCandidate = (bitsComp > 0) && ...
+            isUsableCandidate = isfinite(ber) && (bitsComp > 0) && ...
                 (lock >= 0.80 || (strcmp(tmCodeKey,'tpc') && lock > 0 && ber < 0.25));
             if isUsableCandidate
-                if ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock)
+                % A previously retained fallback may have NaN BER and zero
+                % compared bits.  Any usable decode must replace it.
+                if bitsComparedBest <= 0 || ~isfinite(bestBer) || ...
+                        ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock)
                     bestBer = ber;
                     bestLock = lock;
                     bestRot = angle(r);
@@ -2829,7 +2959,8 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                 end
             else
                 % 如果还没有找到可靠候选，则暂时保留 lock 最高的
-                if isinf(bestBer) && lock > bestLock
+                if bitsComparedBest <= 0 && ...
+                        (~isfinite(bestBer) || lock > bestLock)
                     bestBer = ber;
                     bestLock = lock;
                     bestRot = angle(r);
@@ -2857,15 +2988,16 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
 
                 [ber, lock, errs, bitsComp, stats] = tryOneRotationCandidate( ...
                     rxRot, validTxFrames, tmMod, tmCode, ...
-                    opt, hasRandomizer, hasASM, btVal, numWarmUp);
+                    opt, randomizerEnabled, hasASM, btVal, numWarmUp);
 
                 fprintf('   [候选角度] rot=%+6.1f deg, BER=%.4g, Lock=%.1f%%, Err=%d, Bits=%d', ...
                     rad2deg(angle(r)), ber, lock*100, errs, bitsComp);
 
-                isUsableCandidate = (bitsComp > 0) && ...
+                isUsableCandidate = isfinite(ber) && (bitsComp > 0) && ...
                     (lock >= 0.80 || (strcmp(tmCodeKey,'tpc') && lock > 0 && ber < 0.25));
                 if isUsableCandidate
-                    if ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock)
+                    if bitsComparedBest <= 0 || ~isfinite(bestBer) || ...
+                            ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock)
                         bestBer = ber;
                         bestLock = lock;
                         bestRot = angle(r);
@@ -2882,7 +3014,8 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                         break;
                     end
                 else
-                    if isinf(bestBer) && lock > bestLock
+                    if bitsComparedBest <= 0 && ...
+                            (~isfinite(bestBer) || lock > bestLock)
                         bestBer = ber;
                         bestLock = lock;
                         bestRot = angle(r);
@@ -2910,15 +3043,16 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
 
                 [ber, lock, errs, bitsComp, stats] = tryOneRotationCandidate( ...
                     rxRot, validTxFrames, tmMod, tmCode, ...
-                    opt, hasRandomizer, hasASM, btVal, numWarmUp);
+                    opt, randomizerEnabled, hasASM, btVal, numWarmUp);
 
                 fprintf('   [candidate pass2] rot=%+6.1f deg, BER=%.4g, Lock=%.1f%%, Err=%d, Bits=%d', ...
                     rad2deg(angle(r)), ber, lock*100, errs, bitsComp);
 
-                isUsableCandidate = (bitsComp > 0) && ...
+                isUsableCandidate = isfinite(ber) && (bitsComp > 0) && ...
                     (lock >= 0.80 || (strcmp(tmCodeKey,'tpc') && lock > 0 && ber < 0.25));
                 if isUsableCandidate
-                    if ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock)
+                    if bitsComparedBest <= 0 || ~isfinite(bestBer) || ...
+                            ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock)
                         bestBer = ber;
                         bestLock = lock;
                         bestRot = angle(r);
@@ -2931,7 +3065,8 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                         break;
                     end
                 else
-                    if isinf(bestBer) && lock > bestLock
+                    if bitsComparedBest <= 0 && ...
+                            (~isfinite(bestBer) || lock > bestLock)
                         bestBer = ber;
                         bestLock = lock;
                         bestRot = angle(r);
@@ -2953,15 +3088,16 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
 
                     [ber, lock, errs, bitsComp, stats] = tryOneRotationCandidate( ...
                         rxRot, validTxFrames, tmMod, tmCode, ...
-                        opt, hasRandomizer, hasASM, btVal, numWarmUp);
+                        opt, randomizerEnabled, hasASM, btVal, numWarmUp);
 
                     fprintf('   [candidate pass2] rot=%+6.1f deg, BER=%.4g, Lock=%.1f%%, Err=%d, Bits=%d', ...
                         rad2deg(angle(r)), ber, lock*100, errs, bitsComp);
 
-                    isUsableCandidate = (bitsComp > 0) && ...
+                    isUsableCandidate = isfinite(ber) && (bitsComp > 0) && ...
                         (lock >= 0.80 || (strcmp(tmCodeKey,'tpc') && lock > 0 && ber < 0.25));
                     if isUsableCandidate
-                        if ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock)
+                        if bitsComparedBest <= 0 || ~isfinite(bestBer) || ...
+                                ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock)
                             bestBer = ber;
                             bestLock = lock;
                             bestRot = angle(r);
@@ -2974,7 +3110,8 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                             break;
                         end
                     else
-                        if isinf(bestBer) && lock > bestLock
+                        if bitsComparedBest <= 0 && ...
+                                (~isfinite(bestBer) || lock > bestLock)
                             bestBer = ber;
                             bestLock = lock;
                             bestRot = angle(r);
@@ -2990,6 +3127,11 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
         berVal = bestBer;
         lockRate = max(bestLock, 0);
         berStats = bestStats;
+        if any(strcmpi(dataPathModeBER, ...
+                {'dualIQ','unequalDualIQ'})) && ...
+                getLogicalField(opt, 'splitPathDebug', false)
+            localPrintSplitPredecoderStats('global selected', berStats);
+        end
 
         fprintf('   [Phase ambiguity] best rotation = %+5.1f deg, lockRate=%.1f%%\n', ...
             rad2deg(bestRot), lockRate*100);
@@ -3136,6 +3278,24 @@ function stats = localEmptyBERStats()
         'GMSKDetectorUsed', 'not-applicable', ...
         'AcquisitionFrames', NaN, ...
         'AcquisitionTime_s', NaN);
+    railMetricFields = localSplitRailMetricFields();
+    for k = 1:numel(railMetricFields)
+        stats.(railMetricFields{k}) = NaN;
+    end
+end
+
+function names = localSplitRailMetricFields()
+    names = { ...
+        'I_BER','I_LockRate','I_FER','I_BitErrors','I_BitsCompared', ...
+        'I_FrameErrors','I_CountedFrames','I_MatchedFrames', ...
+        'I_DecodedFrames','I_AcquisitionFrames', ...
+        'I_PredecoderBER','I_PredecoderOffset','I_PredecoderPolarity', ...
+        'I_PredecoderBitErrors','I_PredecoderBitsCompared', ...
+        'Q_BER','Q_LockRate','Q_FER','Q_BitErrors','Q_BitsCompared', ...
+        'Q_FrameErrors','Q_CountedFrames','Q_MatchedFrames', ...
+        'Q_DecodedFrames','Q_AcquisitionFrames', ...
+        'Q_PredecoderBER','Q_PredecoderOffset','Q_PredecoderPolarity', ...
+        'Q_PredecoderBitErrors','Q_PredecoderBitsCompared'};
 end
 
 function n = localAcquisitionConsecutiveFrames(opt, numWarmUp)
@@ -3219,6 +3379,8 @@ function [berVal, lockRate, errs, bitsComp, stats, perFrameBER] = ...
     if stats.CountedFrames > 0
         stats.FER = stats.FrameErrors / stats.CountedFrames;
     end
+    stats = localAttachOneRailStats(stats, 'I', statsI, errsI, bitsI);
+    stats = localAttachOneRailStats(stats, 'Q', statsQ, errsQ, bitsQ);
 
     acq = [statsI.AcquisitionFrames, statsQ.AcquisitionFrames];
     acq = acq(isfinite(acq));
@@ -3240,6 +3402,141 @@ function [berVal, lockRate, errs, bitsComp, stats, perFrameBER] = ...
     perFrameBER = nan(1, 2*n);
     perFrameBER(1:2:2*numel(berI)-1) = berI;
     perFrameBER(2:2:2*numel(berQ)) = berQ;
+end
+
+function [berVal, lockRate, errs, bitsComp, stats, perFrameBER] = ...
+        localCountUnequalUQPSKRailBER(decodedI, decodedQ, validTxFrames, ...
+        bitsPerFrame, numWarmUp, tmMod, tmCode, opt)
+    if mod(numel(validTxFrames), 3) ~= 0
+        error('run_ccsds_tm_evaluation:UnequalReferenceLayout', ...
+            ['unequalDualIQ references must use ', ...
+             '{I1,I2,Q1,I3,I4,Q2,...}.']);
+    end
+
+    referenceGroups = reshape(validTxFrames, 3, []);
+    txFramesI = reshape(referenceGroups(1:2,:), [], 1);
+    txFramesQ = reshape(referenceGroups(3,:), [], 1);
+
+    [statsI, errsI, bitsI, berI] = localCountOneSplitRailBER( ...
+        decodedI, txFramesI, bitsPerFrame, 2*numWarmUp, 1, opt);
+    [statsQ, errsQ, bitsQ, berQ] = localCountOneSplitRailBER( ...
+        decodedQ, txFramesQ, bitsPerFrame, numWarmUp, 1, opt);
+
+    errs = errsI + errsQ;
+    bitsComp = bitsI + bitsQ;
+    if bitsComp > 0
+        berVal = errs / bitsComp;
+    else
+        berVal = 0.5;
+    end
+
+    stats = localEmptyBERStats();
+    stats.NumRxFrames = statsI.NumRxFrames + statsQ.NumRxFrames;
+    stats.MatchedFrames = statsI.MatchedFrames + statsQ.MatchedFrames;
+    stats.CountedFrames = statsI.CountedFrames + statsQ.CountedFrames;
+    stats.FrameErrors = statsI.FrameErrors + statsQ.FrameErrors;
+    if stats.CountedFrames > 0
+        stats.FER = stats.FrameErrors / stats.CountedFrames;
+    end
+    stats = localAttachOneRailStats(stats, 'I', statsI, errsI, bitsI);
+    stats = localAttachOneRailStats(stats, 'Q', statsQ, errsQ, bitsQ);
+
+    acq = [statsI.AcquisitionFrames, statsQ.AcquisitionFrames];
+    acq = acq(isfinite(acq));
+    if ~isempty(acq)
+        stats.AcquisitionFrames = max(acq);
+    end
+    stats.AcquisitionTime_s = localAcquisitionTimeSeconds( ...
+        stats.AcquisitionFrames, bitsPerFrame, tmMod, tmCode, opt);
+
+    if stats.CountedFrames == 0
+        lockRate = 0;
+    elseif stats.NumRxFrames >= 3
+        lockRate = min(1, stats.MatchedFrames / stats.NumRxFrames);
+    else
+        lockRate = 0;
+    end
+
+    nGroups = max(ceil(numel(berI)/2), numel(berQ));
+    perFrameBER = nan(1, 3*nGroups);
+    for k = 1:nGroups
+        iStart = 2*k-1;
+        outStart = 3*k-2;
+        if iStart <= numel(berI)
+            perFrameBER(outStart) = berI(iStart);
+        end
+        if iStart+1 <= numel(berI)
+            perFrameBER(outStart+1) = berI(iStart+1);
+        end
+        if k <= numel(berQ)
+            perFrameBER(outStart+2) = berQ(k);
+        end
+    end
+end
+
+function stats = localAttachOneRailStats(stats, railName, railStats, errs, bitsComp)
+    prefix = upper(char(string(railName)));
+    if bitsComp > 0
+        railBER = errs / bitsComp;
+    else
+        railBER = NaN;
+    end
+    if railStats.CountedFrames == 0 || railStats.NumRxFrames < 3
+        railLockRate = 0;
+    else
+        railLockRate = min(1, railStats.MatchedFrames / railStats.NumRxFrames);
+    end
+
+    stats.([prefix '_BER']) = railBER;
+    stats.([prefix '_LockRate']) = railLockRate;
+    stats.([prefix '_FER']) = railStats.FER;
+    stats.([prefix '_BitErrors']) = errs;
+    stats.([prefix '_BitsCompared']) = bitsComp;
+    stats.([prefix '_FrameErrors']) = railStats.FrameErrors;
+    stats.([prefix '_CountedFrames']) = railStats.CountedFrames;
+    stats.([prefix '_MatchedFrames']) = railStats.MatchedFrames;
+    stats.([prefix '_DecodedFrames']) = railStats.NumRxFrames;
+    stats.([prefix '_AcquisitionFrames']) = railStats.AcquisitionFrames;
+end
+
+function stats = localAttachSplitPredecoderStats(stats, predecoderStats)
+    fields = { ...
+        'I_PredecoderBER','I_PredecoderOffset','I_PredecoderPolarity', ...
+        'I_PredecoderBitErrors','I_PredecoderBitsCompared', ...
+        'Q_PredecoderBER','Q_PredecoderOffset','Q_PredecoderPolarity', ...
+        'Q_PredecoderBitErrors','Q_PredecoderBitsCompared'};
+    for k = 1:numel(fields)
+        name = fields{k};
+        if isstruct(predecoderStats) && isfield(predecoderStats, name)
+            stats.(name) = predecoderStats.(name);
+        end
+    end
+end
+
+function localPrintSplitPredecoderStats(label, stats)
+    fprintf(['[SplitPath predecoder %s] ', ...
+        'I: hardBER=%.6g offset=%+g polarity=%+g Err=%g/%g | ', ...
+        'Q: hardBER=%.6g offset=%+g polarity=%+g Err=%g/%g\n'], ...
+        char(string(label)), ...
+        stats.I_PredecoderBER, stats.I_PredecoderOffset, ...
+        stats.I_PredecoderPolarity, stats.I_PredecoderBitErrors, ...
+        stats.I_PredecoderBitsCompared, ...
+        stats.Q_PredecoderBER, stats.Q_PredecoderOffset, ...
+        stats.Q_PredecoderPolarity, stats.Q_PredecoderBitErrors, ...
+        stats.Q_PredecoderBitsCompared);
+end
+
+function localPrintSplitRailStats(label, iqPhase, stats)
+    fprintf(['[SplitPath rail %s] iqPhase=%d | ', ...
+        'I: BER=%.4g Lock=%.1f%% FER=%.4g Err=%g/%g Frames=%g/%g/%g | ', ...
+        'Q: BER=%.4g Lock=%.1f%% FER=%.4g Err=%g/%g Frames=%g/%g/%g\n'], ...
+        char(string(label)), iqPhase, ...
+        stats.I_BER, 100*stats.I_LockRate, stats.I_FER, ...
+        stats.I_BitErrors, stats.I_BitsCompared, ...
+        stats.I_CountedFrames, stats.I_MatchedFrames, stats.I_DecodedFrames, ...
+        stats.Q_BER, 100*stats.Q_LockRate, stats.Q_FER, ...
+        stats.Q_BitErrors, stats.Q_BitsCompared, ...
+        stats.Q_CountedFrames, stats.Q_MatchedFrames, stats.Q_DecodedFrames);
 end
 
 function [stats, errs, bitsComp, perFrameBER] = ...
@@ -3949,7 +4246,7 @@ function [meanErr, nFrames] = localPeriodicASMMeanError(hardBits, asmBits, first
     end
 end
 
-function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotationCandidate(fineSynced, validTxFrames, tmMod, tmCode, opt, hasRandomizer, hasASM, btVal, numWarmUp)
+function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotationCandidate(fineSynced, validTxFrames, tmMod, tmCode, opt, randomizerEnabled, hasASM, btVal, numWarmUp)
 %TRYONEROTATIONCANDIDATE Isolate failures from an invalid phase hypothesis.
 % A wrong GMSK phase can produce a zero-range soft stream.  Some channel
 % decoders reject that stream while quantising it; the failure belongs to
@@ -3957,7 +4254,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotationCandidat
     try
         [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation( ...
             fineSynced, validTxFrames, tmMod, tmCode, opt, ...
-            hasRandomizer, hasASM, btVal, numWarmUp);
+            randomizerEnabled, hasASM, btVal, numWarmUp);
     catch candidateError
         if startsWith(string(candidateError.identifier), ...
                 "gmsk_ccsds_official_demodulate:")
@@ -3973,7 +4270,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotationCandidat
     end
 end
 
-function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSynced, validTxFrames, tmMod, tmCode, opt, hasRandomizer, hasASM, btVal, numWarmUp)
+function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSynced, validTxFrames, tmMod, tmCode, opt, randomizerEnabled, hasASM, btVal, numWarmUp)
     berVal = 0.5; lockRate = 0;
     gmskDetectorUsed = "not-applicable";
 
@@ -3998,6 +4295,9 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         bestLocalBits = 0;
         bestLocalStats = localEmptyBERStats();
         bestLocalSkip = 0;
+        bestLocalUsable = false;
+        requireBothUQPSKRails = strcmpi(string(dataPathMode), ...
+            "unequalDualIQ");
 
         optLocal = opt;
         optLocal.uqpskSkipInternal = true;
@@ -4011,26 +4311,51 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
 
             [candBer, candLock, candErrs, candBits, candStats] = tryOneRotation( ...
                 rxCandidate, validTxFrames, tmMod, tmCode, optLocal, ...
-                hasRandomizer, hasASM, btVal, numWarmUp);
+                randomizerEnabled, hasASM, btVal, numWarmUp);
 
             if isfield(opt,'debugUQPSK') && logical(opt.debugUQPSK)
                 fprintf('      [UQPSK group] symSkip=%d, BER=%.4g, Lock=%.1f%%, Err=%d, Bits=%d\n', ...
                     symSkip, candBer, candLock*100, candErrs, candBits);
             end
 
-            if candLock >= 0.80 && candBits > 0
-                if candBer < bestLocalBer
+            bothRailsCounted = true;
+            if requireBothUQPSKRails
+                bothRailsCounted = isfield(candStats, 'I_CountedFrames') && ...
+                    isfield(candStats, 'Q_CountedFrames') && ...
+                    candStats.I_CountedFrames >= 1 && ...
+                    candStats.Q_CountedFrames >= 1;
+                if isfield(opt,'debugUQPSK') && logical(opt.debugUQPSK) && ...
+                        ~bothRailsCounted
+                    fprintf(['      [UQPSK unequal reject] symSkip=%d ', ...
+                        'requires counted I/Q frames; got I=%g Q=%g\n'], ...
+                        symSkip, candStats.I_CountedFrames, ...
+                        candStats.Q_CountedFrames);
+                end
+            end
+            candidateUsable = candLock >= 0.80 && candBits > 0 && ...
+                bothRailsCounted;
+
+            if candidateUsable
+                % A lower BER remains the primary criterion.  When BER is
+                % equal (often both are exactly zero), select the UQPSK
+                % symbol grouping with more reliable frame acquisition.
+                % Otherwise a partial I-only lock can mask a correctly
+                % aligned I/Q pair.
+                if ~bestLocalUsable || localIsBetterSplitCandidate( ...
+                        candBer, candLock, candBits, ...
+                        bestLocalBer, bestLocalLock, bestLocalBits)
                     bestLocalBer = candBer;
                     bestLocalLock = candLock;
                     bestLocalErrs = candErrs;
                     bestLocalBits = candBits;
                     bestLocalStats = candStats;
                     bestLocalSkip = symSkip;
+                    bestLocalUsable = true;
                 end
                 if candBer == 0 && candLock >= 0.999
                     break;
                 end
-            elseif isinf(bestLocalBer) && ...
+            elseif ~bestLocalUsable && ...
                     (candLock > bestLocalLock || (candLock == bestLocalLock && candBits > bestLocalBits))
                 bestLocalBer = candBer;
                 bestLocalLock = candLock;
@@ -4085,7 +4410,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
 
             [candBer, candLock, candErrs, candBits, candStats] = tryOneRotation( ...
                 rxCandidate, validTxFrames, tmMod, tmCode, optLocal, ...
-                hasRandomizer, hasASM, btVal, numWarmUp);
+                randomizerEnabled, hasASM, btVal, numWarmUp);
 
             fprintf('      [4D group] symSkip=%d, BER=%.4g, Lock=%.1f%%, Err=%d, Bits=%d\n', ...
                 symSkip, candBer, candLock*100, candErrs, candBits);
@@ -4450,7 +4775,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
 
 %     decArgs = {'ChannelCoding',tmCode,'Modulation',tmMod, ...
 %                'NumBytesInTransferFrame',1115, ...
-%                'HasRandomizer',hasRandomizer,'HasASM',hasASM};
+%                'RandomizerEnabled',randomizerEnabled,'HasASM',hasASM};
     isLDPCOnSMTF = contains(lower(string(tmCode)),'ldpc') && isfield(opt,'IsLDPCOnSMTF') && logical(opt.IsLDPCOnSMTF);
     decoderMod = tmMod;
     if contains(tmMod,'UQPSK')
@@ -4459,10 +4784,10 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         decoderMod = 'BPSK';
     end
     decArgs = {'ChannelCoding',tmCode,'Modulation',decoderMod, ...
-               'HasRandomizer',hasRandomizer,'HasASM',hasASM};
+               'RandomizerEnabled',randomizerEnabled,'HasASM',hasASM};
     decArgs = appendASMArgs(decArgs, opt);
     decoderPathMode = dataPathMode;
-    if strcmpi(decoderPathMode, 'dualIQ')
+    if any(strcmpi(decoderPathMode, {'dualIQ','unequalDualIQ'}))
         decoderPathMode = 'single';
     end
     decArgs = [decArgs, {'RandomizerFECPosition', char(randomizerFECPosition), ...
@@ -4535,8 +4860,77 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         localPrintDemodDataDebug(demodData, tmMod, tmCode, bitsPerFrame);
     end
 
-    if strcmpi(dataPathMode, 'dualIQ')
+    if strcmpi(dataPathMode, 'unequalDualIQ')
         splitDebug = getLogicalField(opt, 'splitPathDebug', false);
+        [demodI, demodQ, droppedTail] = ...
+            tm_uqpsk_unequal_bit_demux(demodData, 2, 'drop');
+        if splitDebug
+            fprintf(['[UQPSK unequal RX demux] grouped=%d soft bits -> ', ...
+                'I=%d, Q=%d, droppedTail=%d\n'], ...
+                numel(demodData), numel(demodI), numel(demodQ), ...
+                droppedTail);
+        end
+
+        predecoderStats = localEmptySplitPredecoderStats();
+        if splitDebug
+            predecoderStats = localMeasureSplitPredecoderRails( ...
+                demodI, demodQ);
+            fprintf(['[UQPSK unequal predecoder] ', ...
+                'I: hardBER=%.6g offset=%+g polarity=%+g | ', ...
+                'Q: hardBER=%.6g offset=%+g polarity=%+g\n'], ...
+                predecoderStats.I_PredecoderBER, ...
+                predecoderStats.I_PredecoderOffset, ...
+                predecoderStats.I_PredecoderPolarity, ...
+                predecoderStats.Q_PredecoderBER, ...
+                predecoderStats.Q_PredecoderOffset, ...
+                predecoderStats.Q_PredecoderPolarity);
+        end
+
+        % UQPSK RS is byte-boundary sensitive.  With an unrandomized
+        % payload, a single-frame ASM search can prefer the adjacent bit
+        % over the true frame start even though the correct ASM repeats at
+        % every RS frame.  Reuse the split-path periodic ASM coordinator
+        % to align I and Q independently.  Decoder synchronization is
+        % disabled only when both rails have credible periodic ASM; if
+        % either rail is ambiguous, the existing Decoder path remains the
+        % fallback.
+        [demodIForDecoder, demodQForDecoder, decArgsI, decArgsQ, ...
+                unequalRSASM] = localPrepareSplitRSPeriodicASMAlignment( ...
+            demodI, demodQ, decArgs, dataPathMode, tmMod, tmCode, ...
+            hasASM, opt);
+
+        if splitDebug || getLogicalField(opt, 'debugCodedBoundary', false)
+            localPrintSplitRSASMAlignment( ...
+                'unequal candidate', NaN, unequalRSASM);
+        end
+
+        decoderI = HelperCCSDSTMDecoder(decArgsI{:});
+        decoderQ = HelperCCSDSTMDecoder(decArgsQ{:});
+        decodedI = decoderI(demodIForDecoder);
+        decodedQ = decoderQ(demodQForDecoder);
+
+        [berVal, lockRate, errs, bitsComp, frameStats, perFrameBER] = ...
+            localCountUnequalUQPSKRailBER( ...
+                decodedI, decodedQ, validTxFrames, bitsPerFrame, ...
+                numWarmUp, tmMod, tmCode, opt);
+        frameStats = localAttachSplitPredecoderStats( ...
+            frameStats, predecoderStats);
+
+        if splitDebug
+            fprintf(['[UQPSK unequal RX decode] decoded I=%d bits ', ...
+                '(%d frames), Q=%d bits (%d frames)\n'], ...
+                numel(decodedI), floor(numel(decodedI)/bitsPerFrame), ...
+                numel(decodedQ), floor(numel(decodedQ)/bitsPerFrame));
+            localPrintSplitRailStats('selected', 0, frameStats);
+        end
+        if lockRate > 0.5 && bitsComp > 0
+            localPrintPerFrameBER(perFrameBER, opt);
+        end
+        return;
+    elseif strcmpi(dataPathMode, 'dualIQ')
+        splitDebug = getLogicalField(opt, 'splitPathDebug', false);
+        splitRSASMEnabled = localUseSplitRSPeriodicASMAlignment( ...
+            dataPathMode, tmMod, tmCode, hasASM, opt);
 
         iqPhaseList = 0;
         bitsPerSymForSplit = localBitsPerSymbolForDebug(tmMod);
@@ -4575,6 +4969,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         bestSplitDecodedI = zeros(0,1,'int8');
         bestSplitDecodedQ = zeros(0,1,'int8');
         bestSplitDecodedBits = zeros(0,1,'int8');
+        bestSplitRSASM = localEmptySplitRSASMAlignment();
 
         for iqPhase = iqPhaseList
             if iqPhase >= numel(demodData)
@@ -4591,14 +4986,24 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                     char(tmMod), iqPhase, numel(demodData2));
             end
 
-            [demodI, demodQ] = localBitDeinterleaveIQ(demodData2, tmMod, splitDebug);
+            [demodI, demodQ, predecoderStats] = localBitDeinterleaveIQ( ...
+                demodData2, tmMod, splitDebug, iqPhase);
             if splitDebug
                 fprintf('[SplitPath RX deinterleave] demod=%d soft bits -> I=%d, Q=%d\n', ...
                     numel(demodData2), numel(demodI), numel(demodQ));
             end
 
+            [demodIForDecoder, demodQForDecoder, decArgsI, decArgsQ, splitRSASM] = ...
+                localPrepareSplitRSPeriodicASMAlignment( ...
+                demodI, demodQ, decArgs, dataPathMode, tmMod, tmCode, hasASM, opt);
+
             [decodedI, decodedQ, decodedBits] = localDecodeSplitRails( ...
-                demodI, demodQ, bitsPerFrame, decArgs);
+                demodIForDecoder, demodQForDecoder, bitsPerFrame, decArgsI, decArgsQ);
+            splitRSASM = localAttachSplitRSTMStructureScore( ...
+                splitRSASM, decodedI, decodedQ, bitsPerFrame, opt);
+            if splitDebug || getLogicalField(opt, 'debugCodedBoundary', false)
+                localPrintSplitRSASMAlignment('candidate', iqPhase, splitRSASM);
+            end
 
             if splitDebug
                 fprintf(['[SplitPath RX decode] iqPhase=%d, decodedI=%d bits (%d frames), ', ...
@@ -4611,14 +5016,18 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             [candBer, candLock, candErrs, candBits, candStats, candPerFrameBER] = ...
                 localCountSplitRailBER(decodedI, decodedQ, validTxFrames, ...
                 bitsPerFrame, numWarmUp, tmMod, tmCode, opt);
+            candStats = localAttachSplitPredecoderStats( ...
+                candStats, predecoderStats);
 
             if splitDebug
                 fprintf('[SplitPath IQ phase score] iqPhase=%d, BER=%.4g, Lock=%.1f%%, Err=%d, Bits=%d\n', ...
                     iqPhase, candBer, candLock*100, candErrs, candBits);
+                localPrintSplitRailStats('candidate', iqPhase, candStats);
             end
 
-            if localIsBetterSplitCandidate(candBer, candLock, candBits, ...
-                    bestSplitBer, bestSplitLock, bestSplitBits)
+            if localIsBetterSplitRSASMCandidate( ...
+                    splitRSASM, candBer, candLock, candBits, iqPhase, ...
+                    bestSplitRSASM, bestSplitBer, bestSplitLock, bestSplitBits, bestSplitPhase)
                 bestSplitBer = candBer;
                 bestSplitLock = candLock;
                 bestSplitErrs = candErrs;
@@ -4629,9 +5038,11 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                 bestSplitDecodedI = decodedI;
                 bestSplitDecodedQ = decodedQ;
                 bestSplitDecodedBits = decodedBits;
+                bestSplitRSASM = splitRSASM;
             end
 
-            if candBits > 0 && candBer <= splitEarlyStopBER && candLock >= splitEarlyStopLock
+            if ~splitRSASMEnabled && candBits > 0 && ...
+                    candBer <= splitEarlyStopBER && candLock >= splitEarlyStopLock
                 if splitDebug
                     fprintf('[SplitPath IQ phase early stop] iqPhase=%d, BER=%.4g, Lock=%.1f%%\n', ...
                         iqPhase, candBer, candLock*100);
@@ -4655,6 +5066,8 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         if splitDebug
             fprintf('[SplitPath IQ phase selected] mod=%s, iqPhase=%d, BER=%.4g, Lock=%.1f%%, Bits=%d\n', ...
                 char(tmMod), bestSplitPhase, berVal, lockRate*100, bitsComp);
+            localPrintSplitRailStats('selected', bestSplitPhase, frameStats);
+            localPrintSplitRSASMAlignment('selected', bestSplitPhase, bestSplitRSASM);
         end
 
         if lockRate > 0.5 && bitsComp > 0
@@ -5111,22 +5524,36 @@ function offsets = localCodedSyncOffsetList(rateStr)
     end
 end
 
-function [demodAligned, trimBits, alignedFound] = localTrimDemodToPeriodicASM(demodData, tmMod, tmCode, opt)
+function [demodAligned, trimBits, alignedFound, alignmentInfo] = localTrimDemodToPeriodicASM(demodData, tmMod, tmCode, opt)
     demodAligned = demodData;
     trimBits = 0;
     alignedFound = false;
+    alignmentInfo = struct( ...
+        'BestError',NaN, ...
+        'BestPosition',NaN, ...
+        'MeanError',NaN, ...
+        'PeriodicFrames',0, ...
+        'Score',-inf, ...
+        'PeriodBits',NaN, ...
+        'TrimBits',0);
     if isempty(demodData)
         return;
     end
 
     [asmTemplates, periodBits] = localASMTemplatesForPhaseResolve(tmMod, tmCode, opt);
+    alignmentInfo.PeriodBits = periodBits;
     if ~isfinite(periodBits) || periodBits <= 0
         return;
     end
 
     hardBits = int8(demodData(:) > 0);
-    [bestErr, bestPos, meanErr, nFrames] = localBestASMPeriodicScore( ...
+    [bestErr, bestPos, meanErr, nFrames, score] = localBestASMPeriodicScore( ...
         hardBits, asmTemplates, periodBits, opt);
+    alignmentInfo.BestError = bestErr;
+    alignmentInfo.BestPosition = bestPos;
+    alignmentInfo.MeanError = meanErr;
+    alignmentInfo.PeriodicFrames = nFrames;
+    alignmentInfo.Score = score;
     if bestPos <= 0 || nFrames < 2
         return;
     end
@@ -5153,6 +5580,340 @@ function [demodAligned, trimBits, alignedFound] = localTrimDemodToPeriodicASM(de
     else
         trimBits = 0;
     end
+    alignmentInfo.TrimBits = trimBits;
+end
+
+function enabled = localUseSplitRSPeriodicASMAlignment(dataPathMode, tmMod, tmCode, hasASM, opt)
+% Restrict this coordinator to the affected split-path RS cases.  The
+% ordinary dual-I/Q high-order paths need independent byte alignment, and
+% unequal UQPSK needs the same protection against a one-bit false ASM peak
+% on either rail.  All single-stream and non-RS paths retain their existing
+% logic.
+    isOrdinaryDualRS = strcmpi(string(dataPathMode), "dualIQ") && ...
+        any(strcmpi(string(tmMod), ["8PSK","16QAM","32QAM"]));
+    isUnequalUQPSKRS = strcmpi(string(dataPathMode), "unequalDualIQ") && ...
+        strcmpi(string(tmMod), "UQPSK");
+
+    enabled = logical(hasASM) && strcmpi(string(tmCode), "RS") && ...
+        (isOrdinaryDualRS || isUnequalUQPSKRS);
+
+    if isfield(opt,'enableSplitRSPeriodicASMAlign') && ...
+            ~isempty(opt.enableSplitRSPeriodicASMAlign)
+        enabled = enabled && logical(opt.enableSplitRSPeriodicASMAlign);
+    elseif isfield(opt,'EnableSplitRSPeriodicASMAlign') && ...
+            ~isempty(opt.EnableSplitRSPeriodicASMAlign)
+        enabled = enabled && logical(opt.EnableSplitRSPeriodicASMAlign);
+    end
+end
+
+function alignment = localEmptySplitRSASMAlignment()
+    rail = struct( ...
+        'Found',false, ...
+        'BestError',NaN, ...
+        'BestPosition',NaN, ...
+        'MeanError',NaN, ...
+        'PeriodicFrames',0, ...
+        'Score',-inf, ...
+        'PeriodBits',NaN, ...
+        'TrimBits',0);
+    alignment = struct( ...
+        'Enabled',false, ...
+        'BothFound',false, ...
+        'DecoderSyncDisabled',false, ...
+        'Score',-inf, ...
+        'MaxMeanError',inf, ...
+        'TMStructureScore',-inf, ...
+        'TMValidFrames',0, ...
+        'TMMaxCounterRun',0, ...
+        'TMOrientationScore',-inf, ...
+        'TMSwappedOrientationScore',-inf, ...
+        'TMFirstIFrameID',NaN, ...
+        'TMFirstQFrameID',NaN, ...
+        'I',rail, ...
+        'Q',rail);
+end
+
+function [demodIForDecoder, demodQForDecoder, decArgsI, decArgsQ, alignment] = ...
+        localPrepareSplitRSPeriodicASMAlignment( ...
+        demodI, demodQ, decArgs, dataPathMode, tmMod, tmCode, hasASM, opt)
+% Align raw RS ASM independently on I and Q.  The existing Decoder's
+% frame synchronizer remains the fallback whenever either rail is not
+% confidently aligned.
+    demodIForDecoder = demodI;
+    demodQForDecoder = demodQ;
+    decArgsI = decArgs;
+    decArgsQ = decArgs;
+    alignment = localEmptySplitRSASMAlignment();
+    alignment.Enabled = localUseSplitRSPeriodicASMAlignment( ...
+        dataPathMode, tmMod, tmCode, hasASM, opt);
+    if ~alignment.Enabled
+        return;
+    end
+
+    [alignedI, ~, foundI, infoI] = localTrimDemodToPeriodicASM( ...
+        demodI, tmMod, tmCode, opt);
+    [alignedQ, ~, foundQ, infoQ] = localTrimDemodToPeriodicASM( ...
+        demodQ, tmMod, tmCode, opt);
+
+    alignment.I = localSplitRSASMInfoFromPeriodicInfo(infoI, foundI);
+    alignment.Q = localSplitRSASMInfoFromPeriodicInfo(infoQ, foundQ);
+    alignment.BothFound = foundI && foundQ;
+    if alignment.BothFound
+        alignment.Score = infoI.Score + infoQ.Score;
+        alignment.MaxMeanError = max(infoI.MeanError, infoQ.MeanError);
+        demodIForDecoder = alignedI;
+        demodQForDecoder = alignedQ;
+        decArgsI = localSetDecoderNameValue( ...
+            decArgsI, 'DisableFrameSynchronization', true);
+        decArgsQ = localSetDecoderNameValue( ...
+            decArgsQ, 'DisableFrameSynchronization', true);
+        alignment.DecoderSyncDisabled = true;
+    end
+
+end
+
+function rail = localSplitRSASMInfoFromPeriodicInfo(info, found)
+    rail = struct( ...
+        'Found',logical(found), ...
+        'BestError',info.BestError, ...
+        'BestPosition',info.BestPosition, ...
+        'MeanError',info.MeanError, ...
+        'PeriodicFrames',info.PeriodicFrames, ...
+        'Score',info.Score, ...
+        'PeriodBits',info.PeriodBits, ...
+        'TrimBits',info.TrimBits);
+end
+
+function alignment = localAttachSplitRSTMStructureScore( ...
+        alignment, decodedI, decodedQ, bitsPerFrame, opt)
+% I and Q carry the same ASM, so an odd-bit parity error can still produce
+% perfect ASM correlations on both rails.  Break that unavoidable tie with
+% the configured TM primary-header contract and counter continuity.  This
+% uses no transmitted payload or BER reference.
+    if ~isstruct(alignment) || ~isfield(alignment,'Enabled') || ...
+            ~alignment.Enabled || ~alignment.BothFound
+        return;
+    end
+
+    scoreI = localScoreDecodedTMStructure(decodedI, bitsPerFrame, opt);
+    scoreQ = localScoreDecodedTMStructure(decodedQ, bitsPerFrame, opt);
+    alignment.TMStructureScore = scoreI.Score + scoreQ.Score;
+    alignment.TMValidFrames = scoreI.ValidFrames + scoreQ.ValidFrames;
+    alignment.TMMaxCounterRun = scoreI.MaxCounterRun + scoreQ.MaxCounterRun;
+    counterConvention = lower(string(getfieldwithdefault( ...
+        opt, 'splitRSTMFrameCounterConvention', 'interleavedEvenOdd')));
+    if counterConvention == "interleavedevenodd" && ...
+            ~isempty(scoreI.VCFC) && ~isempty(scoreQ.VCFC)
+        alignment.TMFirstIFrameID = scoreI.VCFC(1);
+        alignment.TMFirstQFrameID = scoreQ.VCFC(1);
+        alignment.TMOrientationScore = ...
+            nnz(mod(scoreI.VCFC,2) == 0) + nnz(mod(scoreQ.VCFC,2) == 1);
+        alignment.TMSwappedOrientationScore = ...
+            nnz(mod(scoreI.VCFC,2) == 1) + nnz(mod(scoreQ.VCFC,2) == 0);
+    end
+end
+
+function result = localScoreDecodedTMStructure(decodedBits, bitsPerFrame, opt)
+    result = struct( ...
+        'Score',-inf, ...
+        'ValidFrames',0, ...
+        'MaxCounterRun',0, ...
+        'FieldMatches',0, ...
+        'FramesChecked',0, ...
+        'VCFC',zeros(0,1));
+    numFrames = floor(numel(decodedBits) / bitsPerFrame);
+    if bitsPerFrame < 37 || numFrames < 1
+        return;
+    end
+
+    maxFrames = min(numFrames, max(1, round(getfieldnumeric( ...
+        opt, 'splitRSTMHeaderScoreFrames', 32))));
+    expectedVersion = round(getfieldnumeric(opt, ...
+        'TransferFrameVersionNumber', 0));
+    expectedSCID = round(getfieldnumeric(opt, 'SpacecraftID', 1));
+    expectedVCID = round(getfieldnumeric(opt, 'VirtualChannelID', 0));
+    expectedOCF = double(getLogicalField(opt, 'HasOCF', false));
+    expectedSHF = double(getLogicalField(opt, 'HasSecondaryHeader', false));
+    expectedSync = round(getfieldnumeric(opt, 'SynchronizationFlag', 0));
+    expectedPacketOrder = round(getfieldnumeric(opt, 'PacketOrderFlag', 0));
+    expectedSLID = getfieldnumeric(opt, 'SegmentLengthID', NaN);
+    if ~isfinite(expectedSLID)
+        expectedSLID = 3 * double(expectedSync == 0);
+    end
+    expectedSLID = round(expectedSLID);
+
+    vcfc = zeros(maxFrames,1);
+    mcfc = zeros(maxFrames,1);
+    fieldMatches = 0;
+    validFrames = 0;
+    for iFrame = 1:maxFrames
+        idx = (iFrame-1)*bitsPerFrame + (1:37);
+        header = uint8(decodedBits(idx) ~= 0);
+        version = localBitsToUnsignedMSB(header(1:2));
+        scid = localBitsToUnsignedMSB(header(3:12));
+        vcid = localBitsToUnsignedMSB(header(13:15));
+        ocf = double(header(16));
+        mcfc(iFrame) = localBitsToUnsignedMSB(header(17:24));
+        vcfc(iFrame) = localBitsToUnsignedMSB(header(25:32));
+        shf = double(header(33));
+        syncFlag = double(header(34));
+        packetOrder = double(header(35));
+        slid = localBitsToUnsignedMSB(header(36:37));
+
+        matches = [ ...
+            version == expectedVersion, ...
+            scid == expectedSCID, ...
+            vcid == expectedVCID, ...
+            ocf == expectedOCF, ...
+            shf == expectedSHF, ...
+            syncFlag == expectedSync, ...
+            packetOrder == expectedPacketOrder, ...
+            slid == expectedSLID];
+        fieldMatches = fieldMatches + nnz(matches);
+        validFrames = validFrames + all(matches);
+    end
+
+    maxCounterRun = max([ ...
+        localModuloCounterRun(vcfc, 1), ...
+        localModuloCounterRun(vcfc, 2), ...
+        localModuloCounterRun(mcfc, 1), ...
+        localModuloCounterRun(mcfc, 2)]);
+    result.ValidFrames = validFrames;
+    result.MaxCounterRun = maxCounterRun;
+    result.FieldMatches = fieldMatches;
+    result.FramesChecked = maxFrames;
+    result.VCFC = vcfc;
+    result.Score = 1000*validFrames + 10*maxCounterRun + ...
+        fieldMatches / maxFrames;
+end
+
+function value = localBitsToUnsignedMSB(bits)
+    bits = double(bits(:).' ~= 0);
+    value = sum(bits .* 2.^(numel(bits)-1:-1:0));
+end
+
+function maxRun = localModuloCounterRun(values, step)
+    values = double(values(:));
+    if isempty(values)
+        maxRun = 0;
+        return;
+    end
+    maxRun = 1;
+    runLength = 1;
+    for k = 2:numel(values)
+        if values(k) == mod(values(k-1) + step, 256)
+            runLength = runLength + 1;
+        else
+            runLength = 1;
+        end
+        maxRun = max(maxRun, runLength);
+    end
+end
+
+function args = localSetDecoderNameValue(args, name, value)
+    for k = 1:2:numel(args)-1
+        if strcmpi(string(args{k}), string(name))
+            args{k+1} = value;
+            return;
+        end
+    end
+    args = [args, {name, value}];
+end
+
+function localPrintSplitRSASMAlignment(label, iqPhase, alignment)
+    if ~isstruct(alignment) || ~isfield(alignment,'Enabled') || ~alignment.Enabled
+        return;
+    end
+    if isnan(iqPhase)
+        phaseText = 'n/a';
+    else
+        phaseText = sprintf('%d', iqPhase);
+    end
+    stateText = 'fallback';
+    if alignment.BothFound
+        stateText = 'aligned';
+    end
+    fprintf(['[SplitPath RS ASM %s] iqPhase=%s state=%s asmScore=%.3f ', ...
+        'tmScore=%.3f validTM=%g counterRun=%g ', ...
+        'orientation=%g swapped=%g firstVCFC=%g/%g ', ...
+        '| I: found=%d trim=%d pos=%g err=%g mean=%.2f frames=%g ', ...
+        '| Q: found=%d trim=%d pos=%g err=%g mean=%.2f frames=%g\n'], ...
+        char(string(label)), phaseText, stateText, alignment.Score, ...
+        alignment.TMStructureScore, alignment.TMValidFrames, ...
+        alignment.TMMaxCounterRun, alignment.TMOrientationScore, ...
+        alignment.TMSwappedOrientationScore, alignment.TMFirstIFrameID, ...
+        alignment.TMFirstQFrameID, ...
+        alignment.I.Found, alignment.I.TrimBits, alignment.I.BestPosition, ...
+        alignment.I.BestError, alignment.I.MeanError, alignment.I.PeriodicFrames, ...
+        alignment.Q.Found, alignment.Q.TrimBits, alignment.Q.BestPosition, ...
+        alignment.Q.BestError, alignment.Q.MeanError, alignment.Q.PeriodicFrames);
+end
+
+function better = localIsBetterSplitRSASMCandidate( ...
+        candAlignment, candBer, candLock, candBits, candPhase, ...
+        bestAlignment, bestBer, bestLock, bestBits, bestPhase)
+% For the targeted RS path, choose odd-bit parity using independent I/Q
+% periodic ASM evidence rather than payload BER.  If no parity hypothesis
+% has credible ASM on both rails, preserve the former BER/lock fallback.
+    if isstruct(candAlignment) && isfield(candAlignment,'Enabled') && ...
+            candAlignment.Enabled
+        candFound = candAlignment.BothFound;
+        bestFound = isstruct(bestAlignment) && isfield(bestAlignment,'BothFound') && ...
+            bestAlignment.BothFound;
+        if candFound && ~bestFound
+            better = true;
+            return;
+        elseif ~candFound && bestFound
+            better = false;
+            return;
+        elseif candFound && bestFound
+            tol = 1e-12;
+            if isfinite(candAlignment.TMOrientationScore) && ...
+                    isfinite(bestAlignment.TMOrientationScore) && ...
+                    candAlignment.TMOrientationScore > ...
+                    bestAlignment.TMOrientationScore
+                better = true;
+                return;
+            elseif isfinite(candAlignment.TMOrientationScore) && ...
+                    isfinite(bestAlignment.TMOrientationScore) && ...
+                    candAlignment.TMOrientationScore < ...
+                    bestAlignment.TMOrientationScore
+                better = false;
+                return;
+            elseif candAlignment.TMStructureScore > ...
+                    bestAlignment.TMStructureScore + tol
+                better = true;
+                return;
+            elseif candAlignment.TMStructureScore < ...
+                    bestAlignment.TMStructureScore - tol
+                better = false;
+                return;
+            elseif candAlignment.TMValidFrames > bestAlignment.TMValidFrames
+                better = true;
+                return;
+            elseif candAlignment.TMValidFrames < bestAlignment.TMValidFrames
+                better = false;
+                return;
+            elseif candAlignment.Score > bestAlignment.Score + tol
+                better = true;
+                return;
+            elseif candAlignment.Score < bestAlignment.Score - tol
+                better = false;
+                return;
+            elseif candAlignment.MaxMeanError < bestAlignment.MaxMeanError - tol
+                better = true;
+                return;
+            elseif candAlignment.MaxMeanError > bestAlignment.MaxMeanError + tol
+                better = false;
+                return;
+            end
+            better = candPhase < bestPhase;
+            return;
+        end
+    end
+
+    better = localIsBetterSplitCandidate( ...
+        candBer, candLock, candBits, bestBer, bestLock, bestBits);
 end
 
 function [goodFrames, totalErrs, matched, maxRun] = scoreFrameQuality(bits, bitsPerFrame, txMap, opt)
@@ -5961,6 +6722,20 @@ function printMetrics(res, opt)
         end
         fprintf('\n');
     end
+    if isfield(res,'I_LockRate') && isfinite(res.I_LockRate)
+        fprintf([' I rail       : BER=%.6g, Lock=%.2f%%, FER=%.6g, ', ...
+            'Err=%g/%g bits, Frames=%g/%g/%g\n'], ...
+            res.I_BER, 100*res.I_LockRate, res.I_FER, ...
+            res.I_BitErrors, res.I_BitsCompared, ...
+            res.I_CountedFrames, res.I_MatchedFrames, res.I_DecodedFrames);
+    end
+    if isfield(res,'Q_LockRate') && isfinite(res.Q_LockRate)
+        fprintf([' Q rail       : BER=%.6g, Lock=%.2f%%, FER=%.6g, ', ...
+            'Err=%g/%g bits, Frames=%g/%g/%g\n'], ...
+            res.Q_BER, 100*res.Q_LockRate, res.Q_FER, ...
+            res.Q_BitErrors, res.Q_BitsCompared, ...
+            res.Q_CountedFrames, res.Q_MatchedFrames, res.Q_DecodedFrames);
+    end
     if isfield(res,'AcquisitionFrames') && isfinite(res.AcquisitionFrames)
         fprintf(' Acquisition  : %.0f frames', res.AcquisitionFrames);
         if isfield(res,'AcquisitionTime_s') && isfinite(res.AcquisitionTime_s)
@@ -6108,21 +6883,23 @@ function spec = buildCFOEstimatorSpectrum(ctx, res)
         'peak_corrected_hz', fLocal(iCo));
 end
 
-function tf = useFACMEvaluation(opt, modStr)
+function tf = isFACMEvaluation(opt, modStr)
     isAPSK = contains(upper(string(modStr)), 'APSK');
-    tf = isAPSK;
-    if isfield(opt,'useFACM') && ~isempty(opt.useFACM)
-        tf = localFlagValue(opt.useFACM);
-    elseif isfield(opt,'UseFACM') && ~isempty(opt.UseFACM)
-        tf = localFlagValue(opt.UseFACM);
-    elseif isfield(opt,'WaveformSource') && ~isempty(opt.WaveformSource)
-        tf = contains(lower(string(opt.WaveformSource)), 'flexible advanced');
-    elseif isfield(opt,'waveformSource') && ~isempty(opt.waveformSource)
-        tf = contains(lower(string(opt.waveformSource)), 'flexible advanced');
+    mode = lower(strtrim(string(opt.WaveformMode)));
+    switch mode
+        case "ordinarytm"
+            tf = false;
+        case "facm"
+            tf = true;
+        otherwise
+            error('run_ccsds_tm_evaluation:InvalidWaveformMode', ...
+                'Unsupported WaveformMode="%s". Use ordinaryTM or FACM.', ...
+                char(string(opt.WaveformMode)));
     end
 
     if tf && ~isAPSK
-        tf = false;
+        error('run_ccsds_tm_evaluation:FACMRequiresAPSK', ...
+            'WaveformMode="FACM" is only valid for APSK modulation.');
     end
 end
 
@@ -6438,7 +7215,7 @@ function [fineSynced, payloadAll, decodedTFBits, filteredRx, syncSym, decodedFra
         phaseRecovered = false;
         if cfg.HasPilots
             try
-                if useFACMPostPilotLS(opt)
+                if isFACMPostPilotLSEnabled(opt)
                     [payloadWithPilots, frameDescriptor] = facmPhaseRecoveryKeepPilots( ...
                         cfoCorrected, rxParams.PilotSeq, rxParams.RefFM);
                     agcIn = [frameDescriptor; payloadWithPilots];
@@ -6452,7 +7229,7 @@ function [fineSynced, payloadAll, decodedTFBits, filteredRx, syncSym, decodedFra
                 else
                     agcOut = agcIn;
                 end
-                if useFACMPostPilotLS(opt)
+                if isFACMPostPilotLSEnabled(opt)
                     frameDescriptor = agcOut(1:64);
                     payloadWithPilots = agcOut(65:end);
                     [payload, payloadWithPilotsEq] = facmPostPilotLSEqualize(payloadWithPilots, rxParams, opt);
@@ -6564,7 +7341,7 @@ function [fineSynced, payloadAll, decodedTFBits, filteredRx, syncSym, decodedFra
         acquisitionFrame, plFrameSize, fSym);
 end
 
-function tf = useFACMPostPilotLS(opt)
+function tf = isFACMPostPilotLSEnabled(opt)
     tf = false;
     mode = "";
     if isfield(opt,'facmEqualizerMode') && ~isempty(opt.facmEqualizerMode)
@@ -7583,13 +8360,18 @@ function r = rateStringToNum(rateStr)
         otherwise,  r = 0;
     end
 end
-function [iStream, qStream] = localBitDeinterleaveIQ(x, modulation, debugEnabled)
+function [iStream, qStream, predecoderStats] = ...
+        localBitDeinterleaveIQ(x, modulation, debugEnabled, iqPhase)
     if nargin < 2 || isempty(modulation)
         modulation = '';
     end
     if nargin < 3
         debugEnabled = false;
     end
+    if nargin < 4 || isempty(iqPhase)
+        iqPhase = NaN;
+    end
+    predecoderStats = localEmptySplitPredecoderStats();
 
     x = x(:);
     [bitsPerSymbol, fpgaBlockBits] = localSplitFPGAPackingShape(modulation);
@@ -7620,14 +8402,174 @@ function [iStream, qStream] = localBitDeinterleaveIQ(x, modulation, debugEnabled
             'debug_split_tx_pack_input_bits', rxUnpackedHard);
     end
 
-    if mod(numel(x),2) ~= 0
-        if debugEnabled
-            fprintf('[SplitPath RX deinterleave] dropping 1 tail soft bit to keep I/Q pairs aligned.\n');
-        end
-        x = x(1:end-1);
+    [iStream, qStream, droppedTail] = ...
+        tm_data_path_bit_deinterleave(x, 'drop');
+    if debugEnabled && droppedTail
+        fprintf('[SplitPath RX deinterleave] dropping 1 tail soft bit to keep I/Q pairs aligned.\n');
     end
-    iStream = x(1:2:end);
-    qStream = x(2:2:end);
+    if debugEnabled
+        predecoderStats = localMeasureSplitPredecoderRails( ...
+            iStream, qStream);
+        fprintf(['[SplitPath predecoder candidate] iqPhase=%g | ', ...
+            'I: hardBER=%.6g offset=%+g polarity=%+g Err=%g/%g | ', ...
+            'Q: hardBER=%.6g offset=%+g polarity=%+g Err=%g/%g\n'], ...
+            iqPhase, ...
+            predecoderStats.I_PredecoderBER, ...
+            predecoderStats.I_PredecoderOffset, ...
+            predecoderStats.I_PredecoderPolarity, ...
+            predecoderStats.I_PredecoderBitErrors, ...
+            predecoderStats.I_PredecoderBitsCompared, ...
+            predecoderStats.Q_PredecoderBER, ...
+            predecoderStats.Q_PredecoderOffset, ...
+            predecoderStats.Q_PredecoderPolarity, ...
+            predecoderStats.Q_PredecoderBitErrors, ...
+            predecoderStats.Q_PredecoderBitsCompared);
+        localPrintSplitPredecoderCrossRail(iStream, qStream, iqPhase);
+    end
+end
+
+function stats = localEmptySplitPredecoderStats()
+    stats = struct( ...
+        'I_PredecoderBER',NaN, ...
+        'I_PredecoderOffset',NaN, ...
+        'I_PredecoderPolarity',NaN, ...
+        'I_PredecoderBitErrors',NaN, ...
+        'I_PredecoderBitsCompared',NaN, ...
+        'Q_PredecoderBER',NaN, ...
+        'Q_PredecoderOffset',NaN, ...
+        'Q_PredecoderPolarity',NaN, ...
+        'Q_PredecoderBitErrors',NaN, ...
+        'Q_PredecoderBitsCompared',NaN);
+end
+
+function stats = localMeasureSplitPredecoderRails(rxI, rxQ)
+    stats = localEmptySplitPredecoderStats();
+    stats = localMeasureOneSplitPredecoderRail( ...
+        stats, 'I', 'debug_split_tx_encoded_i_bits', rxI);
+    stats = localMeasureOneSplitPredecoderRail( ...
+        stats, 'Q', 'debug_split_tx_encoded_q_bits', rxQ);
+end
+
+function localPrintSplitPredecoderCrossRail(rxI, rxQ, iqPhase)
+% Debug-only oracle: show whether a parity hypothesis preserves I/Q labels
+% or merely swaps two otherwise valid rails.  This is never used for
+% candidate selection.
+    if ~evalin('base', ...
+            'exist(''debug_split_tx_encoded_i_bits'',''var'') && exist(''debug_split_tx_encoded_q_bits'',''var'')')
+        return;
+    end
+    txI = int8(evalin('base', 'debug_split_tx_encoded_i_bits') ~= 0);
+    txQ = int8(evalin('base', 'debug_split_tx_encoded_q_bits') ~= 0);
+    rxIHard = int8(real(rxI(:)) > 0);
+    rxQHard = int8(real(rxQ(:)) > 0);
+    [berIQ, offsetIQ, polarityIQ] = ...
+        localBestSignedHardBitAlignment(txQ(:), rxIHard, 256, 2048);
+    [berQI, offsetQI, polarityQI] = ...
+        localBestSignedHardBitAlignment(txI(:), rxQHard, 256, 2048);
+    fprintf(['[SplitPath predecoder cross-rail] iqPhase=%g | ', ...
+        'RX-I vs TX-Q: BER=%.6g offset=%+g polarity=%+g | ', ...
+        'RX-Q vs TX-I: BER=%.6g offset=%+g polarity=%+g\n'], ...
+        iqPhase, berIQ, offsetIQ, polarityIQ, ...
+        berQI, offsetQI, polarityQI);
+end
+
+function stats = localMeasureOneSplitPredecoderRail( ...
+        stats, railName, txVarName, rxSoft)
+    if ~evalin('base', sprintf('exist(''%s'',''var'')', txVarName))
+        return;
+    end
+
+    txBits = evalin('base', txVarName);
+    txBits = int8(txBits(:) ~= 0);
+    rxHard = int8(real(rxSoft(:)) > 0);
+    [ber, offset, polarity, errors, bitsCompared] = ...
+        localBestSignedHardBitAlignment(txBits, rxHard, 256, 2048);
+
+    prefix = upper(char(string(railName)));
+    stats.([prefix '_PredecoderBER']) = ber;
+    stats.([prefix '_PredecoderOffset']) = offset;
+    stats.([prefix '_PredecoderPolarity']) = polarity;
+    stats.([prefix '_PredecoderBitErrors']) = errors;
+    stats.([prefix '_PredecoderBitsCompared']) = bitsCompared;
+end
+
+function [ber, bestOffset, bestPolarity, errors, bitsCompared] = ...
+        localBestSignedHardBitAlignment(txBits, rxBits, maxOffset, probeLength)
+    txBits = int8(txBits(:) ~= 0);
+    rxBits = int8(rxBits(:) ~= 0);
+    ber = NaN;
+    bestOffset = NaN;
+    bestPolarity = NaN;
+    errors = NaN;
+    bitsCompared = 0;
+    if isempty(txBits) || isempty(rxBits)
+        return;
+    end
+
+    maxOffset = min([round(double(maxOffset)), ...
+        numel(txBits)-1, numel(rxBits)-1]);
+    if maxOffset < 0
+        return;
+    end
+    probeLength = max(1, round(double(probeLength)));
+
+    bestProbeBER = inf;
+    bestAbsOffset = inf;
+    for offset = -maxOffset:maxOffset
+        [txStart, rxStart, overlap] = ...
+            localSignedAlignmentWindow(numel(txBits), numel(rxBits), offset);
+        nProbe = min(probeLength, overlap);
+        if nProbe < 1
+            continue;
+        end
+
+        txProbe = txBits(txStart:txStart+nProbe-1);
+        rxProbe = rxBits(rxStart:rxStart+nProbe-1);
+        directErrors = nnz(txProbe ~= rxProbe);
+        inverseErrors = nProbe - directErrors;
+        if inverseErrors < directErrors
+            probeErrors = inverseErrors;
+            polarity = -1;
+        else
+            probeErrors = directErrors;
+            polarity = 1;
+        end
+        probeBER = probeErrors / nProbe;
+
+        if probeBER < bestProbeBER || ...
+                (abs(probeBER-bestProbeBER) <= eps && ...
+                 abs(offset) < bestAbsOffset)
+            bestProbeBER = probeBER;
+            bestOffset = offset;
+            bestPolarity = polarity;
+            bestAbsOffset = abs(offset);
+        end
+    end
+
+    if ~isfinite(bestOffset)
+        return;
+    end
+    [txStart, rxStart, bitsCompared] = ...
+        localSignedAlignmentWindow(numel(txBits), numel(rxBits), bestOffset);
+    txAligned = txBits(txStart:txStart+bitsCompared-1);
+    rxAligned = rxBits(rxStart:rxStart+bitsCompared-1);
+    if bestPolarity < 0
+        rxAligned = int8(~logical(rxAligned));
+    end
+    errors = nnz(txAligned ~= rxAligned);
+    ber = errors / bitsCompared;
+end
+
+function [txStart, rxStart, overlap] = ...
+        localSignedAlignmentWindow(txLength, rxLength, offset)
+    if offset >= 0
+        txStart = 1;
+        rxStart = 1 + offset;
+    else
+        txStart = 1 - offset;
+        rxStart = 1;
+    end
+    overlap = min(txLength-txStart+1, rxLength-rxStart+1);
 end
 
 function localPrintSplitDebugMatch(label, txVarName, rxHard)
@@ -7715,28 +8657,17 @@ function txt = localSoftBitVectorString(values, maxLen)
     txt = char('0' + double(hardBits(:).'));
 end
 
-function [decodedI, decodedQ, decodedBits] = localDecodeSplitRails(demodI, demodQ, bitsPerFrame, decArgs)
-    decoderI = HelperCCSDSTMDecoder(decArgs{:});
-    decoderQ = HelperCCSDSTMDecoder(decArgs{:});
+function [decodedI, decodedQ, decodedBits] = localDecodeSplitRails( ...
+        demodI, demodQ, bitsPerFrame, decArgsI, decArgsQ)
+    if nargin < 5 || isempty(decArgsQ)
+        decArgsQ = decArgsI;
+    end
+    decoderI = HelperCCSDSTMDecoder(decArgsI{:});
+    decoderQ = HelperCCSDSTMDecoder(decArgsQ{:});
     decodedI = decoderI(demodI);
     decodedQ = decoderQ(demodQ);
-    decodedBits = localFrameInterleaveDecodedRails(decodedI, decodedQ, bitsPerFrame);
-end
-
-% Split-path decoded frame interleave: I1,Q1,I2,Q2,...
-function out = localFrameInterleaveDecodedRails(bitsI, bitsQ, bitsPerFrame)
-    nI = floor(numel(bitsI)/bitsPerFrame);
-    nQ = floor(numel(bitsQ)/bitsPerFrame);
-    n = min(nI, nQ);
-
-    out = zeros(2*n*bitsPerFrame, 1, 'int8');
-    for k = 1:n
-        idxI = (k-1)*bitsPerFrame + (1:bitsPerFrame);
-        idxO1 = (2*k-2)*bitsPerFrame + (1:bitsPerFrame);
-        idxO2 = (2*k-1)*bitsPerFrame + (1:bitsPerFrame);
-        out(idxO1) = int8(bitsI(idxI));
-        out(idxO2) = int8(bitsQ(idxI));
-    end
+    decodedBits = tm_data_path_frame_interleave( ...
+        int8(decodedI), int8(decodedQ), bitsPerFrame, 'truncate');
 end
 
 function offset = localParabolicSpectrumPeakOffset(powerSpectrum, peakIndex)
@@ -7757,26 +8688,4 @@ function offset = localParabolicSpectrumPeakOffset(powerSpectrum, peakIndex)
 
     offset = 0.5 * (y(1) - y(3)) / denominator;
     offset = max(-0.5, min(0.5, offset));
-end
-
-function value = localLegacyRandomizerPosition(value)
-    switch lower(char(string(value)))
-        case 'predecode'
-            value = 'afterEncoding';
-        case 'postdecode'
-            value = 'beforeEncoding';
-        otherwise
-            value = char(string(value));
-    end
-end
-
-function value = localLegacyDataPathMode(value)
-    switch lower(char(string(value)))
-        case {'merge','bypass'}
-            value = 'single';
-        case 'split'
-            value = 'dualIQ';
-        otherwise
-            value = char(string(value));
-    end
 end

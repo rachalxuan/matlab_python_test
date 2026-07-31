@@ -107,7 +107,10 @@ const DEFAULT_CCSDS_PARAMS = {
   delay: 0,
   sps: 8,
   hasASM: true,
-  hasRandomizer: false,
+  RandomizerEnabled: false,
+  RandomizerFECPosition: "afterEncoding",
+  DataPathMode: "single",
+  WaveformMode: "ordinaryTM",
   hasPilots: true,
   rsPreset: "rs-255-223-i5",
   hDamageLevel: "none",
@@ -645,7 +648,6 @@ const CCSDSPlatform = () => {
       delete payload.hDamageLevel;
 
       if (payload.modType === "16APSK" || payload.modType === "32APSK") {
-        payload.useFACM = false;
         payload.HasTMAPSKPilots = true;
         payload.TMAPSKPilotInterval = 512;
         payload.TMAPSKPilotLength = 32;
@@ -1920,7 +1922,7 @@ const CCSDSPlatform = () => {
             <Row gutter={16}>
               <Col span={6}>
                 <Form.Item
-                  name="hasRandomizer"
+                  name="RandomizerEnabled"
                   valuePropName="checked"
                   initialValue={false}
                 >
@@ -1939,6 +1941,44 @@ const CCSDSPlatform = () => {
               <Col span={10}>
                 <Form.Item name="hasPilots" valuePropName="checked">
                   <Checkbox>插入导频 (Distributed Pilots)</Checkbox>
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item
+                  name="RandomizerFECPosition"
+                  label="加扰位置"
+                  initialValue="afterEncoding"
+                >
+                  <Select>
+                    <Option value="afterEncoding">FEC 编码后</Option>
+                    <Option value="beforeEncoding">FEC 编码前</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="DataPathMode"
+                  label="数据通路"
+                  initialValue="single"
+                >
+                  <Select>
+                    <Option value="single">单路</Option>
+                    <Option value="dualIQ">I/Q 双路</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="WaveformMode"
+                  label="波形分支"
+                  initialValue="ordinaryTM"
+                >
+                  <Select>
+                    <Option value="ordinaryTM">普通 TM</Option>
+                    <Option value="FACM">官方 FACM（仅 APSK）</Option>
+                  </Select>
                 </Form.Item>
               </Col>
             </Row>

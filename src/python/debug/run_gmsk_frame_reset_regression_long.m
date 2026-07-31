@@ -34,7 +34,7 @@ opts.cfo = 0;
 opts.phaseOffset = 0;
 opts.delay = 0;
 opts.hasASM = true;
-opts.hasRandomizer = false;
+opts.RandomizerEnabled = false;
 opts.berWarmUpFrames = 5;
 opts.berFrames = 20;
 opts.showFigures = false;
@@ -63,4 +63,3 @@ else
 end
 fprintf('Regression CSV: %s\n', regressionPath);
 assignin('base', 'gmskOtherModRegression', T);
-

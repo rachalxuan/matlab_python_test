@@ -1,12 +1,13 @@
 function T = sweep_h_channel_short_frames(userOpts)
-%SWEEP_H_CHANNEL_SHORT_FRAMES Short-frame H-channel recovery sweep.
+%SWEEP_H_CHANNEL_SHORT_FRAMES Resumable short-frame H-channel sweep.
 %
 % Typical use:
 %   addpath('E:\web_code\react\fft_project\react-fft\src\python');
 %   T = sweep_h_channel_short_frames();
 %
-% Optional:
-%   opts = struct('includeLDPC', true, 'includeTurbo', true);
+% Resume requires reusing an explicit outputDir:
+%   opts = struct('outputDir','E:\ccsds_artifacts\h_run_01', ...
+%       'includeLDPC',true,'Resume',true);
 %   T = sweep_h_channel_short_frames(opts);
 
     if nargin < 1 || isempty(userOpts)
@@ -15,8 +16,8 @@ function T = sweep_h_channel_short_frames(userOpts)
 
     thisDir = fileparts(mfilename('fullpath'));
     addpath(thisDir);
+    addpath(fullfile(thisDir, 'regression'));
 
-    userOpts = localUpgradeLegacyRandomizerOptions(userOpts);
     opts = localDefaultOptions(thisDir);
     opts = localMergeStruct(opts, userOpts);
 
@@ -28,110 +29,132 @@ function T = sweep_h_channel_short_frames(userOpts)
         clear('satcom.internal.ccsds.tmBase');
     end
 
-    if isempty(opts.outputDir)
-        stamp = datestr(now, 'yyyymmdd_HHMMSS');
-        opts.outputDir = fullfile(thisDir, 'sweep_results', ['h_channel_short_' stamp]);
-    end
-    if ~isfolder(opts.outputDir)
-        mkdir(opts.outputDir);
-    end
-
     codingCases = localBuildCodingCases(opts);
     channelCases = localBuildChannelCases(opts);
+    cases = localBuildRunnerCases(opts, channelCases, codingCases);
 
-    rows = {};
-    caseIndex = 0;
-    executed = 0;
-    stopNow = false;
+    runnerOpts = struct( ...
+        'OutputDir', opts.outputDir, ...
+        'RunId', opts.RunId, ...
+        'PlanVersion', "h-channel-short-v1", ...
+        'Resume', opts.Resume, ...
+        'MaxNewCases', opts.MaxNewCases, ...
+        'RerunFailed', opts.RerunFailed, ...
+        'BaseSeed', opts.randomSeed, ...
+        'CaseIds', opts.CaseIds, ...
+        'DryRun', opts.DryRun, ...
+        'FailOnFailure', opts.FailOnFailure, ...
+        'Verbose', opts.Verbose);
+    [~, state] = reg_run_cases("h_channel_short", cases, runnerOpts);
 
-    totalPlanned = numel(opts.modTypes) * numel(codingCases) * numel(channelCases);
-    fprintf('\n==== H-channel short sweep: planned <= %d cases ====\n', totalPlanned);
-    fprintf('Output directory: %s\n', opts.outputDir);
+    rows = cell(numel(cases), numel(localVariableNames()));
+    for k = 1:numel(cases)
+        meta = cases(k).Meta;
+        record = state.Results(k);
+        errorMessage = record.ErrorMessage;
+        if strlength(errorMessage) == 0
+            errorMessage = record.FailedChecks;
+        end
+        rows(k, :) = localMakeRow(k, meta.Channel, char(meta.ModType), ...
+            meta.Coding, cases(k).Params, record.Actual, record.Success, ...
+            record.Status, errorMessage, record.ElapsedTime);
+    end
+    T = cell2table(rows, 'VariableNames', localVariableNames());
 
-    for iCh = 1:numel(channelCases)
-        ch = channelCases{iCh};
-        for iMod = 1:numel(opts.modTypes)
-            modType = char(opts.modTypes{iMod});
-            for iCode = 1:numel(codingCases)
-                code = codingCases{iCode};
+    if ~opts.DryRun
+        csvPath = fullfile(char(state.OutputDir), 'h_channel_short_sweep.csv');
+        matPath = fullfile(char(state.OutputDir), 'h_channel_short_sweep.mat');
+        localWriteTable(T, csvPath);
+        localSaveFinalMat(matPath, T, opts, cases);
+        fprintf('\n==== H-channel sweep state ====\n');
+        fprintf('Checkpoint: %s\n', fullfile(char(state.OutputDir), 'checkpoint.mat'));
+        fprintf('CSV       : %s\n', csvPath);
+        fprintf('MAT       : %s\n', matPath);
+        localPrintWeakCases(T, opts);
+    end
+end
 
-                if ~localIsCaseCompatible(modType, code, opts)
+function cases = localBuildRunnerCases(opts, channelCases, codingCases)
+    cases = struct('Id',{},'Name',{},'Category',{}, ...
+        'Params',{},'Expected',{},'Meta',{});
+    for iChannel = 1:numel(channelCases)
+        channel = channelCases{iChannel};
+        for iModulation = 1:numel(opts.modTypes)
+            modulation = char(opts.modTypes{iModulation});
+            for iCoding = 1:numel(codingCases)
+                coding = codingCases{iCoding};
+                if ~localIsCaseCompatible(modulation, coding, opts)
                     continue;
                 end
 
-                executed = executed + 1;
-                if isfinite(opts.maxCases) && executed > opts.maxCases
-                    stopNow = true;
-                    break;
-                end
+                params = localBaseParams(opts);
+                params.modType = modulation;
+                params = localApplyModulationParams(params, modulation, opts);
+                params = localApplyCodingParams(params, coding);
+                params = localApplyChannelParams(params, channel, opts);
 
-                caseIndex = caseIndex + 1;
-                rng(opts.randomSeed);
-
-                p = localBaseParams(opts);
-                p.modType = modType;
-                p = localApplyModulationParams(p, modType, opts);
-                p = localApplyCodingParams(p, code);
-                p = localApplyChannelParams(p, ch, opts);
-
-                caseName = sprintf('%s | %s | %s | %s', ...
-                    ch.Name, modType, code.ChannelCoding, code.RateLabel);
-
-                fprintf('\n[%03d] %s\n', caseIndex, caseName);
-                tStart = tic;
-
-                try
-                    raw = run_ccsds_tm_evaluation(p);
-                    r = localDecodeResult(raw);
-                    if isfield(r, 'success') && ~logical(r.success)
-                        evaluationError = localStructChar(r, 'errorMsg', ...
-                            localStructChar(r, 'error', ...
-                            'run_ccsds_tm_evaluation returned success=false'));
-                        error('sweep_h_channel_short_frames:EvaluationFailed', ...
-                            '%s', evaluationError);
-                    end
-                    elapsed = toc(tStart);
-
-                    row = localMakeRow(caseIndex, ch, modType, code, p, r, ...
-                        true, "OK", "", elapsed);
-                    fprintf('      BER=%g, Lock=%.1f%%, EVM=%.2f%%, MER=%.2f dB\n', ...
-                        row{14}, row{15}, row{22}, row{23});
-                catch ME
-                    elapsed = toc(tStart);
-                    row = localMakeRow(caseIndex, ch, modType, code, p, struct(), ...
-                        false, "ERROR", localCleanError(ME.message), elapsed);
-                    fprintf(2, '      FAILED: %s\n', localCleanError(ME.message));
-                end
-
-                rows(end+1, :) = row; %#ok<AGROW>
+                name = sprintf('%s | %s | %s | %s', ...
+                    channel.Name, modulation, coding.ChannelCoding, coding.RateLabel);
+                id = "h." + localId(channel.Name) + "." + ...
+                    localId(modulation) + "." + localId(coding.ChannelCoding) + ...
+                    "." + localId(coding.RateLabel);
+                expected = localExpected(opts, params, modulation);
+                meta = struct( ...
+                    'Channel', channel, ...
+                    'ModType', string(modulation), ...
+                    'Coding', coding);
+                cases(end+1,1) = struct( ... %#ok<AGROW>
+                    'Id', id, ...
+                    'Name', string(name), ...
+                    'Category', "h_channel", ...
+                    'Params', params, ...
+                    'Expected', expected, ...
+                    'Meta', meta);
             end
-            if stopNow
-                break;
-            end
-        end
-        if stopNow
-            break;
         end
     end
+end
 
-    T = cell2table(rows, 'VariableNames', localVariableNames());
-
-    csvPath = fullfile(opts.outputDir, 'h_channel_short_sweep.csv');
-    matPath = fullfile(opts.outputDir, 'h_channel_short_sweep.mat');
-    writetable(T, csvPath);
-    save(matPath, 'T', 'opts');
-
-    fprintf('\n==== Sweep saved ====\n');
-    fprintf('CSV: %s\n', csvPath);
-    fprintf('MAT: %s\n', matPath);
-
-    localPrintWeakCases(T, opts);
+function expected = localExpected(opts, params, modulation)
+    required = ["BER","LockRate"];
+    if ~isempty(opts.minGoodMERdB)
+        required(end+1) = "MER_dB";
+    end
+    detector = "";
+    if strcmpi(modulation, 'GMSK')
+        detector = string(opts.GMSKDetectionMode);
+        if detector == "official-viterbi-frame-reset"
+            detector = "official";
+        end
+    end
+    expected = struct( ...
+        'RequiredMetrics', required, ...
+        'MaxBER', opts.maxGoodBER, ...
+        'MinLockRate', opts.minGoodLockPct / 100, ...
+        'MaxFER', opts.maxGoodFER, ...
+        'MinMERdB', opts.minGoodMERdB, ...
+        'MinCountedFrames', opts.minCountedFrames, ...
+        'ExpectedDataPathMode', string(params.DataPathMode), ...
+        'ExpectedWaveformMode', string(params.WaveformMode), ...
+        'ExpectedRandomizerFECPosition', string(params.RandomizerFECPosition), ...
+        'ExpectedRandomizerEnabled', logical(params.RandomizerEnabled), ...
+        'ExpectedGMSKDetector', detector, ...
+        'ExpectedErrorIdentifier', "", ...
+        'ExpectedErrorMessage', "");
 end
 
 function opts = localDefaultOptions(thisDir)
     opts = struct();
     opts.channelFilePath = 'E:\matlab_project\v3.0\v3.0\channel\ChannelData.mat';
     opts.outputDir = '';
+    opts.RunId = ['h_channel_short_' datestr(now, 'yyyymmdd_HHMMSS')];
+    opts.Resume = true;
+    opts.MaxNewCases = Inf;
+    opts.RerunFailed = false;
+    opts.CaseIds = strings(0,1);
+    opts.DryRun = false;
+    opts.FailOnFailure = false;
+    opts.Verbose = true;
     % 多个已有 H 信道模型文件；默认空，表示只用 opts.channelFilePath
     opts.hModelCases = {};
 
@@ -165,6 +188,7 @@ function opts = localDefaultOptions(thisDir)
     opts.RandomizerEnabled = false;
     opts.RandomizerFECPosition = 'afterEncoding';
     opts.DataPathMode = 'single';
+    opts.WaveformMode = 'ordinaryTM';
     opts.NumBytesInTransferFrame = 1115;
     opts.forceNumBytesInTransferFrame = [];
     opts.berWarmUpFrames = 15;
@@ -178,7 +202,6 @@ function opts = localDefaultOptions(thisDir)
     opts.normalizeEqualizerOutput = true;
 
     opts.useTMAPSKPilots = true;
-    opts.useFACMForAPSK = true;
     opts.TMAPSKPilotInterval = 512;
     opts.TMAPSKPilotLength = 32;
     opts.TMAPSKPilotPreambleLength = 64;
@@ -200,7 +223,6 @@ function opts = localDefaultOptions(thisDir)
     opts.gmskFrameResetMaxSearchFrames = 8;
     opts.gmskFrameResetMinSearchFrames = 2;
     opts.randomSeed = 1;
-    opts.maxCases = Inf;
     opts.clearFunctionCache = true;
 
     opts.debugCodedBoundary = false;
@@ -231,41 +253,12 @@ function opts = localDefaultOptions(thisDir)
     opts.maxGoodBER = 1e-3;
     opts.minGoodLockPct = 90;
     opts.minGoodMERdB = 18;
+    opts.maxGoodFER = [];
+    opts.minCountedFrames = 1;
 
     if nargin > 0 && exist(fullfile(thisDir, 'run_ccsds_tm_evaluation.m'), 'file') ~= 2
         warning('sweep_h_channel_short_frames:MissingMain', ...
             'run_ccsds_tm_evaluation.m was not found next to this file.');
-    end
-end
-
-function opts = localUpgradeLegacyRandomizerOptions(opts)
-    if ~isstruct(opts)
-        return;
-    end
-    hadCanonicalEnable = isfield(opts,'RandomizerEnabled');
-    if ~isfield(opts,'RandomizerEnabled') && isfield(opts,'hasRandomizer')
-        opts.RandomizerEnabled = opts.hasRandomizer;
-    end
-    if ~isfield(opts,'RandomizerFECPosition') && isfield(opts,'RandomizerPosition')
-        switch lower(char(string(opts.RandomizerPosition)))
-            case 'predecode'
-                opts.RandomizerFECPosition = 'afterEncoding';
-            case 'postdecode'
-                opts.RandomizerFECPosition = 'beforeEncoding';
-        end
-    end
-    if ~isfield(opts,'DataPathMode') && isfield(opts,'RandomizerPathMode')
-        switch lower(char(string(opts.RandomizerPathMode)))
-            case 'merge'
-                opts.DataPathMode = 'single';
-            case 'split'
-                opts.DataPathMode = 'dualIQ';
-            case 'bypass'
-                opts.DataPathMode = 'single';
-                if ~hadCanonicalEnable
-                    opts.RandomizerEnabled = false;
-                end
-        end
     end
 end
 
@@ -294,6 +287,7 @@ function p = localBaseParams(opts)
         'RandomizerEnabled', opts.RandomizerEnabled, ...
         'RandomizerFECPosition', opts.RandomizerFECPosition, ...
         'DataPathMode', opts.DataPathMode, ...
+        'WaveformMode', opts.WaveformMode, ...
         'NumBytesInTransferFrame', opts.NumBytesInTransferFrame, ...
         'berWarmUpFrames', opts.berWarmUpFrames, ...
         'berFrames', opts.berFrames, ...
@@ -380,7 +374,7 @@ end
 
 function p = localApplyModulationParams(p, modType, opts)
     if contains(upper(modType), 'APSK')
-        p.useFACM = logical(opts.useFACMForAPSK);
+        p.WaveformMode = char(opts.WaveformMode);
         p.HasTMAPSKPilots = logical(opts.useTMAPSKPilots);
         p.TMAPSKPilotInterval = opts.TMAPSKPilotInterval;
         p.TMAPSKPilotLength = opts.TMAPSKPilotLength;
@@ -480,7 +474,6 @@ function cases = localBuildChannelCases(opts)
     end
 
     % 这里新增：支持多个 H 文件
-    hModelCases = {};
     if isfield(opts, 'hModelCases') && ~isempty(opts.hModelCases)
         hModelCases = opts.hModelCases;
     else
@@ -666,21 +659,10 @@ function tf = localIsCaseCompatible(modType, code, opts)
     end
 
     isAPSK = contains(upper(string(modType)), 'APSK');
-    if isAPSK && isfield(opts, 'useFACMForAPSK') && logical(opts.useFACMForAPSK) && ...
+    if isAPSK && strcmpi(char(opts.WaveformMode), 'FACM') && ...
             ~strcmpi(code.ChannelCoding, 'none')
         tf = false;
         return;
-    end
-end
-
-function r = localDecodeResult(raw)
-    if ischar(raw) || isstring(raw)
-        r = jsondecode(char(raw));
-    elseif isstruct(raw)
-        r = raw;
-    else
-        error('sweep_h_channel_short_frames:UnexpectedResult', ...
-            'run_ccsds_tm_evaluation returned an unsupported result type.');
     end
 end
 
@@ -895,31 +877,34 @@ function v = localField(s, fieldName, defaultValue)
     end
 end
 
-function msg = localCleanError(msg)
-    msg = regexprep(char(msg), '\s+', ' ');
-    msg = strtrim(msg);
-end
-
 function localPrintWeakCases(T, opts)
     if isempty(T)
         fprintf('\nNo cases were executed.\n');
         return;
     end
 
-    weak = ~T.Success ...
-        | T.BER < 0 ...
-        | isnan(T.BER) ...
-        | isnan(T.LockRate_pct) ...
-        | isnan(T.MER_dB) ...
-        | T.BER > opts.maxGoodBER ...
-        | T.LockRate_pct < opts.minGoodLockPct ...
-        | T.MER_dB < opts.minGoodMERdB;
+    pending = T.Status == "PENDING" | T.Status == "RUNNING";
+    weak = ~pending & (~T.Success | T.BER < 0 | isnan(T.BER) | isnan(T.LockRate_pct));
+    if ~isempty(opts.maxGoodBER)
+        weak = weak | (~pending & T.BER > opts.maxGoodBER);
+    end
+    if ~isempty(opts.minGoodLockPct)
+        weak = weak | (~pending & T.LockRate_pct < opts.minGoodLockPct);
+    end
+    if ~isempty(opts.minGoodMERdB)
+        weak = weak | (~pending & (isnan(T.MER_dB) | T.MER_dB < opts.minGoodMERdB));
+    end
+    if ~isempty(opts.maxGoodFER)
+        weak = weak | (~pending & (isnan(T.FER) | T.FER > opts.maxGoodFER));
+    end
     W = T(weak, :);
 
     fprintf('\n==== Weak / failed cases ====\n');
     if isempty(W)
-        fprintf('None under thresholds: BER <= %.3g, Lock >= %.1f%%, MER >= %.1f dB.\n', ...
-            opts.maxGoodBER, opts.minGoodLockPct, opts.minGoodMERdB);
+        fprintf('None under the configured PASS thresholds.\n');
+        if any(pending)
+            fprintf('%d case(s) remain pending and were not classified as failures.\n', nnz(pending));
+        end
         return;
     end
 
@@ -928,5 +913,42 @@ function localPrintWeakCases(T, opts)
     disp(W(1:min(height(W), 30), cols));
     if height(W) > 30
         fprintf('... %d more weak cases in the CSV.\n', height(W) - 30);
+    end
+end
+
+function id = localId(text)
+    id = lower(regexprep(string(text), '[^a-zA-Z0-9]+', '.'));
+    id = strip(id, '.');
+end
+
+function localWriteTable(T, pathValue)
+    outputDir = fileparts(pathValue);
+    temporaryPath = [tempname(outputDir), '.csv'];
+    cleanup = onCleanup(@() localDeleteIfPresent(temporaryPath));
+    writetable(T, temporaryPath);
+    [ok, message] = movefile(temporaryPath, pathValue, 'f');
+    if ~ok
+        warning('sweep_h_channel_short_frames:SummaryWriteFailed', ...
+            'Could not write "%s": %s', pathValue, message);
+    end
+    clear cleanup;
+end
+
+function localSaveFinalMat(pathValue, T, opts, cases)
+    outputDir = fileparts(pathValue);
+    temporaryPath = [tempname(outputDir), '.mat'];
+    cleanup = onCleanup(@() localDeleteIfPresent(temporaryPath));
+    save(temporaryPath, 'T', 'opts', 'cases', '-v7.3');
+    [ok, message] = movefile(temporaryPath, pathValue, 'f');
+    if ~ok
+        warning('sweep_h_channel_short_frames:MatWriteFailed', ...
+            'Could not write "%s": %s', pathValue, message);
+    end
+    clear cleanup;
+end
+
+function localDeleteIfPresent(pathValue)
+    if exist(pathValue, 'file') == 2
+        delete(pathValue);
     end
 end

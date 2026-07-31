@@ -14,7 +14,7 @@ function json_str = run_ccsds_FACM_modulation(paramsJson)
         if ischar(opt.sps), sps = makeNum(opt.sps); else, sps = double(opt.sps); end
         
         % 布尔值处理
-        hasRandomizer = false; if isfield(opt, 'hasRandomizer'), hasRandomizer = opt.hasRandomizer; end
+        randomizerEnabled = false; if isfield(opt, 'RandomizerEnabled'), randomizerEnabled = opt.RandomizerEnabled; end
         hasASM = false; if isfield(opt, 'hasASM'), hasASM = opt.hasASM; end
         hasPilots = false; if isfield(opt, 'hasPilots'), hasPilots = opt.hasPilots; end
 
@@ -28,7 +28,7 @@ function json_str = run_ccsds_FACM_modulation(paramsJson)
         
         cfg.FilterSpanInSymbols = 10;
         cfg.ScramblingCodeNumber = 1;
-        cfg.HasRandomizer = hasRandomizer;
+        cfg.HasRandomizer = randomizerEnabled;
         cfg.HasASM = hasASM;
         cfg.PulseShapingFilter = 'Root Raised Cosine';
         

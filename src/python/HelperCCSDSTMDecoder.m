@@ -47,7 +47,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
     %   ViterbiTrellis              - Trellis structure of Viterbi decoder
     %   ViterbiWordLength           - Quantization word length for Viterbi
     %                                 decoder
-    %   HasRandomizer               - Option for randomizing the data
+    %   RandomizerEnabled           - Option for randomizing the data
     %   HasASM                      - Option for inserting attached sync
     %                                 marker (ASM)
     %   RSMessageLength             - Number of bytes in one Reed-Solomon
@@ -76,6 +76,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         DebugLDPC = false
         DebugTurbo = false
         CodedSyncOffset = 0
+        UsePeriodicCodedASMSync = true
+        CodedASMPeriodicFrames = 8
     end
 
     % Pre-computed constants
@@ -123,7 +125,6 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         % Constructor
         function obj = HelperCCSDSTMDecoder(varargin)
             % Support name-value pair arguments when constructing object
-            varargin = localUpgradeLegacyRandomizerArgs(varargin);
             setProperties(obj,numel(varargin),varargin{:})
         end
     end
@@ -485,7 +486,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             % Implement algorithm. Calculate y as a function of input u and
             % discrete states.
 
-            localHasRandomizer = obj.HasRandomizer;
+            randomizerEnabled = obj.RandomizerEnabled;
             if strcmpi(obj.DataPathMode, 'dualIQ')
                 error('HelperCCSDSTMDecoder:SplitNotImplemented', ...
                     ['DataPathMode="dualIQ" must be deinterleaved by the ' ...
@@ -637,8 +638,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     switch(obj.ChannelCoding)
                         case "none"
                             if n % For non zero value of n
-%                                 if obj.HasRandomizer
-                                if localHasRandomizer
+%                                 if obj.RandomizerEnabled
+                                if randomizerEnabled
                                     tempy = bitxor(int8(u>0),obj.pPRNSequence);
                                     y = tempy(:);
                                 elseif strcmpi(string(obj.Modulation), "GMSK")
@@ -653,7 +654,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             end
                         case "RS"
                             if n % For non zero value of n
-                                if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
+                                if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
                                     derandom = logical(bitxor(int8(u>0),obj.pPRNSequence));
                                 else
                                     derandom = logical(u>0);
@@ -662,7 +663,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 y = zeros(n*tfl, 1, 'int8');
                                 for iWord = 1:n
                                     decodedWord = ccsdsRSDecode(derandom(:,iWord),obj.RSMessageLength,obj.RSInterleavingDepth,obj.RSShortenedMessageLength);
-                                    if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
+                                    if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
                                         decodedWord = bitxor(int8(decodedWord), obj.pPRNSequence(1:tfl));
                                     end
                                     y((iWord-1)*tfl+1:iWord*tfl) = decodedWord;
@@ -673,7 +674,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 % valid = false;
                             end
                         case "convolutional"
-                            if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
+                            if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
                                if strcmpi(obj.DataPathMode, 'single')
 
                                    encodedASMLength = localEncodedASMLength( ...
@@ -719,7 +720,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
 %                             n = size(ty,2);
 %                             if n
 %                                 tempy = ty(asmlen+1:end, :);
-%                                 if obj.HasRandomizer
+%                                 if obj.RandomizerEnabled
 %                                     derandom = bitxor(int8(tempy),obj.pPRNSequence);
 %                                     y = derandom(:);
 %                                 else
@@ -737,7 +738,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
 
                             if n
                                 tempy = ty(asmlen+1:end, :);
-                                if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
+                                if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
                                     derandom = bitxor(int8(tempy),obj.pPRNSequence);
                                     y = derandom(:);
                                 else
@@ -747,7 +748,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 y = zeros(obj.pTFLen*8, 1, 'int8');
                             end
                         case "concatenated"
-                            if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
+                            if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
                                  if strcmpi(obj.DataPathMode, 'single')
 
                                      encodedASMLength = localEncodedASMLength( ...
@@ -793,7 +794,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 y = zeros(n*tfl, 1, 'int8');
                                 for iWord = 1:n
                                     decodedWord = ccsdsRSDecode(derandom(:,iWord),obj.RSMessageLength,obj.RSInterleavingDepth,obj.RSShortenedMessageLength);
-                                    if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
+                                    if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
                                         decodedWord = bitxor(int8(decodedWord), obj.pPRNSequence(1:tfl));
                                     end
                                     y((iWord-1)*tfl+1:iWord*tfl) = decodedWord;
@@ -830,7 +831,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                         llr = -llrHard;
                                     end
 
-                                    if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
+                                    if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
                                         basePRN = obj.pPRNSequence(:);
                                         repNum = ceil(obj.pTurboCodewordLength / length(basePRN));
                                         prn = repmat(basePRN, repNum, 1);
@@ -840,7 +841,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
 
                                     reset(obj.pTurboDecoder);
                                     msg = obj.pTurboDecoder(llr);
-                                    if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
+                                    if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
                                         msg = bitxor(int8(msg(:)), obj.pPRNSequence(1:obj.pTurboMessageLength));
                                     end
                                     y((iWord-1)*obj.pTurboMessageLength+1:iWord*obj.pTurboMessageLength) = int8(msg(:));
@@ -886,7 +887,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 % 如果启用了 randomizer：
                                 % 发送端是对 LDPC codeword bits 做 XOR；
                                 % 接收端对 soft LLR 的处理就是 PRN=1 的位置翻号。
-                                if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
+                                if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
                                     prn = obj.pPRNSequence(1:obj.pLDPCCodewordLength);
                                     llr(logical(prn)) = -llr(logical(prn));
                                 end
@@ -895,7 +896,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                     obj.pLDPCMaxIterations, 'OutputFormat','whole');
 
                                 msg = int8(decWhole(1:obj.pLDPCMessageLength));
-                                if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
+                                if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
                                     msg = bitxor(msg, obj.pPRNSequence(1:obj.pLDPCMessageLength));
                                 end
 
@@ -906,7 +907,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             infoLen = localTPCPayloadBits(obj.TPCCodeRate);
                             if n
                                 tpcSoft = u;
-                                if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
+                                if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
                                     % TX randomizes every coded TPC payload
                                     % after its raw ASM. Undo the same PRN on
                                     % aligned soft frames before decoding.
@@ -938,7 +939,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                     y((iWord-1)*infoLen+1:iWord*infoLen) = msg(:);
                                 end
 
-                                if localHasRandomizer && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding') && ~isempty(y)
+                                if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding') && ~isempty(y)
                                     prn = repmat(obj.pPRNSequence, ceil(numel(y)/numel(obj.pPRNSequence)), 1);
                                     y = bitxor(y, prn(1:numel(y)));
                                 end
@@ -964,23 +965,51 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 fprintf('[Coded DEBUG] decoder frameSync no full frame yet: inputLen=%d, buffered=%d, frameLen=%d\n', ...
                     numel(u), numel(obj.pInputBuffer), obj.pFullInputBufferLength);
             end
-            for iFrame = 1:n % For non-zero value of n
-                printFrameSyncDebug = debugCodedBoundary && localShouldPrintCodedFrameSyncDebug();
-                numPhases = size(obj.pRotatedASM, 2);
-                maxCorrValues = zeros(numPhases, 1);
-                peakpos = zeros(numPhases, 1);
+            numPhases = size(obj.pRotatedASM, 2);
+            periodicFrameCount = 1;
+            usePeriodicCodedASM = obj.UsePeriodicCodedASMSync && ...
+                any(strcmp(obj.ChannelCoding, {'convolutional','concatenated'})) && ...
+                n >= 3;
+            periodicPeakPos = zeros(numPhases, 1);
+            periodicMaxCorrValues = zeros(numPhases, 1);
+            if usePeriodicCodedASM
+                periodicFrameCount = min( ...
+                    max(3, round(double(obj.CodedASMPeriodicFrames))), n);
                 for iPhase = 1:numPhases
                     si = obj.pRotatedASM(:, iPhase); % Take the ASM corresponding to that particular rotation of phase ambiguity.
-                    [peakpos(iPhase), maxCorrValues(iPhase)] = FrameCorrelate(obj, frames(:,iFrame), si); % This is as per section
+                    % Every coded TM frame contains an ASM at the same
+                    % offset. Score a candidate at that offset across
+                    % several complete frames so that an isolated payload
+                    % correlation peak cannot steal lock from the true,
+                    % periodically repeating ASM.
+                    [periodicPeakPos(iPhase), periodicMaxCorrValues(iPhase)] = ...
+                        FrameCorrelatePeriodic(obj, ...
+                        frames(:,1:periodicFrameCount), si);
+                end
+            end
+            for iFrame = 1:n % For non-zero value of n
+                printFrameSyncDebug = debugCodedBoundary && localShouldPrintCodedFrameSyncDebug();
+                if usePeriodicCodedASM
+                    peakpos = periodicPeakPos;
+                    maxCorrValues = periodicMaxCorrValues;
+                else
+                    maxCorrValues = zeros(numPhases, 1);
+                    peakpos = zeros(numPhases, 1);
+                    for iPhase = 1:numPhases
+                        si = obj.pRotatedASM(:, iPhase); % Take the ASM corresponding to that particular rotation of phase ambiguity.
+                        [peakpos(iPhase), maxCorrValues(iPhase)] = ...
+                            FrameCorrelate(obj, frames(:,iFrame), si); % This is as per section
+                    end
                 end
                 [~,PhaseIndex] = max(maxCorrValues);
                 pos = peakpos(PhaseIndex);
                 rawPos = pos;
                 if printFrameSyncDebug
                     nShow = min(8, numel(maxCorrValues));
-                    fprintf('[Coded DEBUG] decoder frameSync frame=%d/%d rawPos=%d phase=%d maxCorr=%.4g frameLen=%d searchLen=%d asmOffset=%d templates=%d\n', ...
+                    fprintf('[Coded DEBUG] decoder frameSync frame=%d/%d rawPos=%d phase=%d maxCorr=%.4g frameLen=%d searchLen=%d asmOffset=%d templates=%d periodicFrames=%d\n', ...
                         iFrame, n, rawPos, PhaseIndex, maxCorrValues(PhaseIndex), ...
-                        obj.pFullInputBufferLength, obj.pFrameLength, obj.pASMOffsetLength, numPhases);
+                        obj.pFullInputBufferLength, obj.pFrameLength, obj.pASMOffsetLength, ...
+                        numPhases, periodicFrameCount);
                     fprintf('[Coded DEBUG] decoder phase peaks pos=%s corr=%s\n', ...
                         mat2str(peakpos(1:nShow).'), mat2str(maxCorrValues(1:nShow).', 4));
                 end
@@ -1139,6 +1168,38 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             [maxcorr, PeakPos] = max(corrValue);
         end
 
+        function [PeakPos, maxcorr] = FrameCorrelatePeriodic(obj, demodFrames, syncMarker)
+            % Score each possible coded-ASM position at the same offset in
+            % multiple consecutive frame-length columns. A real ASM
+            % repeats at the frame period; a payload false peak does not.
+            syncSign = double(sign(syncMarker(:)));
+            syncSign(syncSign == 0) = 1;
+
+            F = min(obj.pFrameLength, size(demodFrames, 1));
+            asmLen = numel(syncSign);
+            maxPos = F - asmLen + 1;
+            numFrames = size(demodFrames, 2);
+
+            if maxPos < 1 || numFrames < 1
+                PeakPos = 1;
+                maxcorr = -inf;
+                return;
+            end
+
+            corrPerFrame = zeros(maxPos, numFrames);
+            numeratorKernel = flipud(syncSign);
+            denominatorKernel = ones(asmLen, 1);
+            for iFrame = 1:numFrames
+                yi = double(demodFrames(1:F, iFrame));
+                numerator = conv(yi, numeratorKernel, 'valid');
+                denominator = conv(abs(yi), denominatorKernel, 'valid');
+                corrPerFrame(:, iFrame) = numerator ./ (denominator + eps);
+            end
+
+            periodicScore = mean(corrPerFrame, 2);
+            [maxcorr, PeakPos] = max(periodicScore);
+        end
+
         function [PeakPos, minDist] = RawASMCorrelate(obj, decodedFrame, asmBits)
             % 在 Viterbi 后的 hard bits 中滑动寻找原始 ASM。
             % 类似 FrameCorrelate，但这里没有 soft value，所以用汉明距离。
@@ -1236,6 +1297,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             s.DataPathMode = obj.DataPathMode;
             s.DebugLDPC = obj.DebugLDPC;
             s.CodedSyncOffset = obj.CodedSyncOffset;
+            s.UsePeriodicCodedASMSync = obj.UsePeriodicCodedASMSync;
+            s.CodedASMPeriodicFrames = obj.CodedASMPeriodicFrames;
             s.TPCCodeRate = obj.TPCCodeRate;
             s.TPCBlocksPerTF = obj.TPCBlocksPerTF;
             s.TPCInterleaver = obj.TPCInterleaver;
@@ -1258,19 +1321,21 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
 
             if isfield(s,'RandomizerFECPosition')
                 obj.RandomizerFECPosition = s.RandomizerFECPosition;
-            elseif isfield(s,'RandomizerPosition')
-                obj.RandomizerFECPosition = localLegacyRandomizerPosition(s.RandomizerPosition);
             end
             if isfield(s,'DataPathMode')
                 obj.DataPathMode = s.DataPathMode;
-            elseif isfield(s,'RandomizerPathMode')
-                obj.DataPathMode = localLegacyDataPathMode(s.RandomizerPathMode);
             end
             if isfield(s,'DebugLDPC')
                 obj.DebugLDPC = s.DebugLDPC;
             end
             if isfield(s,'CodedSyncOffset')
                 obj.CodedSyncOffset = s.CodedSyncOffset;
+            end
+            if isfield(s,'UsePeriodicCodedASMSync')
+                obj.UsePeriodicCodedASMSync = s.UsePeriodicCodedASMSync;
+            end
+            if isfield(s,'CodedASMPeriodicFrames')
+                obj.CodedASMPeriodicFrames = s.CodedASMPeriodicFrames;
             end
             if isfield(s,'TPCCodeRate')
                 obj.TPCCodeRate = s.TPCCodeRate;
@@ -1343,7 +1408,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 flag = ~strcmp(obj.ChannelCoding,'LDPC') || isFACM;
             elseif strcmp(prop,'LDPCCodeblockSize')
                 flag = ~(strcmp(obj.ChannelCoding,'LDPC') && obj.IsLDPCOnSMTF) || isFACM;
-            elseif any(strcmp(prop,{'HasRandomizer','RandomizerFECPosition','DataPathMode'}))
+            elseif any(strcmp(prop,{'RandomizerEnabled','RandomizerFECPosition','DataPathMode'}))
                 flag = smtfFlag;
             elseif strcmp(prop,'HasASM')
                 flag = smtfFlag;
@@ -1373,7 +1438,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         function group = getPropertyGroupsImpl
             % Define property section(s) for System block dialog
             genprops = {'ChannelCoding',...
-                'HasRandomizer',...
+                'RandomizerEnabled',...
                 'RandomizerFECPosition',...
                 'DataPathMode',...
                 'HasASM',...
@@ -1871,46 +1936,4 @@ function localValidateHighRateConvFrameLength(rateStr, caduBits, punctureInputPe
          'to be divisible by %d so the puncture phase resets at each frame. ', ...
          'Use NumBytesInTransferFrame=%s, or another aligned TF length.'], ...
         char(rateStr), double(caduBits), double(punctureInputPeriod), char(exampleText));
-end
-
-function args = localUpgradeLegacyRandomizerArgs(args)
-    legacyBypass = false;
-    for k = 1:2:numel(args)
-        name = char(string(args{k}));
-        if strcmpi(name, 'RandomizerPosition')
-            args{k} = 'RandomizerFECPosition';
-            args{k+1} = localLegacyRandomizerPosition(args{k+1});
-        elseif strcmpi(name, 'RandomizerPathMode')
-            legacyBypass = strcmpi(char(string(args{k+1})), 'bypass');
-            args{k} = 'DataPathMode';
-            args{k+1} = localLegacyDataPathMode(args{k+1});
-        end
-    end
-    if legacyBypass
-        enableIdx = find(cellfun(@(x) strcmpi(char(string(x)), 'HasRandomizer'), ...
-            args(1:2:end)), 1, 'last');
-        if isempty(enableIdx)
-            args = [args, {'HasRandomizer', false}];
-        else
-            args{2*enableIdx} = false;
-        end
-    end
-end
-
-function value = localLegacyRandomizerPosition(value)
-    switch lower(char(string(value)))
-        case 'predecode'
-            value = 'afterEncoding';
-        case 'postdecode'
-            value = 'beforeEncoding';
-    end
-end
-
-function value = localLegacyDataPathMode(value)
-    switch lower(char(string(value)))
-        case {'merge','bypass'}
-            value = 'single';
-        case 'split'
-            value = 'dualIQ';
-    end
 end
