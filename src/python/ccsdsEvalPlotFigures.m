@@ -318,6 +318,14 @@ function plotChannelPowerAndSpectrum(res, ctx, opt)
         sprintf('输出平均 %.2f dBm', avgOutDbm), ...
         'Location','best');
 
+    % An RRC-shaped baseband waveform contains occasional samples extremely
+    % close to zero. In dBm those become about -3000 dBm (realmin), which
+    % expands the automatic axis and hides a real 10--20 dB channel gain.
+    % This only clips the display window; signals and metrics are unchanged.
+    displayFloorDbm = min(avgInDbm,avgOutDbm) - 50;
+    displayCeilingDbm = max(avgInDbm,avgOutDbm) + 10;
+    ylim([displayFloorDbm displayCeilingDbm]);
+
     subplot(2,1,2);
     fftCount = min(65536, 2^nextpow2(max(16, min([numel(sigIn), numel(sigOut), 65536]))));
     specInSeg = sigIn(1:min(numel(sigIn), fftCount));

@@ -6,6 +6,7 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
     properties(Nontunable, Access = private)
         pDemod
         pIsGMSK
+        pIsMSK
         pIsOQPSK
         pIsUQPSK
         pIs4D8PSKTCM
@@ -43,7 +44,8 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             obj.pTCMConvState = zeros(6, 1, 'int8');
             obj.pTCMDiffState = zeros(3, 1, 'int8');
 
-            obj.pIsGMSK = contains(string(obj.Modulation), 'GMSK');
+            obj.pIsGMSK = strcmp(obj.Modulation, 'GMSK');
+            obj.pIsMSK  = strcmp(obj.Modulation, 'MSK');
             obj.pIsOQPSK = strcmp(obj.Modulation, 'OQPSK');
             obj.pIs4D8PSKTCM = strcmp(obj.Modulation, '4D-8PSK-TCM');
             obj.pIsUQPSK = strcmp(obj.Modulation, 'UQPSK');
@@ -110,6 +112,53 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                 y = double(hardBits);
                 y(y == 0) = -5;
                 y(y == 1) = 5;
+            elseif obj.pIsMSK
+                % =========================================================
+                % 标准 MSK 一符号差分 soft metric
+                %
+                % bit 0 -> 每符号相位变化 -pi/2
+                % bit 1 -> 每符号相位变化 +pi/2
+                %
+                % decoder soft 约定：
+                % positive -> bit 0
+                % negative -> bit 1
+                % =========================================================
+
+                u = u(:);
+
+                firstCall = (obj.pLastSymbol == 0);
+
+                if firstCall
+                    prevBlock = [u(1); u(1:end-1)];
+                else
+                    prevBlock = [obj.pLastSymbol; u(1:end-1)];
+                end
+
+                obj.pLastSymbol = u(end);
+
+                phaseDiff = angle(u .* conj(prevBlock));
+
+                ampConfidence = abs(u) .* abs(prevBlock);
+
+                % phaseDiff < 0：bit 0 -> positive
+                % phaseDiff > 0：bit 1 -> negative
+                rawMetric = -sin(phaseDiff) .* ampConfidence;
+
+                % 第一个符号没有真实前一符号
+                if firstCall && ~isempty(rawMetric)
+                    rawMetric(1) = 0;
+                end
+
+                metricRMS = sqrt(mean(rawMetric.^2) + eps);
+                rawMetric = rawMetric / metricRMS;
+
+                y = 5 * rawMetric;
+
+                % 限幅，避免极端 soft value
+                y = max(min(y, 20), -20);
+
+                y = double(y);
+    
             elseif obj.pIsGMSK
                   % =========================================================
                   % GMSK 非相干差分 soft metric 检测
@@ -357,7 +406,9 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
 
             if any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'})) && ...
                     ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && ...
-                    ~obj.pIsGMSK && ~obj.pIs4D8PSKTCM
+                     ~obj.pIsGMSK && ...
+                     ~obj.pIsMSK && ...
+                     ~obj.pIs4D8PSKTCM
                 [y, obj.pPCMLineSoft] = localPCMDifferentialSoftDecode(y, obj.pPCMLineSoft, obj.PCMFormat);
             end
         end

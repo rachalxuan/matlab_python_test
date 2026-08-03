@@ -26,9 +26,9 @@ function varargout = run_ccsds_tm_evaluation(varargin)
 % p.debugTMFrame = true;
 % m = run_ccsds_tm_evaluation(p);
 % addpath('E:\web_code\react\fft_project\react-fft\src\python');
-%
+% 
 % matFilePath = 'E:\matlab_project\v3.0\v3.0\channel\ChannelData.mat';
-%
+% 
 % p = struct( ...
 %     'modType','QPSK', ...
 %     'symbolRate',1e6, ...
@@ -66,11 +66,34 @@ function varargout = run_ccsds_tm_evaluation(varargin)
 %     'showPipelineFigure',true, ...
 %     'showDamageBudgetFigure',false, ...
 %     'showPowerFigure',true);
-%
+% 
 % m = run_ccsds_tm_evaluation(p);
 % r = jsondecode(m);
 
-
+%  p = struct( ...
+%     'modType','GMSK', ...
+%     'DataPathMode','single', ...
+%     'symbolRate',10e6, ...
+%     'sps',8, ...
+%     'snr',50, ...
+%     'cfo',0, ...
+%     'phaseOffset',0, ...
+%     'delay',0, ...
+%     'channelCoding','TPC', ...
+%     'TPCCodeRate','2/3', ...
+%     'ChannelFilePath','E:\matlab_project\v3.0\v3.0\channel\ChannelData.mat', ...
+%     'TPCBlocksPerTF',1, ...
+%     'TPCInterleaver','auto', ...
+%     'hasASM',true, ...
+%     'RandomizerEnabled',false, ...
+%     'RandomizerFECPosition','afterEncoding', ...
+%     'GMSKDetectionMode','official-viterbi-frame-reset', ...
+%     'enableHChannel',false, ...
+%     'berWarmUpFrames',8, ...
+%     'berFrames',16, ...
+%     'showFigures',true);
+% 
+% [M,~] = run_ccsds_tm_evaluation(p);
 
 %   2) 用前端的 JSON 直接粘进来调（验一致性）
 %   m = run_ccsds_tm_evaluation('{"modType":"QPSK","symbolRate":1e6,"sps":8,"snr":12,"cfo":0,"phaseOffset":0,"channelCoding":"none","RolloffFactor":0.35}');
@@ -419,13 +442,18 @@ function opt = applyEvaluationDefaults(opt, defaults)
 end
 
 function defaults = defaultEvaluationParams()
+    % Ordinary-TM APSK enables coarse-CFO acquisition by default after the
+    % H-channel acceptance sweeps.  An explicit false remains available for
+    % A/B diagnostics. FACM returns through runFACMOneShot before this
+    % setting is consumed, so its independent acquisition chain is unchanged.
     defaults = struct('modType','QPSK','symbolRate',1e6,'sps',8, ...
         'snr',12,'cfo',0,'phaseOffset',0,'delay',0, ...
         'channelCoding','none','RolloffFactor',0.35, ...
         'RandomizerEnabled',false, ...
         'RandomizerFECPosition','afterEncoding', ...
         'DataPathMode','single', ...
-        'WaveformMode','ordinaryTM');
+        'WaveformMode','ordinaryTM', ...
+        'enableAPSKCoarseFrequencyCompensator',true);
 end
 
 function rejectLegacyEvaluationFields(opt)
@@ -549,6 +577,13 @@ function [res, ctx] = runOneShot(opt)
         args = [args, {'SplitPathDebug', true}];
     end
     modStr = string(opt.modType);
+    % MSK只能合路
+    if strcmpi(modStr, "MSK") && ...
+            ~strcmpi(string(dataPathMode), "single")
+        error('run_ccsds_tm_evaluation:MSKDataPathMode', ...
+            ['MSK v1 only supports DataPathMode="single". ', ...
+            'MSK waveform I/Q components are not independent TM rails.']);
+    end
 
     if isFACMEvaluation(opt, modStr)
         [res, ctx] = runFACMOneShot(opt, fSym, sps);
@@ -601,8 +636,10 @@ function [res, ctx] = runOneShot(opt)
             end
         end
 
-        if contains(modStr,'GMSK')
+        if strcmpi(modStr,'GMSK')
             args = [args, {'BandwidthTimeProduct', btVal}];
+        elseif strcmpi(modStr,'MSK')
+
         elseif HelperCCSDSTMPCMDemodulator.supports(modStr)
             if isfield(opt,'ModulationIndex') && ~isempty(opt.ModulationIndex)
                 args = [args, {'ModulationIndex', double(opt.ModulationIndex)}];
@@ -988,7 +1025,48 @@ function [res, ctx] = runOneShot(opt)
             fprintf('   [FM DEBUG] detected FM frames = %d/%d, soft bits = %d\n', ...
                 fmRxInfo.detectedFrames, fmRxInfo.totalFrames, numel(rxSoftFM));
         end
+    elseif strcmpi(modStr,'MSK')
+        % =========================================================
+        % 标准 MSK：
+        % 独立粗 CFO -> 原始 CPM 定时同步 -> 差分 soft metric
+        %
+        % 固定载波相位会在相邻符号相位差中抵消，
+        % 第一版不使用 QPSK CarrierSynchronizer。
+        % =========================================================
 
+        enableCPMCoarse = getLogicalField( ...
+            opt, 'enableCPMCoarseFrequencyCompensator', false);
+
+        [coarseSynced, cfo_est] = ...
+            localMSKGMSKX2CoarseCFO( ...
+            rxWaveform, Fs, fSym, enableCPMCoarse);
+
+        % 当前仿真没有采样时钟漂移，只有固定分数时延。
+        % 使用 MSK 专用固定输出率定时，避免 SymbolSynchronizer
+        % 在长序列中随机插入或删除一个符号。
+        [TimeSynced, mskTimingPhase, mskTimingScore, mskPhaseScores] = ...
+            localMSKFixedRateTiming(coarseSynced, sps);
+
+        if getLogicalField(opt,'debugMSK',false)
+            fprintf(['   [MSK timing] mode=fixed-rate, phase=%d/%d, ', ...
+                'score=%.6f, symbols=%d\n'], ...
+                mskTimingPhase, sps, mskTimingScore, numel(TimeSynced));
+
+            fprintf('   [MSK timing] phase scores: %s\n', ...
+                mat2str(mskPhaseScores.', 5));
+        end
+
+%         TimeSynced = timingObj(coarseSynced);
+
+        % MSK 使用相邻符号差分，不依赖固定载波相位
+        fineSynced = TimeSynced;
+        fineSyncedForBER = fineSynced;
+
+        if getLogicalField(opt,'debugMSK',false)
+            fprintf(['   [MSK coarse CFO] enabled=%d, ', ...
+                'estimated=%+.3f Hz, input=%+.3f Hz\n'], ...
+                enableCPMCoarse, cfo_est, cfo_val);
+        end
     elseif contains(modStr,'GMSK')
         % --- 1) 基于 x^2 的 GMSK 粗 CFO 估计 ---
         % MSK/GMSK 信号平方后频谱有两条边带：±fSym/2 + 2*CFO
@@ -1295,10 +1373,12 @@ function [res, ctx] = runOneShot(opt)
                 fineSynced = TimeSynced;
             end
         else
-            % Common path for BPSK / QPSK / 8PSK / APSK.
+            % Common ordinary-TM path for BPSK / QPSK / 8PSK / APSK.
+            % FACM was returned above and retains its independent FLL/pilot
+            % acquisition chain. When enabled, APSK reuses the QAM coarse
+            % estimator; the option remains explicit for A/B debugging.
             useCoarseFreqSync = true;
             if contains(modStr,'APSK')
-                useCoarseFreqSync = false;
                 if isfield(opt,'enableAPSKCoarseFrequencyCompensator') && ...
                         ~isempty(opt.enableAPSKCoarseFrequencyCompensator)
                     useCoarseFreqSync = localFlagValue(opt.enableAPSKCoarseFrequencyCompensator);
@@ -1431,9 +1511,10 @@ function [res, ctx] = runOneShot(opt)
     end
 
     % ===== 计算所有指标 =====
-    isGMSKMod = contains(upper(string(modStr)),'GMSK');
+    isCPMMod = any(strcmpi( ...
+    string(modStr), ["GMSK","MSK"]));
     isFMMod = contains(upper(string(modStr)),'FM');
-    if isGMSKMod || isPCMPhaseMod || isFMMod
+    if isCPMMod || isPCMPhaseMod || isFMMod
         refConst = [];
     else
         refConst = getReferenceConstellation(modStr);
@@ -1448,7 +1529,7 @@ function [res, ctx] = runOneShot(opt)
     % 同步前的evm
     if isFMMod
         evm_pre = NaN;
-    elseif isGMSKMod
+    elseif isCPMMod
         [evm_pre,  ~] = computeGMSKIQRoughMetrics(rawSym);
     else
         [evm_pre,  ~] = computeEVM(rawSym, refConst);
@@ -1459,7 +1540,7 @@ function [res, ctx] = runOneShot(opt)
     if isFMMod
         evm_post = NaN;
         mer_post = NaN;
-    elseif isGMSKMod
+    elseif isCPMMod
         [evm_post, mer_post] = computeGMSKIQRoughMetrics(fineSynced);
     else
         [evm_post, mer_post] = computeEVM(fineSynced, refConst);
@@ -1468,7 +1549,7 @@ function [res, ctx] = runOneShot(opt)
     % 基于星座误差估计的等效 SNR，不等于输入 SNR
     if isFMMod
         snr_est = NaN;
-    elseif isGMSKMod
+    elseif isCPMMod
         snr_est = mer_post;
     else
         snr_est = computeSNRest(fineSynced, refConst);
@@ -1486,7 +1567,7 @@ function [res, ctx] = runOneShot(opt)
         evm_post = NaN;
         mer_post = NaN;
         snr_est = NaN;
-    elseif isGMSKMod
+    elseif isCPMMod
         fineSyncedAligned = fineSynced;
         [evm_post, mer_post] = computeGMSKIQRoughMetrics(fineSyncedAligned);
         snr_est = mer_post;
@@ -2874,6 +2955,9 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
             rotations = exp(1j*pi/4 * [-1 0 1 2 3 4 -3 -2]);
         elseif contains(tmMod,'UQPSK')
             rotations = [1, -1, 1j, -1j];
+        elseif strcmpi(tmMod,'MSK')
+            % 相邻符号差分会抵消固定载波相位。
+            rotations = 1;
         elseif contains(tmMod,'GMSK')
             % GMSK 内部 exp(-j*pi/2*n) 去自旋的起始 n 受符号定时器漂移影响,
             % 任意 0~3 的偏移都可能,等价于乘 exp(j*pi/2*k); 必须 4 重枚举
@@ -4046,6 +4130,9 @@ function demodData = localDemodForASM(fineSynced, tmMod, tmCode, opt, btVal)
             'SamplesPerSymbol', spsLocal, ...
             'RolloffFactor', rolloffLocal);
         demodData = demodobj(fineSynced);
+    elseif strcmpi(tmMod,'MSK')
+        demodData = localMSKSoftDemod( ...
+            fineSynced, tmCode);
     elseif contains(tmMod,'GMSK')
         demodobj = HelperCCSDSTMDemodulator( ...
             'Modulation', tmMod, ...
@@ -4061,7 +4148,23 @@ function demodData = localDemodForASM(fineSynced, tmMod, tmCode, opt, btVal)
         demodData = demodobj(fineSynced);
     end
 end
+function demodData = localMSKSoftDemod(symbols, tmCode)
 
+    demodObj = HelperCCSDSTMDemodulator( ...
+        'Modulation','MSK', ...
+        'ChannelCoding',tmCode);
+
+    % Helper 的 MSK 约定：正=bit0、负=bit1。
+    % 通用 TM Decoder 约定：正=bit1、负=bit0。
+    demodData = -real(demodObj(symbols(:)));
+
+    % bit contract 已证明：
+    % 第一个输出没有真实的前一符号，第二个输出对应第一个 TX bit。
+    % 因此固定删除首个无定义 metric。
+    if ~isempty(demodData)
+        demodData = demodData(2:end);
+    end
+end
 function asmBits = localTMASM(opt, tmCode)
     if nargin < 1 || isempty(opt)
         opt = struct();
@@ -4678,6 +4781,26 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             'RolloffFactor', rolloffLocal);
 
         demodData = demodobj(fineSynced);
+    elseif strcmpi(tmMod,'MSK')
+        debugMSK = getLogicalField(opt,'debugMSK',false) || ...
+            getLogicalField(opt,'debugCodedBoundary',false);
+
+        demodData = localMSKSoftDemod( ...
+            fineSynced, tmCode);
+
+        if debugMSK && ~isempty(demodData)
+            hardBits = demodData < 0;
+
+            fprintf(['   [MSK DEBUG] softLen=%d, ', ...
+                'mean=%+.3f, std=%.3f, ', ...
+                'range=[%+.3f,%+.3f], ones=%.1f%%\n'], ...
+                numel(demodData), ...
+                mean(demodData), ...
+                std(demodData), ...
+                min(demodData), ...
+                max(demodData), ...
+                100*mean(hardBits));
+        end
 
     elseif contains(tmMod,'GMSK')
         debugGMSK = getLogicalField(opt, 'debugGMSK', false) || ...
@@ -9011,7 +9134,128 @@ function [decodedI, decodedQ, decodedBits] = localDecodeSplitRails( ...
     decodedBits = tm_data_path_frame_interleave( ...
         int8(decodedI), int8(decodedQ), bitsPerFrame, 'truncate');
 end
+function [y, cfoEst] = localMSKGMSKX2CoarseCFO( ...
+        x, Fs, fSym, enabled)
 
+    x = x(:);
+
+    if ~enabled || numel(x) < 64
+        cfoEst = 0;
+        y = x;
+        return;
+    end
+
+    Lfft = min(numel(x), 2^19);
+    Nfft = 2^nextpow2(Lfft);
+
+    win = hamming(Lfft);
+    xSquared = x(1:Lfft).^2;
+
+    spectrum = fftshift(fft(xSquared .* win, Nfft));
+    powerSpectrum = abs(spectrum).^2;
+
+    frequencyAxis = ...
+        (-Nfft/2:Nfft/2-1).' * (Fs/Nfft);
+
+    positiveIndices = find( ...
+        frequencyAxis > 0.25*fSym & ...
+        frequencyAxis < 1.00*fSym);
+
+    negativeIndices = find( ...
+        frequencyAxis < -0.25*fSym & ...
+        frequencyAxis > -1.00*fSym);
+
+    if isempty(positiveIndices) || isempty(negativeIndices)
+        cfoEst = 0;
+        y = x;
+        return;
+    end
+
+    [~, positiveLocalIndex] = ...
+        max(powerSpectrum(positiveIndices));
+
+    [~, negativeLocalIndex] = ...
+        max(powerSpectrum(negativeIndices));
+
+    positivePeakIndex = ...
+        positiveIndices(positiveLocalIndex);
+
+    negativePeakIndex = ...
+        negativeIndices(negativeLocalIndex);
+
+    binHz = Fs/Nfft;
+
+    positiveOffset = localParabolicSpectrumPeakOffset( ...
+        powerSpectrum, positivePeakIndex);
+
+    negativeOffset = localParabolicSpectrumPeakOffset( ...
+        powerSpectrum, negativePeakIndex);
+
+    positivePeakHz = ...
+        frequencyAxis(positivePeakIndex) + ...
+        positiveOffset*binHz;
+
+    negativePeakHz = ...
+        frequencyAxis(negativePeakIndex) + ...
+        negativeOffset*binHz;
+
+    % x^2 使 CFO 变成 2*CFO；
+    % 正负谱峰中点仍需再除以 2。
+    cfoEst = ...
+        (positivePeakHz + negativePeakHz)/4;
+
+    sampleIndex = (0:numel(x)-1).';
+
+    y = x .* exp( ...
+        -1j*2*pi*cfoEst*sampleIndex/Fs);
+end
+function [symbols, bestPhase, bestScore, phaseScores] = ...
+        localMSKFixedRateTiming(x, sps)
+
+    x = x(:);
+    sps = max(1, round(double(sps)));
+
+    phaseScores = -inf(sps, 1);
+
+    for phase = 1:sps
+        candidate = x(phase:sps:end);
+
+        if numel(candidate) < 3
+            continue;
+        end
+
+        previous = candidate(1:end-1);
+        current  = candidate(2:end);
+
+        phaseDifference = angle(current .* conj(previous));
+
+        % 正确的 MSK 符号边界上，相邻符号相位差接近 ±pi/2，
+        % 因而 abs(sin(phaseDifference)) 接近 1。
+        phaseConfidence = abs(sin(phaseDifference));
+
+        % 深衰落位置权重较低，避免低幅度噪声主导定时选择。
+        amplitudeWeight = abs(current) .* abs(previous);
+
+        valid = isfinite(phaseConfidence) & ...
+                isfinite(amplitudeWeight);
+
+        if any(valid)
+            phaseScores(phase) = ...
+                sum(amplitudeWeight(valid) .* phaseConfidence(valid)) / ...
+                (sum(amplitudeWeight(valid)) + eps);
+        end
+    end
+
+    [bestScore, bestPhase] = max(phaseScores);
+
+    if ~isfinite(bestScore)
+        bestPhase = 1;
+        bestScore = NaN;
+    end
+
+    % 固定 1 symbol/output，不允许中途插入或删除符号。
+    symbols = x(bestPhase:sps:end);
+end
 function offset = localParabolicSpectrumPeakOffset(powerSpectrum, peakIndex)
 %LOCALPARABOLICSPECTRUMPEAKOFFSET Estimate a spectral peak between bins.
 % Fit a parabola to the log-power values immediately around the integer

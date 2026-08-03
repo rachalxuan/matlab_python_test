@@ -26,6 +26,10 @@ function [T, state] = reg_run_cases(suiteName, cases, userOpts)
 
     thisDir = fileparts(mfilename('fullpath'));
     pythonDir = fileparts(thisDir);
+    % reg_run_cases calls the checkpoint helper directly.  Keep the
+    % regression directory on the path even when the caller only added the
+    % source directory or when a long MATLAB session changed its path.
+    addpath(thisDir, '-begin');
     addpath(pythonDir);
     opts = localOptions(suiteName, thisDir, userOpts);
     caseIds = string({cases.Id})';

@@ -551,6 +551,16 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         obj.pNumModInBits = temp;
                         obj.pModInputBuffer = zeros(obj.pNumModInBits,1,'int8');
                         obj.pNumBitsInpModInputBuffer = 0;
+                    case 'MSK'
+                        % 标准 MSK：
+                        % 直接输入 0/1 bit，不使用 GMSK 的 Gaussian BT 参数，
+                        % 也不使用 CCSDS GMSK 专用 transition precode。
+                        obj.pMod = comm.MSKModulator( ...
+                            'BitInput', true, ...
+                            'InitialPhaseOffset', 0, ...
+                            'SamplesPerSymbol', sps);
+
+                        obj.pNumModInBits = temp;
                     case 'GMSK'
                         btprod = double(obj.BandwidthTimeProduct);
                         if btprod == 0.5
@@ -589,7 +599,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 end
             end
 
-            if ~strcmp(obj.PulseShapingFilter,'none') && ~any(strcmp(obj.Modulation,{'GMSK','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'}))
+            if ~strcmp(obj.PulseShapingFilter,'none') && ~any(strcmp(obj.Modulation,{'GMSK','MSK','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'}))
                 obj.pTransmitFilter = comm.RaisedCosineTransmitFilter(...
                     'RolloffFactor', double(obj.RolloffFactor), 'FilterSpanInSymbols', ...
                     double(obj.FilterSpanInSymbols), 'OutputSamplesPerSymbol', ...
@@ -767,7 +777,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             end
 
             % Pass the symbols through filter
-            if strcmp(obj.PulseShapingFilter,"root raised cosine") && ~any(strcmp(obj.Modulation,{'GMSK','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'}))
+            if strcmp(obj.PulseShapingFilter,"root raised cosine") && ~any(strcmp(obj.Modulation,{'GMSK','MSK','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'}))
                 if ~isempty(symbols)
                     waveform = complex(obj.pTransmitFilter(symbols).*obj.pGain); % Here casting to complex is needed. Though "symbols" is coming as complex, after filtering, they are becoming real again
                 else
@@ -1140,9 +1150,9 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             elseif strcmp(prop,'Modulation')
                 flag = isFACM;
             elseif strcmp(prop,'PulseShapingFilter')
-                flag = any(strcmp(obj.Modulation,{'GMSK','FM','OQPSK','PCM/PSK/PM','PCM/PM/biphase-L'})) && ~isFACM;
+                flag = any(strcmp(obj.Modulation,{'GMSK','MSK','FM','OQPSK','PCM/PSK/PM','PCM/PM/biphase-L'})) && ~isFACM;
             elseif strcmp(prop,'RolloffFactor')
-                if any(strcmp(obj.Modulation,{'GMSK','PCM/PSK/PM','PCM/PM/biphase-L','OQPSK'})) && ~isFACM
+                if any(strcmp(obj.Modulation,{'GMSK','MSK','PCM/PSK/PM','PCM/PM/biphase-L','OQPSK'})) && ~isFACM
                     flag = true;
                     if strcmp(obj.Modulation,'OQPSK')
                         flag = false; % Visible in case of OQPSK
@@ -1151,7 +1161,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     flag = strcmp(obj.PulseShapingFilter,"none");
                 end
             elseif strcmp(prop,'SamplesPerSymbol')
-                if any(strcmp(obj.Modulation,{'GMSK','PCM/PSK/PM','PCM/PM/biphase-L','FM','OQPSK'})) && ~isFACM
+                if any(strcmp(obj.Modulation,{'GMSK','MSK','PCM/PSK/PM','PCM/PM/biphase-L','FM','OQPSK'})) && ~isFACM
                     flag = false;
                 else
                     flag = strcmp(obj.PulseShapingFilter,"none");
@@ -1165,9 +1175,9 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             elseif strcmp(prop,'PCMFormat')
                 flag = ~any(strcmp(obj.Modulation,{'PCM/PSK/PM','BPSK','QPSK','8PSK','OQPSK'})) || isFACM;
             elseif strcmp(prop,'ModulationIndex')
-                flag = ~any(strcmp(obj.Modulation,{'PCM/PSK/PM', 'PCM/PM/biphase-L'})) || isFACM;
+                flag = ~any(strcmp(obj.Modulation,{'PCM/PSK/PM','PCM/PM/biphase-L'})) || isFACM;
             elseif strcmp(prop,'FilterSpanInSymbols')
-                if any(strcmp(obj.Modulation,{'GMSK','PCM/PSK/PM','PCM/PM/biphase-L','OQPSK'})) && ~isFACM
+                if any(strcmp(obj.Modulation,{'GMSK','MSK','PCM/PSK/PM','PCM/PM/biphase-L','OQPSK'})) && ~isFACM
                     flag = true;
                     if strcmp(obj.Modulation,'OQPSK')
                         flag = false; % Visible in case of OQPSK
@@ -1923,6 +1933,26 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
 %                         [waveform, obj.pConvEncState, obj.pDiffEncState] = satcom.internal.ccsds.cg_fourD8PSKTCMMod_int8(modin, double(obj.ModulationEfficiency), obj.pConvEncState, obj.pDiffEncState);
                     else
                         [waveform, obj.pConvEncState, obj.pDiffEncState] = satcom.internal.ccsds.fourD8PSKTCMMod(modin, double(obj.ModulationEfficiency), obj.pConvEncState, obj.pDiffEncState);
+                    end
+                case 'MSK'
+                    % 标准 MSK，不执行 GMSK 专用预编码
+                    bLen = length(modin);
+
+                    temp = 1:bLen;
+                    indices = reshape(temp, obj.pNumModInBits, n);
+
+                    symIdx = reshape( ...
+                        1:bLen*sps, ...
+                        sps*obj.pNumModInBits, ...
+                        n);
+
+                    waveform = complex(zeros(bLen*sps, 1));
+
+                    for iSlice = 1:n
+                        inputBits = logical(modin(indices(:, iSlice)));
+
+                        waveform(symIdx(:, iSlice)) = ...
+                            obj.pMod(inputBits);
                     end
                 case 'GMSK'
                     % Pre-code the bits before passing through GMSK modulator. Refer

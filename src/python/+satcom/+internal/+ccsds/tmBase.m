@@ -151,7 +151,7 @@ classdef tmBase < matlab.System
         %   "PCM/PM/biphase-L". This property is applicable when
         %   WaveformSource is set to "synchronization and channel coding".
         %   The default is "QPSK".
-        Modulation (1, 1) string {matlab.system.mustBeMember(Modulation, {'PCM/PSK/PM','PCM/PM/biphase-L','BPSK','QPSK','8PSK','16QAM','UQPSK','32QAM','16APSK','32APSK','4D-8PSK-TCM','GMSK','OQPSK','FM'})} = "QPSK"
+        Modulation (1, 1) string {matlab.system.mustBeMember(Modulation, {'PCM/PSK/PM','PCM/PM/biphase-L','BPSK','QPSK','8PSK','16QAM','UQPSK','32QAM','16APSK','32APSK','4D-8PSK-TCM','GMSK','MSK','OQPSK','FM'})} = "QPSK"
         %PulseShapingFilter Pulse shaping filter
         %   Specify the pulse shaping filter as one of "root raised cosine"
         %   | "none". This property is applicable when WaveformSource is
@@ -350,7 +350,7 @@ classdef tmBase < matlab.System
         ChannelCoding_Values = {'none','RS','convolutional','concatenated','turbo','LDPC','TPC'};
         CodeRate_Values = {'1/2','2/3','7/8','4/5','1/3','1/4','1/6'};
         ConvolutionalCodeRate_Values = {'1/2','2/3','3/4','5/6','7/8'};
-        Modulation_Values = {'GMSK','BPSK','QPSK','8PSK','16QAM','32QAM','16APSK','32APSK','UQPSK','4D-8PSK-TCM','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'};
+        Modulation_Values = {'GMSK','MSK','BPSK','QPSK','8PSK','16QAM','32QAM','16APSK','32APSK','UQPSK','4D-8PSK-TCM','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'};
         SubcarrierWaveform_Values = {'sine','square'};
         PulseShapingFilter_Values = {'root raised cosine', 'none'};
         ConvolutionalCodesTrellis = poly2trellis(7, [171 133]); % Trellis structure for the convolutional encoder that is specified in
@@ -382,7 +382,7 @@ classdef tmBase < matlab.System
                 obj.pIsFACM = true;
                 obj.pK = obj.K_Values(obj.ACMFormat);
             end
-            if any(strcmp(obj.Modulation,{'GMSK', '4D-8PSK-TCM', 'PCM/PM/biphase-L'}))
+            if any(strcmp(obj.Modulation,{'GMSK','MSK','4D-8PSK-TCM', 'PCM/PM/biphase-L'}))
                 obj.PCMFormat = "NRZ-L";
             end
             if ~obj.pIsFACM
