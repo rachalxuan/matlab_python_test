@@ -2387,6 +2387,12 @@ function [bitsPerSymbol, fpgaBlockBits] = localSplitFPGAPackingShape(modulation)
         case '32QAM'
             bitsPerSymbol = 5;
             fpgaBlockBits = 160;  % 5 x 32-bit interleaved words -> 4 x 40-bit mapper words
+        case '16APSK'
+            bitsPerSymbol = 4;
+            fpgaBlockBits = 0;    % MATLAB software path: plain serial I/Q interleave
+        case '32APSK'
+            bitsPerSymbol = 5;
+            fpgaBlockBits = 0;    % MATLAB software path: RX resolves the odd-bit start structurally
         otherwise
             bitsPerSymbol = 0;
             fpgaBlockBits = 0;

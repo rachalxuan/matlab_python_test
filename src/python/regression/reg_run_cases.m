@@ -331,6 +331,12 @@ function record = localEmptyRecord()
     for k = 1:numel(railFields)
         record.(railFields{k}) = NaN;
     end
+    decisionFields = localDecisionNumericResultFields();
+    for k = 1:numel(decisionFields)
+        record.(decisionFields{k}) = NaN;
+    end
+    record.SplitReceiverStructureSelectionMethod = "";
+    record.UQPSKSymSkipSelectionMethod = "";
 end
 
 function record = localStartRecord(record, seed)
@@ -366,6 +372,15 @@ function record = localFinishRecord(record, actual, verdict, elapsed)
         name = railFields{k};
         record.(name) = localNumeric(actual, name, NaN);
     end
+    decisionFields = localDecisionNumericResultFields();
+    for k = 1:numel(decisionFields)
+        name = decisionFields{k};
+        record.(name) = localNumeric(actual, name, NaN);
+    end
+    record.SplitReceiverStructureSelectionMethod = localText( ...
+        actual, 'SplitReceiverStructureSelectionMethod', "");
+    record.UQPSKSymSkipSelectionMethod = localText( ...
+        actual, 'UQPSKSymSkipSelectionMethod', "");
     record.ElapsedTime = elapsed;
     record.FailedChecks = string(verdict.FailedChecks);
     record.ErrorIdentifier = string(verdict.ErrorIdentifier);
@@ -393,6 +408,12 @@ function T = localResultsTable(records)
     for j = 1:numel(railFields)
         T.(railFields{j}) = nan(n,1);
     end
+    decisionFields = localDecisionNumericResultFields();
+    for j = 1:numel(decisionFields)
+        T.(decisionFields{j}) = nan(n,1);
+    end
+    T.SplitReceiverStructureSelectionMethod = strings(n,1);
+    T.UQPSKSymSkipSelectionMethod = strings(n,1);
     for k = 1:n
         names = T.Properties.VariableNames;
         for j = 1:numel(names)
@@ -413,6 +434,16 @@ function names = localRailResultFields()
         'Q_DecodedFrames','Q_AcquisitionFrames', ...
         'Q_PredecoderBER','Q_PredecoderOffset','Q_PredecoderPolarity', ...
         'Q_PredecoderBitErrors','Q_PredecoderBitsCompared'};
+end
+
+function names = localDecisionNumericResultFields()
+    names = { ...
+        'SplitReceiverIQPhase', 'UQPSKSymSkip', ...
+        'SplitReceiverStructureScore', ...
+        'SplitReceiverTMValidFrames', ...
+        'SplitReceiverTMMinValidFrames', ...
+        'SplitReceiverTMMaxCounterRun', ...
+        'SplitReceiverTMOrientationScore'};
 end
 
 function [records, changed] = localUpgradeResultRecords(records)
@@ -450,6 +481,21 @@ function [records, compactedCount] = localCompactResultRecords(records)
         end
         if isnan(records(k).WaveformDuration_s)
             records(k).WaveformDuration_s = localWaveformDuration(actual);
+        end
+        decisionFields = localDecisionNumericResultFields();
+        for j = 1:numel(decisionFields)
+            name = decisionFields{j};
+            if isnan(records(k).(name))
+                records(k).(name) = localNumeric(actual, name, NaN);
+            end
+        end
+        if strlength(string(records(k).SplitReceiverStructureSelectionMethod)) == 0
+            records(k).SplitReceiverStructureSelectionMethod = localText( ...
+                actual, 'SplitReceiverStructureSelectionMethod', "");
+        end
+        if strlength(string(records(k).UQPSKSymSkipSelectionMethod)) == 0
+            records(k).UQPSKSymSkipSelectionMethod = localText( ...
+                actual, 'UQPSKSymSkipSelectionMethod', "");
         end
         if ~isempty(fieldnames(actual))
             compactedCount = compactedCount + 1;
@@ -541,6 +587,13 @@ function value = localNumeric(s, name, defaultValue)
         if isscalar(candidate)
             value = candidate;
         end
+    end
+end
+
+function value = localText(s, name, defaultValue)
+    value = string(defaultValue);
+    if isstruct(s) && isfield(s, name) && ~isempty(s.(name))
+        value = string(s.(name));
     end
 end
 

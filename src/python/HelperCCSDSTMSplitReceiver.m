@@ -9,7 +9,7 @@ classdef HelperCCSDSTMSplitReceiver < handle
     %
     %   It deliberately does not receive TX reference frames and never selects
     %   IQPhase using BER.  An evaluator may call this object once per explicit
-    %   IQPhase when diagnosing 8PSK/32QAM, while a production receiver must
+    %   IQPhase when diagnosing 8PSK/32QAM/32APSK, while a production receiver must
     %   supply the phase selected by its packing/ASM contract.
 
     properties
@@ -213,7 +213,8 @@ classdef HelperCCSDSTMSplitReceiver < handle
 
         function enabled = localUseRSPeriodicASMAlignment(obj)
             isOrdinaryDualRS = strcmpi(obj.DataPathMode, 'dualIQ') && ...
-                any(strcmpi(obj.Modulation, {'8PSK','16QAM','32QAM'}));
+                any(strcmpi(obj.Modulation, ...
+                    {'8PSK','16QAM','32QAM','16APSK','32APSK'}));
             isUnequalUQPSKRS = strcmpi(obj.DataPathMode, 'unequalDualIQ') && ...
                 strcmpi(obj.Modulation, 'UQPSK');
             enabled = logical(obj.HasASM) && strcmpi(obj.ChannelCoding, 'RS') && ...
@@ -317,30 +318,124 @@ classdef HelperCCSDSTMSplitReceiver < handle
     end
 
     methods (Static)
+        function evidence = scoreDecodedTMStructure(decodedI, decodedQ, bitsPerFrame, options, dataPathMode)
+            %SCOREDECODEDTMSTRUCTURE Score two rails without TX reference bits.
+            %
+            % The score deliberately uses only decoded TM primary-header
+            % fields and counter continuity.  It is therefore valid in a
+            % deployed receiver, unlike BER which is available only in the
+            % evaluator.  For ordinary dualIQ, the configured mux contract
+            % also says that the I rail carries even VCFC and Q carries odd
+            % VCFC; unequalDualIQ intentionally has no such assumption.
+            if nargin < 5 || isempty(dataPathMode)
+                dataPathMode = 'dualIQ';
+            end
+            scoreI = HelperCCSDSTMSplitReceiver.localScoreDecodedTMStructure( ...
+                decodedI, bitsPerFrame, options);
+            scoreQ = HelperCCSDSTMSplitReceiver.localScoreDecodedTMStructure( ...
+                decodedQ, bitsPerFrame, options);
+
+            minValid = max(1, round(HelperCCSDSTMSplitReceiver.localNumericOption( ...
+                options, {'splitTMStructureMinValidFrames'}, 2)));
+            isOrdinaryDual = strcmpi(string(dataPathMode), 'dualIQ');
+            orientation = 0;
+            swappedOrientation = 0;
+            firstI = NaN;
+            firstQ = NaN;
+            if isOrdinaryDual && ~isempty(scoreI.VCFC) && ~isempty(scoreQ.VCFC)
+                firstI = scoreI.VCFC(1);
+                firstQ = scoreQ.VCFC(1);
+                orientation = nnz(mod(scoreI.VCFC,2) == 0) + ...
+                    nnz(mod(scoreQ.VCFC,2) == 1);
+                swappedOrientation = nnz(mod(scoreI.VCFC,2) == 1) + ...
+                    nnz(mod(scoreQ.VCFC,2) == 0);
+            end
+
+            minValidBoth = min(scoreI.ValidFrames, scoreQ.ValidFrames);
+            minRunBoth = min(scoreI.MaxCounterRun, scoreQ.MaxCounterRun);
+            fieldMatches = scoreI.FieldMatches + scoreQ.FieldMatches;
+            % Keep each component separate for debug, but make a valid
+            % structure on *both* rails dominate the final scalar score.
+            selectionScore = 1e6 * minValidBoth + ...
+                1e4 * (scoreI.ValidFrames + scoreQ.ValidFrames) + ...
+                1e3 * minRunBoth + 100 * (scoreI.MaxCounterRun + scoreQ.MaxCounterRun) + ...
+                fieldMatches + 10 * orientation;
+            evidence = struct( ...
+                'Available',true, ...
+                'DataPathMode',char(string(dataPathMode)), ...
+                'I',scoreI, ...
+                'Q',scoreQ, ...
+                'BothRailsStructured',scoreI.ValidFrames >= minValid && ...
+                    scoreQ.ValidFrames >= minValid, ...
+                'MinValidFramesRequired',minValid, ...
+                'TMStructureScore',scoreI.Score + scoreQ.Score, ...
+                'TMValidFrames',scoreI.ValidFrames + scoreQ.ValidFrames, ...
+                'TMMinValidFrames',minValidBoth, ...
+                'TMMaxCounterRun',scoreI.MaxCounterRun + scoreQ.MaxCounterRun, ...
+                'TMMinCounterRun',minRunBoth, ...
+                'TMFieldMatches',fieldMatches, ...
+                'TMOrientationScore',orientation, ...
+                'TMSwappedOrientationScore',swappedOrientation, ...
+                'TMFirstIFrameID',firstI, ...
+                'TMFirstQFrameID',firstQ, ...
+                'SelectionScore',selectionScore);
+        end
+
+        function better = isBetterTMStructureCandidate( ...
+                candEvidence, candPhase, bestEvidence, bestPhase, preferredPhase)
+            %ISBETTERTMSTRUCTURECANDIDATE Compare receiver-only evidence.
+            if nargin < 5 || isempty(preferredPhase)
+                preferredPhase = 1;
+            end
+            better = false;
+            candAvailable = isstruct(candEvidence) && isfield(candEvidence, 'Available') && ...
+                candEvidence.Available;
+            bestAvailable = isstruct(bestEvidence) && isfield(bestEvidence, 'Available') && ...
+                bestEvidence.Available;
+            if candAvailable ~= bestAvailable
+                better = candAvailable;
+                return;
+            elseif ~candAvailable
+                better = candPhase == preferredPhase && bestPhase ~= preferredPhase;
+                return;
+            end
+
+            tol = 1e-12;
+            if candEvidence.BothRailsStructured ~= bestEvidence.BothRailsStructured
+                better = candEvidence.BothRailsStructured;
+                return;
+            end
+            fields = {'TMOrientationScore','TMMinValidFrames','TMValidFrames', ...
+                'TMMinCounterRun','TMMaxCounterRun','TMFieldMatches','SelectionScore'};
+            for k = 1:numel(fields)
+                field = fields{k};
+                a = candEvidence.(field);
+                b = bestEvidence.(field);
+                if isfinite(a) && isfinite(b) && abs(a-b) > tol
+                    better = a > b;
+                    return;
+                end
+            end
+            better = candPhase == preferredPhase && bestPhase ~= preferredPhase;
+        end
+
         function alignment = scoreTMStructure(alignment, decodedI, decodedQ, bitsPerFrame, options)
             %SCORETMSTRUCTURE Score a candidate using receiver-observable TM fields.
             if ~isstruct(alignment) || ~isfield(alignment,'Enabled') || ...
                     ~alignment.Enabled || ~alignment.BothFound
                 return;
             end
-            scoreI = HelperCCSDSTMSplitReceiver.localScoreDecodedTMStructure( ...
-                decodedI, bitsPerFrame, options);
-            scoreQ = HelperCCSDSTMSplitReceiver.localScoreDecodedTMStructure( ...
-                decodedQ, bitsPerFrame, options);
-            alignment.TMStructureScore = scoreI.Score + scoreQ.Score;
-            alignment.TMValidFrames = scoreI.ValidFrames + scoreQ.ValidFrames;
-            alignment.TMMaxCounterRun = scoreI.MaxCounterRun + scoreQ.MaxCounterRun;
-            convention = lower(string(HelperCCSDSTMSplitReceiver.localOption( ...
-                options, {'splitRSTMFrameCounterConvention'}, 'interleavedEvenOdd')));
-            if convention == "interleavedevenodd" && ...
-                    ~isempty(scoreI.VCFC) && ~isempty(scoreQ.VCFC)
-                alignment.TMFirstIFrameID = scoreI.VCFC(1);
-                alignment.TMFirstQFrameID = scoreQ.VCFC(1);
-                alignment.TMOrientationScore = ...
-                    nnz(mod(scoreI.VCFC,2) == 0) + nnz(mod(scoreQ.VCFC,2) == 1);
-                alignment.TMSwappedOrientationScore = ...
-                    nnz(mod(scoreI.VCFC,2) == 1) + nnz(mod(scoreQ.VCFC,2) == 0);
-            end
+            dataPathMode = HelperCCSDSTMSplitReceiver.localOption( ...
+                options, {'DataPathMode','dataPathMode'}, 'dualIQ');
+            evidence = HelperCCSDSTMSplitReceiver.scoreDecodedTMStructure( ...
+                decodedI, decodedQ, bitsPerFrame, options, dataPathMode);
+            alignment.TMStructureScore = evidence.TMStructureScore;
+            alignment.TMValidFrames = evidence.TMValidFrames;
+            alignment.TMMaxCounterRun = evidence.TMMaxCounterRun;
+            alignment.TMFirstIFrameID = evidence.TMFirstIFrameID;
+            alignment.TMFirstQFrameID = evidence.TMFirstQFrameID;
+            alignment.TMOrientationScore = evidence.TMOrientationScore;
+            alignment.TMSwappedOrientationScore = evidence.TMSwappedOrientationScore;
         end
 
         function better = isBetterRSASMCandidate(candAlignment, candPhase, bestAlignment, bestPhase)

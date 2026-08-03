@@ -146,6 +146,40 @@ function cases = reg_build_smoke_cases()
         "smoke.32apsk.ordinarytm", "32APSK ordinary TM", "apsk", p, ...
         1e-1, 0.50, 0.60, 1);
 
+    % APSK dual-I/Q migration guards.  Each rail owns its TM frame, ASM,
+    % encoder and randomizer; APSK pilots remain physical-waveform pilots.
+    p = localAPSKParams(base, '16APSK', 'ordinaryTM');
+    p.DataPathMode = 'dualIQ';
+    p.channelCoding = 'convolutional';
+    p.ConvolutionalCodeRate = '1/2';
+    p.RandomizerEnabled = true;
+    p.RandomizerFECPosition = 'beforeEncoding';
+    p.snr = 50;
+    p.cfo = 0;
+    p.phaseOffset = 0;
+    p.delay = 0;
+    cases(end+1,1) = localCase( ... %#ok<AGROW>
+        "smoke.16apsk.conv12.dualiq.random_before", ...
+        "16APSK conv1/2 dualIQ random before FEC", "apsk_split", p, ...
+        1e-5, 0.80, 0.10, 1);
+
+    p = localAPSKParams(base, '32APSK', 'ordinaryTM');
+    p.DataPathMode = 'dualIQ';
+    p.channelCoding = 'RS';
+    p.RSMessageLength = 223;
+    p.RSInterleavingDepth = 1;
+    p.IsRSMessageShortened = false;
+    p.RandomizerEnabled = true;
+    p.RandomizerFECPosition = 'afterEncoding';
+    p.snr = 50;
+    p.cfo = 0;
+    p.phaseOffset = 0;
+    p.delay = 0;
+    cases(end+1,1) = localCase( ... %#ok<AGROW>
+        "smoke.32apsk.rs.dualiq.random_after", ...
+        "32APSK RS dualIQ random after FEC", "apsk_split", p, ...
+        1e-5, 0.80, 0.10, 1);
+
     p = localAPSKParams(base, '16APSK', 'FACM');
     p.ACMFormat = 14;
     p.facmWarmupFrames = 1;

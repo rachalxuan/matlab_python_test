@@ -175,6 +175,22 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     if isfield(res,'RandomizerEnabled'), frontResult.RandomizerEnabled = res.RandomizerEnabled; end
     if isfield(res,'RandomizerFECPosition'), frontResult.RandomizerFECPosition = res.RandomizerFECPosition; end
     if isfield(res,'DataPathMode'), frontResult.DataPathMode = res.DataPathMode; end
+    if isfield(res,'SplitReceiverImplementation'), frontResult.SplitReceiverImplementation = res.SplitReceiverImplementation; end
+    splitReceiverDecisionFields = { ...
+        'SplitReceiverIQPhase', 'UQPSKSymSkip', ...
+        'UQPSKSymSkipSelectionMethod', ...
+        'SplitReceiverStructureSelectionMethod', ...
+        'SplitReceiverStructureScore', ...
+        'SplitReceiverTMValidFrames', ...
+        'SplitReceiverTMMinValidFrames', ...
+        'SplitReceiverTMMaxCounterRun', ...
+        'SplitReceiverTMOrientationScore'};
+    for iDecisionField = 1:numel(splitReceiverDecisionFields)
+        decisionField = splitReceiverDecisionFields{iDecisionField};
+        if isfield(res, decisionField)
+            frontResult.(decisionField) = res.(decisionField);
+        end
+    end
     if isfield(res,'WaveformMode'), frontResult.WaveformMode = res.WaveformMode; end
     if isfield(res,'UQPSKRRatio'), frontResult.UQPSKRRatio = res.UQPSKRRatio; end
     if isfield(res,'UQPSKARatio'), frontResult.UQPSKARatio = res.UQPSKARatio; end
@@ -1540,6 +1556,24 @@ function [res, ctx] = runOneShot(opt)
     res.GMSKDetectorUsed = berStats.GMSKDetectorUsed;
     res.AcquisitionFrames = berStats.AcquisitionFrames;
     res.AcquisitionTime_s = berStats.AcquisitionTime_s;
+    if isfield(berStats, 'SplitReceiverImplementation')
+        res.SplitReceiverImplementation = berStats.SplitReceiverImplementation;
+    end
+    splitReceiverDecisionFields = { ...
+        'SplitReceiverIQPhase', 'UQPSKSymSkip', ...
+        'UQPSKSymSkipSelectionMethod', ...
+        'SplitReceiverStructureSelectionMethod', ...
+        'SplitReceiverStructureScore', ...
+        'SplitReceiverTMValidFrames', ...
+        'SplitReceiverTMMinValidFrames', ...
+        'SplitReceiverTMMaxCounterRun', ...
+        'SplitReceiverTMOrientationScore'};
+    for iDecisionField = 1:numel(splitReceiverDecisionFields)
+        decisionField = splitReceiverDecisionFields{iDecisionField};
+        if isfield(berStats, decisionField)
+            res.(decisionField) = berStats.(decisionField);
+        end
+    end
     railMetricFields = localSplitRailMetricFields();
     for iRailMetric = 1:numel(railMetricFields)
         railMetricName = railMetricFields{iRailMetric};
@@ -2898,10 +2932,20 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
         bitsPerSymBER = localBitsPerSymbolForDebug(tmMod);
         useSplitRSPeriodicASM = localUseSplitRSPeriodicASMAlignment( ...
             dataPathModeBER, tmMod, tmCode, hasASM, opt);
+        % Odd-bit 8PSK/32QAM/32APSK needs an I/Q serial-start decision. This is
+        % selected from receiver-observable TM structure in the coordinator,
+        % never from evaluator BER.  SplitReceiverIQPhase remains an explicit
+        % diagnostic override.
+        useSplitReceiverStructureSelection = ...
+            strcmpi(dataPathModeBER, 'dualIQ') && ...
+            any(strcmpi(string(tmMod), {'8PSK','32QAM','32APSK'})) && ...
+            getLogicalField(opt, 'UseSplitReceiverCoordinator', true) && ...
+            ~(isfield(opt, 'SplitReceiverIQPhase') && ...
+              ~isempty(opt.SplitReceiverIQPhase));
         useSplitIQTwoPass = strcmpi(dataPathModeBER, 'dualIQ') && ...
             bitsPerSymBER > 1 && mod(bitsPerSymBER, 2) == 1 && ...
             getLogicalField(opt, 'splitIQPhaseTwoPass', true) && ...
-            ~useSplitRSPeriodicASM;
+            ~useSplitRSPeriodicASM && ~useSplitReceiverStructureSelection;
         splitIQRoundSucceeded = false;
         splitRoundSuccessBER = getfieldnumeric(opt, 'splitIQPhaseRoundSuccessBER', ...
             getfieldnumeric(opt, 'splitIQPhaseEarlyStopBER', 1e-8));
@@ -2932,13 +2976,23 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
 
             % 新规则：
             % 只要锁帧率还可以，就优先选择 BER 最低的角度
-            isUsableCandidate = isfinite(ber) && (bitsComp > 0) && ...
-                (lock >= 0.80 || (strcmp(tmCodeKey,'tpc') && lock > 0 && ber < 0.25));
+            if useSplitReceiverStructureSelection
+                isUsableCandidate = localHasCredibleSplitReceiverStructure(stats);
+            else
+                isUsableCandidate = isfinite(ber) && (bitsComp > 0) && ...
+                    (lock >= 0.80 || (strcmp(tmCodeKey,'tpc') && lock > 0 && ber < 0.25));
+            end
             if isUsableCandidate
                 % A previously retained fallback may have NaN BER and zero
                 % compared bits.  Any usable decode must replace it.
-                if bitsComparedBest <= 0 || ~isfinite(bestBer) || ...
-                        ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock)
+                if useSplitReceiverStructureSelection
+                    betterCandidate = bitsComparedBest <= 0 || ...
+                        localIsBetterSplitReceiverStructureStats(stats, bestStats);
+                else
+                    betterCandidate = bitsComparedBest <= 0 || ~isfinite(bestBer) || ...
+                        ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock);
+                end
+                if betterCandidate
                     bestBer = ber;
                     bestLock = lock;
                     bestRot = angle(r);
@@ -2947,6 +3001,11 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                     bestStats = stats;
 %                     bestShift = shiftBits;
                 end
+                if useSplitReceiverStructureSelection && ...
+                        localHasCredibleSplitReceiverStructure(stats)
+                    splitIQRoundSucceeded = true;
+                    break;
+                end
                 % 如果已经找到完美候选, 后面的等价旋转没有必要继续跑。
                 % 这对 4D-8PSK-TCM 特别重要, 因为每个候选都会触发一次 4D Viterbi 解调。
                 if useSplitIQTwoPass && ber <= splitRoundSuccessBER && ...
@@ -2954,7 +3013,8 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                     splitIQRoundSucceeded = true;
                     break;
                 end
-                if ber == 0 && (lock >= 0.999 || (strcmp(tmCodeKey,'tpc') && lock >= 0.50)) && bitsComp > 0
+                if ~useSplitReceiverStructureSelection && ber == 0 && ...
+                        (lock >= 0.999 || (strcmp(tmCodeKey,'tpc') && lock >= 0.50)) && bitsComp > 0
                     break;
                 end
             else
@@ -2978,7 +3038,7 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
             fallbackBER = double(opt.phaseResolveFallbackBER);
         end
         needFallback = ~splitIQRoundSucceeded && phaseResolveMode ~= "ber" && ...
-            any(~evaluated) && (useSplitIQTwoPass || ...
+            any(~evaluated) && (useSplitReceiverStructureSelection || useSplitIQTwoPass || ...
             (fallbackEnabled && (bestLock < 0.80 || bitsComparedBest <= 0 || bestBer >= fallbackBER)));
         if needFallback
             fprintf('   [ASM phase] selected candidates failed; fallback to remaining rotations.\n');
@@ -2993,11 +3053,21 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                 fprintf('   [候选角度] rot=%+6.1f deg, BER=%.4g, Lock=%.1f%%, Err=%d, Bits=%d', ...
                     rad2deg(angle(r)), ber, lock*100, errs, bitsComp);
 
-                isUsableCandidate = isfinite(ber) && (bitsComp > 0) && ...
-                    (lock >= 0.80 || (strcmp(tmCodeKey,'tpc') && lock > 0 && ber < 0.25));
+                if useSplitReceiverStructureSelection
+                    isUsableCandidate = localHasCredibleSplitReceiverStructure(stats);
+                else
+                    isUsableCandidate = isfinite(ber) && (bitsComp > 0) && ...
+                        (lock >= 0.80 || (strcmp(tmCodeKey,'tpc') && lock > 0 && ber < 0.25));
+                end
                 if isUsableCandidate
-                    if bitsComparedBest <= 0 || ~isfinite(bestBer) || ...
-                            ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock)
+                    if useSplitReceiverStructureSelection
+                        betterCandidate = bitsComparedBest <= 0 || ...
+                            localIsBetterSplitReceiverStructureStats(stats, bestStats);
+                    else
+                        betterCandidate = bitsComparedBest <= 0 || ~isfinite(bestBer) || ...
+                            ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock);
+                    end
+                    if betterCandidate
                         bestBer = ber;
                         bestLock = lock;
                         bestRot = angle(r);
@@ -3005,12 +3075,18 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                         bitsComparedBest = bitsComp;
                         bestStats = stats;
                     end
+                    if useSplitReceiverStructureSelection && ...
+                            localHasCredibleSplitReceiverStructure(stats)
+                        splitIQRoundSucceeded = true;
+                        break;
+                    end
                     if useSplitIQTwoPass && ber <= splitRoundSuccessBER && ...
                             lock >= splitRoundSuccessLock && bitsComp > 0
                         splitIQRoundSucceeded = true;
                         break;
                     end
-                    if ber == 0 && (lock >= 0.999 || (strcmp(tmCodeKey,'tpc') && lock >= 0.50)) && bitsComp > 0
+                    if ~useSplitReceiverStructureSelection && ber == 0 && ...
+                            (lock >= 0.999 || (strcmp(tmCodeKey,'tpc') && lock >= 0.50)) && bitsComp > 0
                         break;
                     end
                 else
@@ -3404,6 +3480,77 @@ function [berVal, lockRate, errs, bitsComp, stats, perFrameBER] = ...
     perFrameBER(2:2:2*numel(berQ)) = berQ;
 end
 
+function evidence = localEmptySplitReceiverStructureEvidence()
+    evidence = struct( ...
+        'Available',false, ...
+        'BothRailsStructured',false, ...
+        'TMOrientationScore',0, ...
+        'TMMinValidFrames',0, ...
+        'TMValidFrames',0, ...
+        'TMMinCounterRun',0, ...
+        'TMMaxCounterRun',0, ...
+        'TMFieldMatches',0, ...
+        'SelectionScore',-inf);
+end
+
+function stats = localAttachSplitReceiverStructureEvidence(stats, evidence, method)
+    if nargin < 3 || isempty(method)
+        method = 'tmHeaderStructure';
+    end
+    if ~isstruct(evidence) || ~isfield(evidence, 'Available')
+        evidence = localEmptySplitReceiverStructureEvidence();
+    end
+    stats.SplitReceiverStructureEvidence = evidence;
+    stats.SplitReceiverStructureSelectionMethod = char(string(method));
+    stats.SplitReceiverStructureScore = evidence.SelectionScore;
+    stats.SplitReceiverTMValidFrames = evidence.TMValidFrames;
+    stats.SplitReceiverTMMinValidFrames = evidence.TMMinValidFrames;
+    stats.SplitReceiverTMMaxCounterRun = evidence.TMMaxCounterRun;
+    stats.SplitReceiverTMOrientationScore = evidence.TMOrientationScore;
+end
+
+function tf = localHasCredibleSplitReceiverStructure(stats)
+    tf = false;
+    if ~isstruct(stats) || ~isfield(stats, 'SplitReceiverStructureEvidence')
+        return;
+    end
+    evidence = stats.SplitReceiverStructureEvidence;
+    tf = isstruct(evidence) && isfield(evidence, 'BothRailsStructured') && ...
+        logical(evidence.BothRailsStructured);
+end
+
+function tf = localIsBetterSplitReceiverStructureStats(candStats, bestStats, preferredPhase)
+    if nargin < 3 || isempty(preferredPhase)
+        preferredPhase = 1;
+    end
+    candEvidence = localEmptySplitReceiverStructureEvidence();
+    bestEvidence = localEmptySplitReceiverStructureEvidence();
+    candPhase = preferredPhase;
+    bestPhase = preferredPhase;
+    if isstruct(candStats)
+        if isfield(candStats, 'SplitReceiverStructureEvidence')
+            candEvidence = candStats.SplitReceiverStructureEvidence;
+        end
+        if isfield(candStats, 'SplitReceiverIQPhase')
+            candPhase = candStats.SplitReceiverIQPhase;
+        elseif isfield(candStats, 'UQPSKSymSkip')
+            candPhase = candStats.UQPSKSymSkip;
+        end
+    end
+    if isstruct(bestStats)
+        if isfield(bestStats, 'SplitReceiverStructureEvidence')
+            bestEvidence = bestStats.SplitReceiverStructureEvidence;
+        end
+        if isfield(bestStats, 'SplitReceiverIQPhase')
+            bestPhase = bestStats.SplitReceiverIQPhase;
+        elseif isfield(bestStats, 'UQPSKSymSkip')
+            bestPhase = bestStats.UQPSKSymSkip;
+        end
+    end
+    tf = HelperCCSDSTMSplitReceiver.isBetterTMStructureCandidate( ...
+        candEvidence, candPhase, bestEvidence, bestPhase, preferredPhase);
+end
+
 function [berVal, lockRate, errs, bitsComp, stats, perFrameBER] = ...
         localCountUnequalUQPSKRailBER(decodedI, decodedQ, validTxFrames, ...
         bitsPerFrame, numWarmUp, tmMod, tmCode, opt)
@@ -3417,10 +3564,20 @@ function [berVal, lockRate, errs, bitsComp, stats, perFrameBER] = ...
     txFramesI = reshape(referenceGroups(1:2,:), [], 1);
     txFramesQ = reshape(referenceGroups(3,:), [], 1);
 
+    % unequalDualIQ explicitly transmits 2x I and 1x Q warm-up frames per
+    % logical interval.  They settle timing/carrier/decoder state and must
+    % not leak into the requested BERFrames measurement window.
+    excludeWarmUp = getLogicalField(opt, 'excludeUQPSKWarmUpFrames', true);
+    warmUpI = 0;
+    warmUpQ = 0;
+    if excludeWarmUp
+        warmUpI = 2*numWarmUp;
+        warmUpQ = numWarmUp;
+    end
     [statsI, errsI, bitsI, berI] = localCountOneSplitRailBER( ...
-        decodedI, txFramesI, bitsPerFrame, 2*numWarmUp, 1, opt);
+        decodedI, txFramesI, bitsPerFrame, 2*numWarmUp, 1, opt, warmUpI);
     [statsQ, errsQ, bitsQ, berQ] = localCountOneSplitRailBER( ...
-        decodedQ, txFramesQ, bitsPerFrame, numWarmUp, 1, opt);
+        decodedQ, txFramesQ, bitsPerFrame, numWarmUp, 1, opt, warmUpQ);
 
     errs = errsI + errsQ;
     bitsComp = bitsI + bitsQ;
@@ -3540,10 +3697,14 @@ function localPrintSplitRailStats(label, iqPhase, stats)
 end
 
 function [stats, errs, bitsComp, perFrameBER] = ...
-        localCountOneSplitRailBER(decodedBits, txFrames, bitsPerFrame, numWarmUp, idStep, opt)
+        localCountOneSplitRailBER(decodedBits, txFrames, bitsPerFrame, numWarmUp, idStep, opt, measurementWarmUpFrames)
     stats = localEmptyBERStats();
     errs = 0;
     bitsComp = 0;
+    if nargin < 7 || isempty(measurementWarmUpFrames)
+        measurementWarmUpFrames = 0;
+    end
+    measurementWarmUpFrames = max(0, round(double(measurementWarmUpFrames)));
 
     txMap = containers.Map('KeyType','double','ValueType','any');
     for k = 1:numel(txFrames)
@@ -3608,7 +3769,7 @@ function [stats, errs, bitsComp, perFrameBER] = ...
 
         % acquisition 通过后，后续匹配帧直接计入 BER/FER。
         % 防假锁靠上面的连续 ID + per-frame BER 门限完成，不再要求连续 numWarmUp 帧。
-        counted = acquiredForBER;
+        counted = acquiredForBER && j > measurementWarmUpFrames;
         if counted
             stats.CountedFrames = stats.CountedFrames + 1;
             if thisErrs > 0
@@ -4298,6 +4459,8 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         bestLocalUsable = false;
         requireBothUQPSKRails = strcmpi(string(dataPathMode), ...
             "unequalDualIQ");
+        useUQPSKTMStructureSelection = requireBothUQPSKRails && ...
+            getLogicalField(opt, 'UseSplitReceiverCoordinator', true);
 
         optLocal = opt;
         optLocal.uqpskSkipInternal = true;
@@ -4312,10 +4475,20 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             [candBer, candLock, candErrs, candBits, candStats] = tryOneRotation( ...
                 rxCandidate, validTxFrames, tmMod, tmCode, optLocal, ...
                 randomizerEnabled, hasASM, btVal, numWarmUp);
+            candStats.UQPSKSymSkip = symSkip;
 
             if isfield(opt,'debugUQPSK') && logical(opt.debugUQPSK)
                 fprintf('      [UQPSK group] symSkip=%d, BER=%.4g, Lock=%.1f%%, Err=%d, Bits=%d\n', ...
                     symSkip, candBer, candLock*100, candErrs, candBits);
+                if isfield(candStats, 'SplitReceiverStructureEvidence')
+                    evidence = candStats.SplitReceiverStructureEvidence;
+                    fprintf(['      [UQPSK structure] symSkip=%d score=%.0f ', ...
+                        'valid I/Q=%d/%d run I/Q=%d/%d credible=%d\n'], ...
+                        symSkip, evidence.SelectionScore, ...
+                        evidence.I.ValidFrames, evidence.Q.ValidFrames, ...
+                        evidence.I.MaxCounterRun, evidence.Q.MaxCounterRun, ...
+                        evidence.BothRailsStructured);
+                end
             end
 
             bothRailsCounted = true;
@@ -4332,18 +4505,27 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                         candStats.Q_CountedFrames);
                 end
             end
-            candidateUsable = candLock >= 0.80 && candBits > 0 && ...
-                bothRailsCounted;
+            if useUQPSKTMStructureSelection
+                candidateUsable = localHasCredibleSplitReceiverStructure(candStats);
+            else
+                candidateUsable = candLock >= 0.80 && candBits > 0 && ...
+                    bothRailsCounted;
+            end
 
             if candidateUsable
-                % A lower BER remains the primary criterion.  When BER is
-                % equal (often both are exactly zero), select the UQPSK
-                % symbol grouping with more reliable frame acquisition.
-                % Otherwise a partial I-only lock can mask a correctly
-                % aligned I/Q pair.
-                if ~bestLocalUsable || localIsBetterSplitCandidate( ...
-                        candBer, candLock, candBits, ...
-                        bestLocalBer, bestLocalLock, bestLocalBits)
+                % UQPSK grouping is a receiver framing decision.  Use the
+                % two rails' decoded TM header/counter evidence, never the
+                % evaluator BER, whenever the SplitReceiver is active.
+                if useUQPSKTMStructureSelection
+                    betterCandidate = ~bestLocalUsable || ...
+                        localIsBetterSplitReceiverStructureStats( ...
+                        candStats, bestLocalStats, 1);
+                else
+                    betterCandidate = ~bestLocalUsable || ...
+                        localIsBetterSplitCandidate(candBer, candLock, candBits, ...
+                        bestLocalBer, bestLocalLock, bestLocalBits);
+                end
+                if betterCandidate
                     bestLocalBer = candBer;
                     bestLocalLock = candLock;
                     bestLocalErrs = candErrs;
@@ -4352,7 +4534,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                     bestLocalSkip = symSkip;
                     bestLocalUsable = true;
                 end
-                if candBer == 0 && candLock >= 0.999
+                if ~useUQPSKTMStructureSelection && candBer == 0 && candLock >= 0.999
                     break;
                 end
             elseif ~bestLocalUsable && ...
@@ -4375,6 +4557,10 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         errs = bestLocalErrs;
         bitsComp = bestLocalBits;
         frameStats = bestLocalStats;
+        frameStats.UQPSKSymSkip = bestLocalSkip;
+        if useUQPSKTMStructureSelection
+            frameStats.UQPSKSymSkipSelectionMethod = 'tmHeaderStructure';
+        end
         return;
     end
     enable4DGroupSearch = isfield(opt,'tcmSearchAll') && logical(opt.tcmSearchAll);
@@ -4786,12 +4972,15 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     decArgs = {'ChannelCoding',tmCode,'Modulation',decoderMod, ...
                'RandomizerEnabled',randomizerEnabled,'HasASM',hasASM};
     decArgs = appendASMArgs(decArgs, opt);
-    decoderPathMode = dataPathMode;
-    if any(strcmpi(decoderPathMode, {'dualIQ','unequalDualIQ'}))
-        decoderPathMode = 'single';
-    end
+    % HelperCCSDSTMDecoder remains a single-rail component.  The split
+    % coordinator owns dualIQ/unequalDualIQ demux and creates one ordinary
+    % Decoder per rail.  Keep the legacy branch selectable during migration
+    % so its result can be compared with the coordinator using the same seed.
+    decoderPathMode = 'single';
+    useSplitReceiverCoordinator = getLogicalField( ...
+        opt, 'UseSplitReceiverCoordinator', true);
     decArgs = [decArgs, {'RandomizerFECPosition', char(randomizerFECPosition), ...
-                         'DataPathMode', char(decoderPathMode)}];
+                         'DataPathMode', decoderPathMode}];
     if isfield(opt,'PCMFormat') && ~isempty(opt.PCMFormat)
         decArgs = [decArgs, {'PCMFormat', string(opt.PCMFormat)}];
     end
@@ -4860,7 +5049,73 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         localPrintDemodDataDebug(demodData, tmMod, tmCode, bitsPerFrame);
     end
 
-    if strcmpi(dataPathMode, 'unequalDualIQ')
+    if strcmpi(dataPathMode, 'unequalDualIQ') && useSplitReceiverCoordinator
+        splitDebug = getLogicalField(opt, 'splitPathDebug', false);
+        splitReceiver = HelperCCSDSTMSplitReceiver( ...
+            'DataPathMode', dataPathMode, ...
+            'Modulation', tmMod, ...
+            'ChannelCoding', tmCode, ...
+            'BitsPerFrame', bitsPerFrame, ...
+            'DecoderArgs', decArgs, ...
+            'Options', opt, ...
+            'HasASM', hasASM, ...
+            'IQPhase', 0, ...
+            'Debug', false);
+        splitResult = splitReceiver.decode(demodData);
+        demodI = splitResult.DemodI;
+        demodQ = splitResult.DemodQ;
+        decodedI = splitResult.DecodedI;
+        decodedQ = splitResult.DecodedQ;
+        unequalRSASM = splitResult.RSASMAlignment;
+
+        predecoderStats = localEmptySplitPredecoderStats();
+        if splitDebug
+            fprintf(['[UQPSK unequal RX demux] grouped=%d soft bits -> ', ...
+                'I=%d, Q=%d, droppedTail=%d\n'], ...
+                numel(demodData), numel(demodI), numel(demodQ), ...
+                splitResult.DroppedTailBits);
+            predecoderStats = localMeasureSplitPredecoderRails(demodI, demodQ);
+            fprintf(['[UQPSK unequal predecoder] ', ...
+                'I: hardBER=%.6g offset=%+g polarity=%+g | ', ...
+                'Q: hardBER=%.6g offset=%+g polarity=%+g\n'], ...
+                predecoderStats.I_PredecoderBER, ...
+                predecoderStats.I_PredecoderOffset, ...
+                predecoderStats.I_PredecoderPolarity, ...
+                predecoderStats.Q_PredecoderBER, ...
+                predecoderStats.Q_PredecoderOffset, ...
+                predecoderStats.Q_PredecoderPolarity);
+        end
+        unequalRSASM = HelperCCSDSTMSplitReceiver.scoreTMStructure( ...
+            unequalRSASM, decodedI, decodedQ, bitsPerFrame, opt);
+        unequalStructureEvidence = ...
+            HelperCCSDSTMSplitReceiver.scoreDecodedTMStructure( ...
+            decodedI, decodedQ, bitsPerFrame, opt, dataPathMode);
+        if splitDebug || getLogicalField(opt, 'debugCodedBoundary', false)
+            localPrintSplitRSASMAlignment( ...
+                'unequal coordinator', NaN, unequalRSASM);
+        end
+
+        [berVal, lockRate, errs, bitsComp, frameStats, perFrameBER] = ...
+            localCountUnequalUQPSKRailBER( ...
+                decodedI, decodedQ, validTxFrames, bitsPerFrame, ...
+                numWarmUp, tmMod, tmCode, opt);
+        frameStats = localAttachSplitPredecoderStats(frameStats, predecoderStats);
+        frameStats = localAttachSplitReceiverStructureEvidence( ...
+            frameStats, unequalStructureEvidence, 'tmHeaderStructure');
+        frameStats.SplitReceiverImplementation = 'coordinator';
+
+        if splitDebug
+            fprintf(['[UQPSK unequal RX decode] decoded I=%d bits ', ...
+                '(%d frames), Q=%d bits (%d frames)\n'], ...
+                numel(decodedI), floor(numel(decodedI)/bitsPerFrame), ...
+                numel(decodedQ), floor(numel(decodedQ)/bitsPerFrame));
+            localPrintSplitRailStats('selected', 0, frameStats);
+        end
+        if lockRate > 0.5 && bitsComp > 0
+            localPrintPerFrameBER(perFrameBER, opt);
+        end
+        return;
+    elseif strcmpi(dataPathMode, 'unequalDualIQ')
         splitDebug = getLogicalField(opt, 'splitPathDebug', false);
         [demodI, demodQ, droppedTail] = ...
             tm_uqpsk_unequal_bit_demux(demodData, 2, 'drop');
@@ -4911,10 +5166,14 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
 
         [berVal, lockRate, errs, bitsComp, frameStats, perFrameBER] = ...
             localCountUnequalUQPSKRailBER( ...
-                decodedI, decodedQ, validTxFrames, bitsPerFrame, ...
-                numWarmUp, tmMod, tmCode, opt);
+            decodedI, decodedQ, validTxFrames, bitsPerFrame, ...
+            numWarmUp, tmMod, tmCode, opt);
         frameStats = localAttachSplitPredecoderStats( ...
             frameStats, predecoderStats);
+        frameStats = localAttachSplitReceiverStructureEvidence( ...
+            frameStats, HelperCCSDSTMSplitReceiver.scoreDecodedTMStructure( ...
+            decodedI, decodedQ, bitsPerFrame, opt, dataPathMode), ...
+            'tmHeaderStructure');
 
         if splitDebug
             fprintf(['[UQPSK unequal RX decode] decoded I=%d bits ', ...
@@ -4926,6 +5185,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         if lockRate > 0.5 && bitsComp > 0
             localPrintPerFrameBER(perFrameBER, opt);
         end
+        frameStats.SplitReceiverImplementation = 'legacy';
         return;
     elseif strcmpi(dataPathMode, 'dualIQ')
         splitDebug = getLogicalField(opt, 'splitPathDebug', false);
@@ -4934,7 +5194,21 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
 
         iqPhaseList = 0;
         bitsPerSymForSplit = localBitsPerSymbolForDebug(tmMod);
-        if isfield(opt, 'splitIQPhaseListOverride') && ~isempty(opt.splitIQPhaseListOverride)
+        % A production caller supplies one explicit phase after its packing
+        % contract is known.  The legacy list override remains available only
+        % for evaluation/diagnosis of odd-bits-per-symbol modes.
+        if isfield(opt, 'SplitReceiverIQPhase') && ~isempty(opt.SplitReceiverIQPhase)
+            iqPhaseList = double(opt.SplitReceiverIQPhase(:).');
+            iqPhaseList = iqPhaseList(ismember(iqPhaseList, [0 1]));
+            if numel(iqPhaseList) ~= 1
+                error('run_ccsds_tm_evaluation:InvalidSplitReceiverIQPhase', ...
+                    'SplitReceiverIQPhase must be one explicit value: 0 or 1.');
+            end
+            if splitDebug
+                fprintf('[SplitPath IQ phase order] mod=%s, bps=%d, order=%s, reason=explicit receiver contract\n', ...
+                    char(tmMod), bitsPerSymForSplit, mat2str(iqPhaseList));
+            end
+        elseif isfield(opt, 'splitIQPhaseListOverride') && ~isempty(opt.splitIQPhaseListOverride)
             iqPhaseList = double(opt.splitIQPhaseListOverride(:).');
             iqPhaseList = iqPhaseList(ismember(iqPhaseList, [0 1]));
             if isempty(iqPhaseList)
@@ -4958,6 +5232,9 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         end
         splitEarlyStopBER = getfieldnumeric(opt, 'splitIQPhaseEarlyStopBER', 1e-8);
         splitEarlyStopLock = getfieldnumeric(opt, 'splitIQPhaseEarlyStopLock', 0.80);
+        useTMStructureIQPhase = useSplitReceiverCoordinator && ...
+            any(strcmpi(string(tmMod), {'8PSK','32QAM','32APSK'})) && ...
+            numel(iqPhaseList) > 1;
 
         bestSplitBer = inf;
         bestSplitLock = -1;
@@ -4970,37 +5247,75 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         bestSplitDecodedQ = zeros(0,1,'int8');
         bestSplitDecodedBits = zeros(0,1,'int8');
         bestSplitRSASM = localEmptySplitRSASMAlignment();
+        bestSplitStructureEvidence = localEmptySplitReceiverStructureEvidence();
 
         for iqPhase = iqPhaseList
             if iqPhase >= numel(demodData)
                 continue;
             end
 
-            demodData2 = demodData(iqPhase+1:end);
-            if mod(numel(demodData2),2) ~= 0
-                demodData2 = demodData2(1:end-1);
+            if useSplitReceiverCoordinator
+                splitReceiver = HelperCCSDSTMSplitReceiver( ...
+                    'DataPathMode', dataPathMode, ...
+                    'Modulation', tmMod, ...
+                    'ChannelCoding', tmCode, ...
+                    'BitsPerFrame', bitsPerFrame, ...
+                    'DecoderArgs', decArgs, ...
+                    'Options', opt, ...
+                    'HasASM', hasASM, ...
+                    'IQPhase', iqPhase, ...
+                    'Debug', false);
+                splitResult = splitReceiver.decode(demodData);
+                demodI = splitResult.DemodI;
+                demodQ = splitResult.DemodQ;
+                decodedI = splitResult.DecodedI;
+                decodedQ = splitResult.DecodedQ;
+                decodedBits = splitResult.DecodedBits;
+                splitRSASM = HelperCCSDSTMSplitReceiver.scoreTMStructure( ...
+                    splitResult.RSASMAlignment, decodedI, decodedQ, ...
+                    bitsPerFrame, opt);
+                splitStructureEvidence = ...
+                    HelperCCSDSTMSplitReceiver.scoreDecodedTMStructure( ...
+                    decodedI, decodedQ, bitsPerFrame, opt, dataPathMode);
+                predecoderStats = localEmptySplitPredecoderStats();
+                if splitDebug
+                    fprintf('[SplitPath IQ phase] mod=%s, iqPhase=%d, len=%d\n', ...
+                        char(tmMod), iqPhase, numel(demodData)-iqPhase);
+                    fprintf('[SplitPath RX deinterleave] demod=%d soft bits -> I=%d, Q=%d\n', ...
+                        numel(demodData)-iqPhase, numel(demodI), numel(demodQ));
+                    predecoderStats = localMeasureSplitPredecoderRails( ...
+                        demodI, demodQ);
+                end
+            else
+                demodData2 = demodData(iqPhase+1:end);
+                if mod(numel(demodData2),2) ~= 0
+                    demodData2 = demodData2(1:end-1);
+                end
+
+                if splitDebug
+                    fprintf('[SplitPath IQ phase] mod=%s, iqPhase=%d, len=%d\n', ...
+                        char(tmMod), iqPhase, numel(demodData2));
+                end
+
+                [demodI, demodQ, predecoderStats] = localBitDeinterleaveIQ( ...
+                    demodData2, tmMod, splitDebug, iqPhase);
+                if splitDebug
+                    fprintf('[SplitPath RX deinterleave] demod=%d soft bits -> I=%d, Q=%d\n', ...
+                        numel(demodData2), numel(demodI), numel(demodQ));
+                end
+
+                [demodIForDecoder, demodQForDecoder, decArgsI, decArgsQ, splitRSASM] = ...
+                    localPrepareSplitRSPeriodicASMAlignment( ...
+                    demodI, demodQ, decArgs, dataPathMode, tmMod, tmCode, hasASM, opt);
+
+                [decodedI, decodedQ, decodedBits] = localDecodeSplitRails( ...
+                    demodIForDecoder, demodQForDecoder, bitsPerFrame, decArgsI, decArgsQ);
+                splitRSASM = localAttachSplitRSTMStructureScore( ...
+                    splitRSASM, decodedI, decodedQ, bitsPerFrame, opt);
+                splitStructureEvidence = ...
+                    HelperCCSDSTMSplitReceiver.scoreDecodedTMStructure( ...
+                    decodedI, decodedQ, bitsPerFrame, opt, dataPathMode);
             end
-
-            if splitDebug
-                fprintf('[SplitPath IQ phase] mod=%s, iqPhase=%d, len=%d\n', ...
-                    char(tmMod), iqPhase, numel(demodData2));
-            end
-
-            [demodI, demodQ, predecoderStats] = localBitDeinterleaveIQ( ...
-                demodData2, tmMod, splitDebug, iqPhase);
-            if splitDebug
-                fprintf('[SplitPath RX deinterleave] demod=%d soft bits -> I=%d, Q=%d\n', ...
-                    numel(demodData2), numel(demodI), numel(demodQ));
-            end
-
-            [demodIForDecoder, demodQForDecoder, decArgsI, decArgsQ, splitRSASM] = ...
-                localPrepareSplitRSPeriodicASMAlignment( ...
-                demodI, demodQ, decArgs, dataPathMode, tmMod, tmCode, hasASM, opt);
-
-            [decodedI, decodedQ, decodedBits] = localDecodeSplitRails( ...
-                demodIForDecoder, demodQForDecoder, bitsPerFrame, decArgsI, decArgsQ);
-            splitRSASM = localAttachSplitRSTMStructureScore( ...
-                splitRSASM, decodedI, decodedQ, bitsPerFrame, opt);
             if splitDebug || getLogicalField(opt, 'debugCodedBoundary', false)
                 localPrintSplitRSASMAlignment('candidate', iqPhase, splitRSASM);
             end
@@ -5018,16 +5333,36 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                 bitsPerFrame, numWarmUp, tmMod, tmCode, opt);
             candStats = localAttachSplitPredecoderStats( ...
                 candStats, predecoderStats);
+            candStats = localAttachSplitReceiverStructureEvidence( ...
+                candStats, splitStructureEvidence, 'tmHeaderStructure');
+            candStats.SplitReceiverIQPhase = iqPhase;
 
             if splitDebug
                 fprintf('[SplitPath IQ phase score] iqPhase=%d, BER=%.4g, Lock=%.1f%%, Err=%d, Bits=%d\n', ...
                     iqPhase, candBer, candLock*100, candErrs, candBits);
+                if useTMStructureIQPhase
+                    fprintf(['[SplitReceiver IQ phase structure] iqPhase=%d ', ...
+                        'score=%.0f valid I/Q=%d/%d run I/Q=%d/%d ', ...
+                        'orientation=%d credible=%d\n'], ...
+                        iqPhase, splitStructureEvidence.SelectionScore, ...
+                        splitStructureEvidence.I.ValidFrames, ...
+                        splitStructureEvidence.Q.ValidFrames, ...
+                        splitStructureEvidence.I.MaxCounterRun, ...
+                        splitStructureEvidence.Q.MaxCounterRun, ...
+                        splitStructureEvidence.TMOrientationScore, ...
+                        splitStructureEvidence.BothRailsStructured);
+                end
                 localPrintSplitRailStats('candidate', iqPhase, candStats);
             end
 
-            if localIsBetterSplitRSASMCandidate( ...
+            if (useTMStructureIQPhase && ...
+                    HelperCCSDSTMSplitReceiver.isBetterTMStructureCandidate( ...
+                    splitStructureEvidence, iqPhase, bestSplitStructureEvidence, ...
+                    bestSplitPhase, getfieldnumeric(opt, ...
+                    'splitOddBpsDefaultIQPhase', 1))) || ...
+                    (~useTMStructureIQPhase && localIsBetterSplitRSASMCandidate( ...
                     splitRSASM, candBer, candLock, candBits, iqPhase, ...
-                    bestSplitRSASM, bestSplitBer, bestSplitLock, bestSplitBits, bestSplitPhase)
+                    bestSplitRSASM, bestSplitBer, bestSplitLock, bestSplitBits, bestSplitPhase))
                 bestSplitBer = candBer;
                 bestSplitLock = candLock;
                 bestSplitErrs = candErrs;
@@ -5039,9 +5374,10 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                 bestSplitDecodedQ = decodedQ;
                 bestSplitDecodedBits = decodedBits;
                 bestSplitRSASM = splitRSASM;
+                bestSplitStructureEvidence = splitStructureEvidence;
             end
 
-            if ~splitRSASMEnabled && candBits > 0 && ...
+            if ~useTMStructureIQPhase && ~splitRSASMEnabled && candBits > 0 && ...
                     candBer <= splitEarlyStopBER && candLock >= splitEarlyStopLock
                 if splitDebug
                     fprintf('[SplitPath IQ phase early stop] iqPhase=%d, BER=%.4g, Lock=%.1f%%\n', ...
@@ -5059,6 +5395,11 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         errs = bestSplitErrs;
         bitsComp = bestSplitBits;
         frameStats = bestSplitStats;
+        if useSplitReceiverCoordinator
+            frameStats.SplitReceiverImplementation = 'coordinator';
+        else
+            frameStats.SplitReceiverImplementation = 'legacy';
+        end
         decodedI = bestSplitDecodedI; %#ok<NASGU>
         decodedQ = bestSplitDecodedQ; %#ok<NASGU>
         decodedBits = bestSplitDecodedBits; %#ok<NASGU>
@@ -5590,7 +5931,8 @@ function enabled = localUseSplitRSPeriodicASMAlignment(dataPathMode, tmMod, tmCo
 % on either rail.  All single-stream and non-RS paths retain their existing
 % logic.
     isOrdinaryDualRS = strcmpi(string(dataPathMode), "dualIQ") && ...
-        any(strcmpi(string(tmMod), ["8PSK","16QAM","32QAM"]));
+        any(strcmpi(string(tmMod), ...
+            ["8PSK","16QAM","32QAM","16APSK","32APSK"]));
     isUnequalUQPSKRS = strcmpi(string(dataPathMode), "unequalDualIQ") && ...
         strcmpi(string(tmMod), "UQPSK");
 
