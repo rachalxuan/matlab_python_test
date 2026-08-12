@@ -26,6 +26,24 @@ export const cancelSimulationTask = (taskId) => {
   });
 };
 
+export const getChannelModels = () => {
+  return request({
+    url: "/channel_models",
+    method: "GET",
+  });
+};
+
+export const uploadChannelFile = (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return request({
+    url: "/upload_channel",
+    method: "POST",
+    body: formData,
+    headers: {},
+  });
+};
+
 // Save a simulation record.
 export const saveSimulationRecord = (data) => {
   return request({

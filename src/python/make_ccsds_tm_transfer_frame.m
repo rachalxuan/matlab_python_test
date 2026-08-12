@@ -21,6 +21,8 @@ function [frameBits, frameBytes, fields] = make_ccsds_tm_transfer_frame(payload,
 %       HasOCF                                   Add 4-octet OCF.
 %       OCF                                      4 uint8 octets.
 %       HasFECF                                  Add 2-octet FECF.
+%       CRCType                                  'CCITT' (0x1021/init FFFF)
+%                                                or 'CRC16' (0x8005/init 0000).
 %       SecondaryHeader                          Optional TFSH bytes.
 %       FirstHeaderPointer                       0..2047, default inferred.
 %       PayloadIsBits                            Interpret payload as bits.
@@ -55,6 +57,7 @@ function [frameBits, frameBytes, fields] = make_ccsds_tm_transfer_frame(payload,
         secondaryHeader = uint8([]);
     end
     hasFECF = logical(getOpt(opt, 'HasFECF', false));
+    crcType = canonicalCRCType(getOpt(opt, 'CRCType', 'CCITT'));
     idleFillByte = uint8(getOpt(opt, 'IdleFillByte', hex2dec('55')));
     allowTruncate = logical(getOpt(opt, 'AllowTruncate', false));
     payloadIsBits = logical(getOpt(opt, 'PayloadIsBits', isa(payload, 'logical')));
@@ -137,7 +140,7 @@ function [frameBits, frameBytes, fields] = make_ccsds_tm_transfer_frame(payload,
 
     frameNoFECF = [primaryHeader, reshape(secondaryHeader, 1, []), dataField, ocf];
     if hasFECF
-        fecfBytes = crc16ccsdsBytes(bytesToBitsMSB(frameNoFECF));
+        fecfBytes = crc16FrameBytes(bytesToBitsMSB(frameNoFECF), crcType);
         frameBytes = [frameNoFECF, fecfBytes];
     else
         fecfBytes = uint8([]);
@@ -169,6 +172,7 @@ function [frameBits, frameBytes, fields] = make_ccsds_tm_transfer_frame(payload,
     fields.PayloadPadBits = payloadPadBits;
     fields.IdleFillBytesInserted = fillLength;
     fields.FECF = fecfBytes;
+    fields.CRCType = crcType;
 end
 
 function primaryHeader = buildPrimaryHeader(versionNumber, spacecraftID, virtualChannelID, hasOCF, ...
@@ -250,10 +254,16 @@ function bits = uintToBitsMSB(value, nBits)
     end
 end
 
-function fecfBytes = crc16ccsdsBytes(bits)
+function fecfBytes = crc16FrameBytes(bits, crcType)
     bits = uint8(bits(:).' ~= 0);
-    reg = uint16(hex2dec('FFFF'));
-    poly = uint16(hex2dec('1021'));
+    switch canonicalCRCType(crcType)
+        case 'CCITT'
+            reg = uint16(hex2dec('FFFF'));
+            poly = uint16(hex2dec('1021'));
+        case 'CRC16'
+            reg = uint16(0);
+            poly = uint16(hex2dec('8005'));
+    end
 
     for i = 1:numel(bits)
         topBit = bitget(reg, 16);
@@ -265,6 +275,19 @@ function fecfBytes = crc16ccsdsBytes(bits)
 
     fecfBits = uintToBitsMSB(reg, 16);
     fecfBytes = bitsToBytesMSB(fecfBits);
+end
+
+function crcType = canonicalCRCType(value)
+    key = upper(strrep(strrep(strtrim(char(string(value))),'-',''),'_',''));
+    if any(strcmp(key, {'CCITT','CRC16CCITT','CCSDS','FECF'}))
+        crcType = 'CCITT';
+    elseif any(strcmp(key, {'CRC16','IBM','ARC','CRC16IBM'}))
+        crcType = 'CRC16';
+    else
+        error('make_ccsds_tm_transfer_frame:InvalidCRCType', ...
+            'CRCType must be ''CCITT'' or ''CRC16''; got "%s".', ...
+            char(string(value)));
+    end
 end
 
 function value = getOpt(opt, name, defaultValue)

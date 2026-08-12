@@ -58,6 +58,41 @@ function cfg = gmsk_frame_reset_asm_config(channelCoding, codeRate, ...
         return;
     end
 
+    % RS frames also place the raw ASM ahead of one interleaved RS
+    % codeword.  GMSK detection itself is independent of the FEC family;
+    % these parameters are needed only to establish the periodic ASM grid.
+    if codeKey == "rs"
+        rsMessageLength = localPositiveIntegerField( ...
+            codingCfg, 'RSMessageLength');
+        rsInterleavingDepth = localPositiveIntegerField( ...
+            codingCfg, 'RSInterleavingDepth');
+        isShortened = localLogicalField(codingCfg, ...
+            'IsRSMessageShortened', false);
+        if isShortened
+            rsShortenedMessageLength = localPositiveIntegerField( ...
+                codingCfg, 'RSShortenedMessageLength');
+        else
+            rsShortenedMessageLength = rsMessageLength;
+        end
+        localValidateRSConfiguration(rsMessageLength, ...
+            rsInterleavingDepth, rsShortenedMessageLength);
+
+        rsCodewordBytes = rsInterleavingDepth * ...
+            (255 - rsMessageLength + rsShortenedMessageLength);
+        codewordBits = 8 * rsCodewordBytes;
+
+        cfg.asmTemplates = asmBits;
+        cfg.asmOffsetBits = 0;
+        cfg.framePeriodBits = numel(asmBits) + codewordBits;
+        cfg.codewordLength = codewordBits;
+        cfg.RSMessageLength = rsMessageLength;
+        cfg.RSInterleavingDepth = rsInterleavingDepth;
+        cfg.IsRSMessageShortened = isShortened;
+        cfg.RSShortenedMessageLength = rsShortenedMessageLength;
+        cfg.frameLayout = 'raw-asm-rs-codeword';
+        return;
+    end
+
     % TPC frames also keep their ASM outside the product-code blocks.  One
     % transfer frame carries one or more fixed (64,57)^2 codewords.
     if codeKey == "tpc"
@@ -151,6 +186,36 @@ function value = localPositiveIntegerField(s, name)
             '%s must be a positive integer.', name);
     end
     value = double(s.(name));
+end
+
+function value = localLogicalField(s, name, defaultValue)
+    if isfield(s, name) && ~isempty(s.(name))
+        value = logical(s.(name));
+    else
+        value = logical(defaultValue);
+    end
+    if ~isscalar(value)
+        error('gmsk_frame_reset_asm_config:LogicalField', ...
+            '%s must be a logical scalar.', name);
+    end
+end
+
+function localValidateRSConfiguration(messageLength, interleavingDepth, ...
+        shortenedMessageLength)
+    if ~any(messageLength == [223 239])
+        error('gmsk_frame_reset_asm_config:RSConfiguration', ...
+            'RSMessageLength must be 223 or 239 bytes.');
+    end
+    if ~any(interleavingDepth == [1 2 3 4 5 8])
+        error('gmsk_frame_reset_asm_config:RSConfiguration', ...
+            'RSInterleavingDepth must be 1, 2, 3, 4, 5, or 8.');
+    end
+    if shortenedMessageLength > messageLength
+        error('gmsk_frame_reset_asm_config:RSConfiguration', ...
+            ['RSShortenedMessageLength=%d cannot exceed ', ...
+             'RSMessageLength=%d.'], ...
+            shortenedMessageLength, messageLength);
+    end
 end
 
 function codewordBits = localLDPCCodewordLength(informationBits, codeRate)

@@ -3,6 +3,13 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
     % 1. 逻辑：GMSK 方案2 (Mask=1010..., Prev=1, 反馈差分) -> BER=0
     % 2. 接口：修复了 isInactivePropertyImpl 导致的警告
     
+    properties(Nontunable)
+        % Complex decision-noise variance used by soft demappers.
+        % The receiver estimates this from synchronized symbols unless the
+        % caller supplies an explicit value.
+        NoiseVariance = 0.01
+    end
+
     properties(Nontunable, Access = private)
         pDemod
         pIsGMSK
@@ -75,14 +82,10 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                     'CustomSymbolMapping',[0;2;3;1]);
             
             elseif strcmp(obj.Modulation, 'OQPSK')
-                    % OQPSK 使用 comm.OQPSKDemodulator 处理半符号偏移和匹配滤波。
-                    % 它的输出 bit 顺序/LLR 极性和 CCSDS decoder 约定不完全一致，
-                    % 因此后面手动做每对 bit 内部交换和 soft bit 极性适配。
-                 obj.pDemod = comm.OQPSKDemodulator( ...
-                    'PulseShape','Root raised cosine', ...
-                    'RolloffFactor', obj.RolloffFactor, ...
-                    'SamplesPerSymbol', obj.SamplesPerSymbol, ...
-                    'BitOutput', true);
+                % R2022a comm.OQPSKDemodulator only exposes hard bits.  Keep
+                % the matched-filter/staggered-rail demapper below so coded
+                % OQPSK receives a genuine continuous soft metric.
+                obj.pDemod = [];
             elseif strcmp(obj.Modulation, '8PSK')
                 obj.pDemod = comm.PSKDemodulator('PhaseOffset', pi/8, 'ModulationOrder', 8, ...
                     'BitOutput', true, 'DecisionMethod', "Approximate log-likelihood ratio", ...
@@ -250,28 +253,13 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
 %                 y(y==1) = -5;
 
             elseif obj.pIsOQPSK
-                % =========================================================
-                % OQPSK 官方解调路径
-                % 输入 u 是 full-rate waveform，SamplesPerSymbol=sps
-                % pDemod 内部完成 RRC 匹配滤波、OQPSK 半符号对齐和 hard bit 输出
-                % =========================================================
-                y0 = obj.pDemod(u);
-                y0 = double(y0(:));
-            
-                % MATLAB OQPSKDemodulator 默认 Gray 输出。
-                % 当前 CCSDS/QPSK 路径等效需要每对 bit 内部交换。
-                if mod(length(y0), 2) == 0
-                    y0 = reshape(y0, 2, []);
-                    y0 = y0([2 1], :);
-                    y0 = y0(:);
-                end
-            
-                % 保持与你当前 tryOneRotation 里成功版本完全一致：
-                % bit=0 -> -5, bit=1 -> +5
-                hardBits = y0 > 0;
-                y = -5 * ones(size(hardBits));
-                y(hardBits) = 5;
-                y = double(y);  
+                % True OQPSK soft output.  The two rails are sampled one
+                % half-symbol apart after the receive RRC.  Positive output
+                % means bit 1, matching the project decoder convention.
+                y = localOQPSKSoftLLR(u, double(obj.SamplesPerSymbol), ...
+                    double(obj.RolloffFactor), ...
+                    double(obj.FilterSpanInSymbols), ...
+                    double(obj.NoiseVariance));
             elseif obj.pIsUQPSK
                 % =========================================================
                 % UQPSK soft demap
@@ -342,7 +330,7 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
 
                 % 这里无法直接知道真实 SNR，先给一个温和默认值。
                 % 对 Viterbi/CCSDS 解码来说，LLR 尺度不是绝对关键，但不能太离谱。
-                noiseVar = 0.01;
+                noiseVar = max(eps, double(obj.NoiseVariance));
 
                 llrRaw = qamdemod(rxQAM, M, ...
                     'OutputType','approxllr', ...
@@ -371,7 +359,7 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                     end
                 end
 
-                noiseVar = 0.01;
+                noiseVar = max(eps, double(obj.NoiseVariance));
                 y = HelperCCSDSFACMDemodulate(rxAPSK, obj.pAPSKACMFormat, noiseVar);
                 y = double(y(:));
                 if evalin('base','exist(''DEBUG_APSK'',''var'') && logical(DEBUG_APSK)')
@@ -447,8 +435,14 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             
             elseif strcmp(prop, 'RolloffFactor')
                 flag = ~strcmp(obj.Modulation, 'OQPSK');
+            elseif strcmp(prop, 'FilterSpanInSymbols')
+                flag = ~strcmp(obj.Modulation, 'OQPSK');
             elseif strcmp(prop, 'ModulationEfficiency')
                 flag = ~strcmp(obj.Modulation, '4D-8PSK-TCM');
+            elseif strcmp(prop, 'NoiseVariance')
+                flag = ~(contains(string(obj.Modulation), 'QAM') || ...
+                    contains(string(obj.Modulation), 'APSK') || ...
+                    strcmp(obj.Modulation, 'OQPSK'));
             end
         end
     end
@@ -467,8 +461,89 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
     
     methods(Access = protected, Static)
         function group = getPropertyGroupsImpl
-            genprops = {'Modulation', 'PCMFormat', 'ChannelCoding', 'ModulationEfficiency'};
+            genprops = {'Modulation', 'PCMFormat', 'ChannelCoding', ...
+                'ModulationEfficiency', 'NoiseVariance'};
             group = matlab.system.display.SectionGroup('PropertyList', genprops);
+        end
+    end
+end
+
+function softBits = localOQPSKSoftLLR(x, sps, rolloff, span, noiseVar)
+%LOCALOQPSKSOFTLLR Matched-filter OQPSK demapper with staggered I/Q rails.
+% The transmitter emits the I bit at the symbol epoch and the Q bit one
+% half-symbol later.  Sampling both rails at one common instant turns the
+% transition samples into artificial constellation error and discards the
+% reliability needed by convolutional/LDPC/Turbo decoding.
+    x = complex(x(:));
+    sps = max(2, round(sps));
+    if mod(sps,2) ~= 0
+        error('HelperCCSDSTMDemodulator:OQPSKRequiresEvenSPS', ...
+            'OQPSK soft demodulation requires an even SamplesPerSymbol.');
+    end
+    span = max(1, round(span));
+    if mod(span*sps,2) ~= 0
+        error('HelperCCSDSTMDemodulator:OQPSKInvalidFilterSpan', ...
+            'OQPSK RRC span*sps must be even.');
+    end
+
+    h = rcosdesign(rolloff, span, sps, 'sqrt');
+    matched = filter(h, 1, x);
+    [iSamples, qSamples] = localOQPSKSelectRailTiming( ...
+        matched, sps, span);
+    nSymbols = min(numel(iSamples), numel(qSamples));
+    if nSymbols <= 0
+        softBits = zeros(0,1);
+        return;
+    end
+
+    iSamples = iSamples(1:nSymbols);
+    qSamples = qSamples(1:nSymbols);
+    % Normalize the common rail amplitude before forming LLRs.  This keeps
+    % the LLR calibration independent of the receive-filter gain while
+    % preserving any I/Q imbalance as demodulation error.
+    railAmplitude = sqrt(mean(iSamples.^2 + qSamples.^2)/2 + eps);
+    iSamples = iSamples / railAmplitude;
+    qSamples = qSamples / railAmplitude;
+    noiseVar = max(1e-8, double(noiseVar));
+    % BPSK max-log LLR on each orthogonal rail.  The sign is inverted
+    % because the modulator maps bit 0 to +rail and bit 1 to -rail while
+    % the surrounding TM decoder expects positive soft values for bit 1.
+    scale = 2/noiseVar;
+    softMatrix = [-scale*iSamples.'; -scale*qSamples.'];
+    softBits = double(softMatrix(:));
+    softBits = max(min(softBits, 50), -50);
+end
+
+function [iSamples, qSamples] = localOQPSKSelectRailTiming(matched, sps, span)
+% Select the fractional symbol phase without transmitted-data knowledge.
+% At the correct OQPSK eye center each individual BPSK rail has nearly
+% constant magnitude.  Transition samples have a much larger magnitude
+% spread, so the minimum normalized rail-envelope variance is a robust
+% receiver-observable timing score.
+    bestScore = inf;
+    iSamples = zeros(0,1);
+    qSamples = zeros(0,1);
+    for offset = 0:sps-1
+        iCandidate = real(matched(1+offset:sps:end));
+        qStart = 1 + offset + sps/2;
+        qCandidate = imag(matched(qStart:sps:end));
+        n = min(numel(iCandidate), numel(qCandidate));
+        if n <= max(8, 2*span)
+            continue;
+        end
+        iCandidate = iCandidate(1:n);
+        qCandidate = qCandidate(1:n);
+        guard = min(span, floor((n-1)/4));
+        use = (1+guard):(n-guard);
+        railAmplitude = sqrt(mean( ...
+            iCandidate(use).^2 + qCandidate(use).^2)/2 + eps);
+        score = mean((abs(iCandidate(use))-railAmplitude).^2 + ...
+            (abs(qCandidate(use))-railAmplitude).^2) / ...
+            (2*railAmplitude^2 + eps);
+        if score < bestScore
+            bestScore = score;
+            iSamples = iCandidate;
+            qSamples = qCandidate;
         end
     end
 end

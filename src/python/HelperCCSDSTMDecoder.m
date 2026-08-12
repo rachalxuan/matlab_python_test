@@ -75,9 +75,20 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         DebugPCMFormat = false
         DebugLDPC = false
         DebugTurbo = false
+        % Maximum belief-propagation iterations for ordinary TM LDPC.
+        % Five iterations is too shallow near the decoder waterfall and
+        % can turn a low raw BER into an otherwise avoidable frame loss.
+        LDPCMaxIterations = 20
         CodedSyncOffset = 0
         UsePeriodicCodedASMSync = true
         CodedASMPeriodicFrames = 8
+        % Production-style ASM state controls.  ErrorThreshold is mapped
+        % to a normalized soft-correlation floor; lock/unlock thresholds
+        % provide holdover through isolated faded frames.
+        FrameSyncBitSlipTolerance = 3
+        FrameSyncASMErrorThreshold = 3
+        FrameSyncLockThreshold = 2
+        FrameSyncUnlockThreshold = 3
     end
 
     % Pre-computed constants
@@ -93,12 +104,18 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         pASMOffsetLength
         pLDPCDecoderCfg
         pLDPCCodewordLength
+        pLDPCFullCodewordLength
+        pLDPCPuncturedLength = 0
         pLDPCMessageLength
-        pLDPCMaxIterations = 5
+        pLDPCMaxIterations = 20
         pTurboDecoder
         pTurboCodewordLength
         pTurboMessageLength
         pTurboInputIndices
+        pFrameSyncLocked = false
+        pFrameSyncGoodCount = 0
+        pFrameSyncBadCount = 0
+        pFrameSyncLastPhase = 1
     end
 
     properties
@@ -451,8 +468,25 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 kReq = double(obj.NumBitsInInformationBlock);
                 S = loadOrCreateTMLDPCH(kReq, invr);
 
+                maxIterations = double(obj.LDPCMaxIterations);
+                if ~isscalar(maxIterations) || ~isfinite(maxIterations) || ...
+                        maxIterations < 1
+                    error('HelperCCSDSTMDecoder:InvalidLDPCMaxIterations', ...
+                        'LDPCMaxIterations must be a finite positive scalar.');
+                end
+                obj.pLDPCMaxIterations = max(1, round(maxIterations));
+
                 obj.pLDPCMessageLength = S.k;
                 obj.pLDPCCodewordLength = S.n;
+                obj.pLDPCFullCodewordLength = size(S.H, 2);
+                obj.pLDPCPuncturedLength = ...
+                    obj.pLDPCFullCodewordLength - obj.pLDPCCodewordLength;
+                if obj.pLDPCPuncturedLength < 0
+                    error('HelperCCSDSTMDecoder:InvalidLDPCMatrixLength', ...
+                        ['LDPC parity-check matrix has %d columns but the ', ...
+                         'transmitted codeword has %d bits.'], ...
+                        obj.pLDPCFullCodewordLength, obj.pLDPCCodewordLength);
+                end
                 obj.pLDPCDecoderCfg = ldpcDecoderConfig(sparse(logical(S.H)));
 
                 % 普通 TM LDPC: coded frame = ASM + LDPC codeword
@@ -461,12 +495,17 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 obj.pFrameLength = obj.pFullInputBufferLength;
 
                 if obj.DebugLDPC
-                    fprintf('[LDPC setup] k=%d, n=%d, rate=%.6f, syncLen=%d, fullFrame=%d\n', ...
+                    fprintf(['[LDPC setup] k=%d, txN=%d, fullN=%d, ', ...
+                        'punctured=%d, rate=%.6f, syncLen=%d, ', ...
+                        'fullFrame=%d, maxIter=%d, Hnnz=%d\n'], ...
                         obj.pLDPCMessageLength, ...
                         obj.pLDPCCodewordLength, ...
+                        obj.pLDPCFullCodewordLength, ...
+                        obj.pLDPCPuncturedLength, ...
                         obj.pLDPCMessageLength/obj.pLDPCCodewordLength, ...
                         obj.pFullInputBufferLength - obj.pLDPCCodewordLength, ...
-                        obj.pFullInputBufferLength);
+                        obj.pFullInputBufferLength, obj.pLDPCMaxIterations, ...
+                        nnz(S.H));
                 end
             end
             if strcmp(obj.ChannelCoding, "TPC")
@@ -551,8 +590,16 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             isGMSKModulation = strcmpi(string(obj.Modulation), "GMSK");
             isRawASMBlockCode = any(strcmpi(string(obj.ChannelCoding), ...
                 ["LDPC", "turbo"]));
+            % Uncoded ordinary TM still carries a raw ASM once per transfer
+            % frame.  Use the same multi-frame periodic evidence as the
+            % block-code paths; otherwise a strong payload correlation in a
+            % single frame can steal acquisition even after the top-level
+            % APSK phase search found the correct rotation.
+            isRawASMUncoded = strcmpi(string(obj.ChannelCoding), "none") && ...
+                ~isGMSKModulation;
             usePeriodicASMSync = strcmpi(string(obj.ChannelCoding), "TPC") || ...
                 (isRawASMBlockCode && ~isGMSKModulation) || ...
+                isRawASMUncoded || ...
                 (strcmp(obj.ChannelCoding, "RS") && contains(string(obj.Modulation), "APSK"));
             if obj.HasASM && usePeriodicASMSync
                 syncInput = [obj.pInputBuffer; llr(:)];
@@ -590,7 +637,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     end
                 end
 
-                if searchLimit > 0 && bestFrames >= 2 && bestMeanErr <= asmlen/2
+                periodicSyncAccepted = searchLimit > 0 && ...
+                    bestFrames >= 2 && bestMeanErr <= asmlen/2;
+                if periodicSyncAccepted
                     syncInput = syncInput(bestPos:end);
                 end
                 if bestPolarity < 0
@@ -607,6 +656,12 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                         evalin('base','exist(''DEBUG_APSK'',''var'') && logical(DEBUG_APSK)')
                     fprintf('[APSK RS sync] pos=%d err=%d mean=%.2f frames=%d, polarity=%+d, outFrames=%d\n', ...
                         bestPos, bestErr, bestMeanErr, bestFrames, bestPolarity, size(frames,2));
+                elseif isRawASMUncoded && ...
+                        evalin('base','exist(''debugCodedBoundaryEnabled'',''var'') && logical(debugCodedBoundaryEnabled)')
+                    fprintf(['[TM uncoded ASM sync] pos=%d err=%d mean=%.2f ', ...
+                        'frames=%d polarity=%+d accepted=%d outFrames=%d\n'], ...
+                        bestPos, bestErr, bestMeanErr, bestFrames, ...
+                        bestPolarity, periodicSyncAccepted, size(frames,2));
                 end
             elseif obj.HasASM && obj.DisableFrameSynchronization
                 [frames, obj.pInputBuffer] = buffer([obj.pInputBuffer; llr], obj.pFullInputBufferLength);
@@ -892,6 +947,16 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                     llr(logical(prn)) = -llr(logical(prn));
                                 end
 
+                                % CCSDS AR4JA rate-1/2 transmits only the
+                                % first 4M variables.  The final M variables
+                                % belong to the standard sparse graph but are
+                                % punctured, so their channel LLR is exactly
+                                % zero (unknown) at the decoder input.
+                                if obj.pLDPCPuncturedLength > 0
+                                    llr = [llr; ...
+                                        zeros(obj.pLDPCPuncturedLength, 1)]; %#ok<AGROW>
+                                end
+
                                 decWhole = ldpcDecode(llr, obj.pLDPCDecoderCfg, ...
                                     obj.pLDPCMaxIterations, 'OutputFormat','whole');
 
@@ -959,7 +1024,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
 
             [frames, obj.pInputBuffer] = buffer([obj.pInputBuffer;u], obj.pFullInputBufferLength);
             n = size(frames, 2);
-            v = zeros(obj.pFullInputBufferLength, 1); % Pre-initialization
+            v = zeros(obj.pFullInputBufferLength, n);
+            validOutput = false(1, n);
+            syncFailed = true;
             debugCodedBoundary = evalin('base','exist(''debugCodedBoundaryEnabled'',''var'') && logical(debugCodedBoundaryEnabled)');
             if debugCodedBoundary && n == 0 && localShouldPrintCodedFrameSyncDebug()
                 fprintf('[Coded DEBUG] decoder frameSync no full frame yet: inputLen=%d, buffered=%d, frameLen=%d\n', ...
@@ -1027,6 +1094,62 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                         pos, rawPos, obj.pASMOffsetLength, obj.CodedSyncOffset);
                 end
 
+                % Reject weak payload correlations before they can trigger
+                % a destructive frame-buffer realignment.  While locked,
+                % tolerate the configured number of consecutive weak ASM
+                % observations and keep the last phase (holdover).
+                selectedCorrelation = maxCorrValues(PhaseIndex);
+                selectedASMLength = numel(obj.pRotatedASM(:,PhaseIndex));
+                maxASMErrors = min(max(0, round(double( ...
+                    obj.FrameSyncASMErrorThreshold))), ...
+                    floor(selectedASMLength/2));
+                minimumCorrelation = 1 - 2*maxASMErrors/selectedASMLength;
+                slipTolerance = max(0, round(double( ...
+                    obj.FrameSyncBitSlipTolerance)));
+                correlationAccepted = isfinite(selectedCorrelation) && ...
+                    selectedCorrelation >= minimumCorrelation;
+                if obj.pFrameSyncLocked && abs(pos-1) > slipTolerance
+                    correlationAccepted = false;
+                end
+
+                if correlationAccepted
+                    obj.pFrameSyncGoodCount = obj.pFrameSyncGoodCount + 1;
+                    obj.pFrameSyncBadCount = 0;
+                    obj.pFrameSyncLastPhase = PhaseIndex;
+                    if obj.pFrameSyncGoodCount >= max(1, round(double( ...
+                            obj.FrameSyncLockThreshold)))
+                        obj.pFrameSyncLocked = true;
+                    end
+                else
+                    obj.pFrameSyncGoodCount = 0;
+                    obj.pFrameSyncBadCount = obj.pFrameSyncBadCount + 1;
+                    unlockThreshold = max(1, round(double( ...
+                        obj.FrameSyncUnlockThreshold)));
+                    if obj.pFrameSyncLocked && ...
+                            obj.pFrameSyncBadCount < unlockThreshold
+                        pos = 1;
+                        PhaseIndex = obj.pFrameSyncLastPhase;
+                        if printFrameSyncDebug
+                            fprintf(['[Coded DEBUG] decoder ASM holdover ', ...
+                                'corr=%.4f threshold=%.4f bad=%d/%d\n'], ...
+                                selectedCorrelation, minimumCorrelation, ...
+                                obj.pFrameSyncBadCount, unlockThreshold);
+                        end
+                    else
+                        obj.pFrameSyncLocked = false;
+                        syncFailed = true;
+                        if printFrameSyncDebug
+                            fprintf(['[Coded DEBUG] decoder ASM rejected ', ...
+                                'corr=%.4f threshold=%.4f pos=%d\n'], ...
+                                selectedCorrelation, minimumCorrelation, pos);
+                        end
+                        % During acquisition, a filter/transient-damaged
+                        % first frame must not prevent later complete frame
+                        % columns in this same call from acquiring lock.
+                        continue;
+                    end
+                end
+
                 % Resolve phase ambiguity
                 if any(strcmp(obj.Modulation,{'QPSK','OQPSK'}))
                     basePhaseIndex = mod(PhaseIndex-1, 4) + 1;
@@ -1056,6 +1179,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 if pos == 1
                     syncFailed = false;
                     v(:,iFrame) = derotated;
+                    validOutput(iFrame) = true;
                 else
                     tempInputBuffer = obj.pInputBuffer;
                     resetImpl(obj);
@@ -1103,7 +1227,10 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 obj.pInputBuffer = [reshape(frames(:,iFrame+1:end),[],1);obj.pInputBuffer];
             end
 
-            if n == 0
+            if n > 0
+                v = v(:,validOutput);
+                syncFailed = isempty(v);
+            else
                 syncFailed = true;
                 v = zeros(obj.pFullInputBufferLength, 0);
             end
@@ -1275,6 +1402,10 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             obj.pInputBuffer = [];
             obj.pOutputBuffer = [];
             obj.pDifferentialDecoderBit = 0;
+            obj.pFrameSyncLocked = false;
+            obj.pFrameSyncGoodCount = 0;
+            obj.pFrameSyncBadCount = 0;
+            obj.pFrameSyncLastPhase = 1;
         end
 
         function releaseImpl(obj)
@@ -1296,9 +1427,14 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             s.RandomizerFECPosition = obj.RandomizerFECPosition;
             s.DataPathMode = obj.DataPathMode;
             s.DebugLDPC = obj.DebugLDPC;
+            s.LDPCMaxIterations = obj.LDPCMaxIterations;
             s.CodedSyncOffset = obj.CodedSyncOffset;
             s.UsePeriodicCodedASMSync = obj.UsePeriodicCodedASMSync;
             s.CodedASMPeriodicFrames = obj.CodedASMPeriodicFrames;
+            s.FrameSyncBitSlipTolerance = obj.FrameSyncBitSlipTolerance;
+            s.FrameSyncASMErrorThreshold = obj.FrameSyncASMErrorThreshold;
+            s.FrameSyncLockThreshold = obj.FrameSyncLockThreshold;
+            s.FrameSyncUnlockThreshold = obj.FrameSyncUnlockThreshold;
             s.TPCCodeRate = obj.TPCCodeRate;
             s.TPCBlocksPerTF = obj.TPCBlocksPerTF;
             s.TPCInterleaver = obj.TPCInterleaver;
@@ -1313,6 +1449,10 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 s.pInputBuffer = obj.pInputBuffer;
                 s.pOutputBuffer = obj.pOutputBuffer;
                 s.pDifferentialDecoderBit = obj.pDifferentialDecoderBit;
+                s.pFrameSyncLocked = obj.pFrameSyncLocked;
+                s.pFrameSyncGoodCount = obj.pFrameSyncGoodCount;
+                s.pFrameSyncBadCount = obj.pFrameSyncBadCount;
+                s.pFrameSyncLastPhase = obj.pFrameSyncLastPhase;
             end
         end
 
@@ -1328,6 +1468,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             if isfield(s,'DebugLDPC')
                 obj.DebugLDPC = s.DebugLDPC;
             end
+            if isfield(s,'LDPCMaxIterations')
+                obj.LDPCMaxIterations = s.LDPCMaxIterations;
+            end
             if isfield(s,'CodedSyncOffset')
                 obj.CodedSyncOffset = s.CodedSyncOffset;
             end
@@ -1336,6 +1479,18 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             end
             if isfield(s,'CodedASMPeriodicFrames')
                 obj.CodedASMPeriodicFrames = s.CodedASMPeriodicFrames;
+            end
+            if isfield(s,'FrameSyncBitSlipTolerance')
+                obj.FrameSyncBitSlipTolerance = s.FrameSyncBitSlipTolerance;
+            end
+            if isfield(s,'FrameSyncASMErrorThreshold')
+                obj.FrameSyncASMErrorThreshold = s.FrameSyncASMErrorThreshold;
+            end
+            if isfield(s,'FrameSyncLockThreshold')
+                obj.FrameSyncLockThreshold = s.FrameSyncLockThreshold;
+            end
+            if isfield(s,'FrameSyncUnlockThreshold')
+                obj.FrameSyncUnlockThreshold = s.FrameSyncUnlockThreshold;
             end
             if isfield(s,'TPCCodeRate')
                 obj.TPCCodeRate = s.TPCCodeRate;
@@ -1355,6 +1510,12 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 obj.pInputBuffer = s.pInputBuffer;
                 obj.pOutputBuffer = s.pOutputBuffer;
                 obj.pDifferentialDecoderBit = s.pDifferentialDecoderBit;
+                if isfield(s,'pFrameSyncLocked')
+                    obj.pFrameSyncLocked = s.pFrameSyncLocked;
+                    obj.pFrameSyncGoodCount = s.pFrameSyncGoodCount;
+                    obj.pFrameSyncBadCount = s.pFrameSyncBadCount;
+                    obj.pFrameSyncLastPhase = s.pFrameSyncLastPhase;
+                end
             end
             obj.ViterbiTraceBackDepth = s.ViterbiTraceBackDepth;
             obj.ViterbiTrellis = s.ViterbiTrellis;
@@ -1390,6 +1551,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 flag = false;
             elseif strcmp(prop,'DebugLDPC')
                 flag = false;
+            elseif strcmp(prop,'LDPCMaxIterations')
+                flag = ~strcmp(obj.ChannelCoding,'LDPC') || isFACM;
             elseif strcmp(prop,'DebugTurbo')
                 flag = false;
             elseif strcmp(prop,'CodedSyncOffset')
@@ -1428,7 +1591,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 flag = isFACM;
             elseif strcmp(prop,'PCMFormat')
                 flag = ~any(strcmp(obj.Modulation,{'PCM/PSK/PM','BPSK','QPSK','8PSK','OQPSK'})) || isFACM;
-            elseif any(strcmp(prop, {'DisableFrameSynchronization','DisablePhaseAmbiguityResolution'}))
+            elseif any(strcmp(prop, {'DisableFrameSynchronization','DisablePhaseAmbiguityResolution', ...
+                    'FrameSyncBitSlipTolerance','FrameSyncASMErrorThreshold', ...
+                    'FrameSyncLockThreshold','FrameSyncUnlockThreshold'}))
                 flag = false; % Always visible
             end
         end
@@ -1448,7 +1613,12 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 'DisablePhaseAmbiguityResolution',...
                 'DebugPCMFormat',...
                 'DebugLDPC',...
+                'LDPCMaxIterations',...
                 'CodedSyncOffset',...
+                'FrameSyncBitSlipTolerance',...
+                'FrameSyncASMErrorThreshold',...
+                'FrameSyncLockThreshold',...
+                'FrameSyncUnlockThreshold',...
                 'NumBytesInTransferFrame',...
                 'ConvolutionalCodeRate',...
                 'CodeRate',...
@@ -1478,6 +1648,24 @@ tf = numel(bits) == numel(defaultASM) && all(int8(bits(:) ~= 0) == defaultASM);
 end
 
 function S = loadOrCreateTMLDPCH(k, invr)
+    % The AR4JA rate-1/2 family is defined by a sparse 3M-by-5M graph.  Its
+    % final M variables are punctured, leaving a transmitted length of 4M.
+    % Decode on that original graph instead of a dense algebraically
+    % equivalent H=[P' I], whose short cycles destroy iterative performance.
+    if abs(double(invr) - 2) < 1e-12 && ...
+            ismember(double(k), [1024 4096 16384])
+        [H, meta] = buildTMLDPC_H_standard(k, invr);
+        S = struct( ...
+            'H', H, ...
+            'k', double(k), ...
+            'n', meta.TransmittedLength, ...
+            'fullN', meta.FullCodewordLength, ...
+            'puncturedLength', meta.PuncturedLength, ...
+            'invr', double(invr), ...
+            'matrixMode', 'ccsds-ar4ja-sparse-punctured');
+        return;
+    end
+
     cacheDir = fileparts(mfilename('fullpath'));
     invrTag = rateTagFromInverse(invr);
     cacheName = sprintf('tm_ldpc_H_k%d_%s.mat', k, invrTag);

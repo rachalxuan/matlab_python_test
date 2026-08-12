@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from werkzeug.utils import secure_filename
 from flask_cors import CORS  # ✅ 1. 新增这行：引入插件
 import matlab.engine
 import os
@@ -29,7 +30,26 @@ print(f"✅ [Server] MATLAB 引擎启动完毕！耗时: {time.time() - t_start:
 # ----------------------------------------
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 256 * 1024 * 1024
 CORS(app)  # ✅ 2. 新增这行：开启跨域许可
+
+project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
+channel_upload_dir = os.path.join(project_root, 'artifacts', 'ccsds', 'channel_uploads')
+os.makedirs(channel_upload_dir, exist_ok=True)
+channel_library_dir = os.environ.get(
+    'CCSDS_CHANNEL_DIR',
+    r'E:\matlab_project\v3.0\v3.0\channel',
+)
+channel_library = [
+    ('default', '默认 ChannelData', 'ChannelData.mat'),
+    ('tdl', 'TDL', '2-ChannelData.mat'),
+    ('cdl', 'CDL', '3-ChannelData.mat'),
+    ('itu_p681', 'ITU-P681', '4-ChannelData.mat'),
+    ('jakes', 'Jakes', 'ChannelData_5.mat'),
+    ('cloo', 'C. Loo', 'ChannelData_6.mat'),
+    ('corazza', 'Corazza', 'ChannelData_7.mat'),
+    ('lutz', 'Lutz', 'ChannelData_8.mat'),
+]
 
 task_queue = queue.Queue()
 tasks = {}
@@ -198,6 +218,63 @@ init_db()
 # 调用matlab接口
 
 
+@app.route('/channel_models', methods=['GET'])
+def get_channel_models():
+    models = []
+    for model_id, label, file_name in channel_library:
+        file_path = os.path.abspath(os.path.join(channel_library_dir, file_name))
+        models.append({
+            'id': model_id,
+            'label': label,
+            'fileName': file_name,
+            'path': file_path,
+            'available': os.path.isfile(file_path),
+            'source': 'builtin',
+        })
+    for stored_name in sorted(os.listdir(channel_upload_dir)):
+        if not stored_name.lower().endswith('.mat'):
+            continue
+        display_name = stored_name.split('_', 1)[-1]
+        models.append({
+            'id': f'upload:{stored_name}',
+            'label': f'自定义：{display_name}',
+            'fileName': display_name,
+            'path': os.path.abspath(os.path.join(channel_upload_dir, stored_name)),
+            'available': True,
+            'source': 'upload',
+        })
+    return jsonify({'success': True, 'models': models})
+
+
+@app.route('/upload_channel', methods=['POST'])
+def upload_channel():
+    upload = request.files.get('file')
+    if upload is None or not upload.filename:
+        return jsonify({'success': False, 'error': '未选择 MAT 文件'}), 400
+
+    original_name = upload.filename
+    if not original_name.lower().endswith('.mat'):
+        return jsonify({'success': False, 'error': '只允许上传 .mat 信道文件'}), 400
+    safe_name = secure_filename(original_name)
+    if not safe_name.lower().endswith('.mat'):
+        safe_name = 'channel.mat'
+
+    stored_name = f'{uuid.uuid4().hex}_{safe_name}'
+    stored_path = os.path.abspath(os.path.join(channel_upload_dir, stored_name))
+    upload.save(stored_path)
+    return jsonify({
+        'success': True,
+        'model': {
+            'id': f'upload:{stored_name}',
+            'label': original_name,
+            'fileName': safe_name,
+            'path': stored_path,
+            'available': True,
+            'source': 'upload',
+        },
+    })
+
+
 @app.route('/simulate', methods=['POST'])
 def run_simulation():
     try:
@@ -230,6 +307,12 @@ def run_simulation():
             "RandomizerFECPosition": params.get("RandomizerFECPosition"),
             "DataPathMode": params.get("DataPathMode"),
             "WaveformMode": params.get("WaveformMode"),
+            "AGCEnabled": params.get("AGCEnabled"),
+            "AGCTimeConstantMs": params.get("AGCTimeConstantMs"),
+            "enableHChannel": params.get("enableHChannel"),
+            "HMode": params.get("HMode"),
+            "channelFilePath": params.get("channelFilePath"),
+            "enableEqualizer": params.get("enableEqualizer"),
         }
         print("[Server] 参数摘要:", json.dumps(debug_params, ensure_ascii=False))
 

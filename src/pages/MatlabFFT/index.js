@@ -6,6 +6,8 @@ import {
   saveSimulationRecord,
   getHistoryList,
   getRecordDetail,
+  getChannelModels,
+  uploadChannelFile,
 } from "../../apis/simulation";
 
 import {
@@ -28,6 +30,7 @@ import {
   Tooltip,
   Descriptions,
   Alert,
+  Upload,
 } from "antd";
 import {
   RocketOutlined,
@@ -42,6 +45,7 @@ import {
   ClockCircleOutlined,
   InfoCircleOutlined,
   StopOutlined,
+  UploadOutlined,
 } from "@ant-design/icons";
 import * as echarts from "echarts";
 import "./index.scss";
@@ -107,13 +111,11 @@ const DEFAULT_CCSDS_PARAMS = {
   delay: 0,
   sps: 8,
   hasASM: true,
-  RandomizerEnabled: false,
-  RandomizerFECPosition: "afterEncoding",
+  RandomizerMode: "off",
   DataPathMode: "single",
-  WaveformMode: "ordinaryTM",
-  hasPilots: true,
+  AGCMode: "off",
   rsPreset: "rs-255-223-i5",
-  hDamageLevel: "none",
+  channelModel: "none",
   enableEqualizer: false,
 };
 
@@ -122,6 +124,7 @@ const MODULATION_OPTIONS = [
   { value: "QPSK", label: "QPSK" },
   { value: "8PSK", label: "8PSK" },
   { value: "GMSK", label: "GMSK" },
+  { value: "MSK", label: "MSK" },
   { value: "OQPSK", label: "OQPSK" },
   { value: "UQPSK", label: "UQPSK" },
   { value: "16QAM", label: "16QAM" },
@@ -176,13 +179,6 @@ const applyDefaultParams = (values = {}) => {
       next[key] = defaultValue;
     }
   });
-
-  if (next.modType === "16APSK" && isBlankValue(next.acmFormat)) {
-    next.acmFormat = 14;
-  }
-  if (next.modType === "32APSK" && isBlankValue(next.acmFormat)) {
-    next.acmFormat = 21;
-  }
 
   return next;
 };
@@ -428,6 +424,7 @@ const normalizeSimulationResult = (raw) => {
       constellation_raw: raw.constellation_raw,
       constellation_synced: raw.constellation_synced,
       pipeline: raw.pipeline, // 4 阶段星座 + EVM 数组 + 标签
+      channelPower: raw.channelPower,
       stats: {
         Fs: raw.Fs,
         CodeRate: formatCodeRateDisplay(raw),
@@ -465,6 +462,13 @@ const normalizeSimulationResult = (raw) => {
         InputCFO: raw.cfo_in,
         InputPhase: raw.phase_in,
         InputDelay: raw.delay_in,
+        DataPathMode: raw.DataPathMode,
+        RandomizerEnabled: raw.RandomizerEnabled,
+        RandomizerFECPosition: raw.RandomizerFECPosition,
+        AGCEnabled: raw.AGCEnabled,
+        AGCTimeConstantMs: raw.AGCTimeConstantMs,
+        AGCFinalGain_dB: raw.AGCFinalGain_dB,
+        AGCSufficientObservation: raw.AGCSufficientObservation,
         // 残余损伤 (同步链路压制后剩余,理想值接近 0)
         ResidCFOValid:
           raw.ResidualCFO_valid === undefined
@@ -504,12 +508,16 @@ const CCSDSPlatform = () => {
   const [isElectron, setIsElectron] = useState(false);
   const [historyVisible, setHistoryVisible] = useState(false);
   const [historyList, setHistoryList] = useState([]);
+  const [channelModels, setChannelModels] = useState([]);
+  const [uploadedChannelModel, setUploadedChannelModel] = useState(null);
 
   // 图表 Refs
   const rawConstellationRef = useRef(null);
   // const constellationRef = useRef(null);
   const syncedConstellationRef = useRef(null);
   const spectrumRef = useRef(null);
+  const channelPowerRef = useRef(null);
+  const channelSpectrumRef = useRef(null);
   const chartInstances = useRef({});
   const pollCancelledRef = useRef(false);
 
@@ -522,6 +530,10 @@ const CCSDSPlatform = () => {
 
   useEffect(() => {
     setIsElectron(window && window.matlabAPI !== undefined);
+
+    getChannelModels()
+      .then((res) => setChannelModels(res?.models || []))
+      .catch((error) => console.warn("读取信道模型列表失败:", error));
 
     const resizeHandler = () => {
       Object.values(chartInstances.current).forEach(
@@ -581,6 +593,40 @@ const CCSDSPlatform = () => {
         ),
       };
 
+      // 前端只暴露高层选项；底层参数在这里统一收口。
+      payload.WaveformMode = "ordinaryTM";
+      payload.showFigures = false;
+
+      const requestedPath = payload.DataPathMode === "dualIQ" ? "dualIQ" : "single";
+      const splitCapableModulations = [
+        "QPSK",
+        "OQPSK",
+        "8PSK",
+        "16QAM",
+        "32QAM",
+        "16APSK",
+        "32APSK",
+        "UQPSK",
+      ];
+      if (!splitCapableModulations.includes(payload.modType)) {
+        payload.DataPathMode = "single";
+      } else if (payload.modType === "UQPSK" && requestedPath === "dualIQ") {
+        payload.DataPathMode = "unequalDualIQ";
+      } else {
+        payload.DataPathMode = requestedPath;
+      }
+
+      const randomizerMode = payload.RandomizerMode || "off";
+      payload.RandomizerEnabled = randomizerMode !== "off";
+      payload.RandomizerFECPosition =
+        randomizerMode === "beforeEncoding" ? "beforeEncoding" : "afterEncoding";
+      delete payload.RandomizerMode;
+
+      const agcMode = payload.AGCMode || "off";
+      payload.AGCEnabled = agcMode !== "off";
+      payload.AGCTimeConstantMs = agcMode === "off" ? 10 : Number(agcMode);
+      delete payload.AGCMode;
+
       if (payload.channelCoding === "None") {
         payload.channelCoding = "none";
       }
@@ -633,19 +679,38 @@ const CCSDSPlatform = () => {
         Object.assign(payload, preset);
       }
 
-      const hPreset = H_DAMAGE_PRESETS[payload.hDamageLevel || "none"];
-      payload.enableHChannel = Boolean(hPreset);
-      payload.HMode = "siso_multipath";
-      payload.H = hPreset || [];
-      payload.normalizeHChannel = true;
-      payload.enableEqualizer = Boolean(payload.enableEqualizer);
+      const selectedChannel = payload.channelModel || "none";
+      const hPreset = H_DAMAGE_PRESETS[selectedChannel.replace("synthetic_", "")];
+      const matrixChannel =
+        channelModels.find((item) => item.id === selectedChannel) ||
+        (uploadedChannelModel?.id === selectedChannel ? uploadedChannelModel : null);
+      payload.enableHChannel = Boolean(hPreset || matrixChannel);
+      if (hPreset) {
+        payload.HMode = "siso_multipath";
+        payload.H = hPreset;
+        payload.normalizeHChannel = true;
+      } else if (matrixChannel) {
+        payload.HMode = "h_matrix_file";
+        payload.channelFilePath = matrixChannel.path;
+        payload.channelInterpolationMethod = "linear";
+        payload.channelOutOfRangeMode = "wrap";
+        payload.interpolateChannelDelays = false;
+        payload.normalizeHChannel = false;
+        delete payload.H;
+      } else {
+        payload.HMode = "none";
+        payload.H = [];
+        payload.normalizeHChannel = false;
+        delete payload.channelFilePath;
+      }
+      payload.enableEqualizer = payload.enableHChannel && Boolean(payload.enableEqualizer);
       payload.normalizeEqualizerOutput = true;
       payload.equalizerMode = "mmse";
       payload.enableFACMEqualizer = Boolean(payload.enableEqualizer);
       payload.facmEqualizerMode = "pilot-ls";
       payload.facmEqualizerTaps = 11;
       payload.facmEqualizerReg = 1e-2;
-      delete payload.hDamageLevel;
+      delete payload.channelModel;
 
       if (payload.modType === "16APSK" || payload.modType === "32APSK") {
         payload.HasTMAPSKPilots = true;
@@ -664,6 +729,11 @@ const CCSDSPlatform = () => {
         payload.RRatio = 2;
         payload.ARatio = 2;
         payload.enableUQPSKFFTCoarseCFO = true;
+      }
+
+      // MSK/GMSK 使用单路连续相位链路，避免把底层 I/Q 分路参数传入。
+      if (payload.modType === "MSK" || payload.modType === "GMSK") {
+        payload.DataPathMode = "single";
       }
 
       console.log("正在通过 HTTP 请求仿真...", payload);
@@ -751,6 +821,22 @@ const CCSDSPlatform = () => {
     const completedValues = applyDefaultParams(form.getFieldsValue());
     form.setFieldsValue(completedValues);
     message.success("已补全参数");
+  };
+
+  const handleChannelUpload = async ({ file, onSuccess, onError }) => {
+    try {
+      const result = await uploadChannelFile(file);
+      if (!result?.success || !result?.model) {
+        throw new Error(result?.error || "上传失败");
+      }
+      setUploadedChannelModel(result.model);
+      form.setFieldValue("channelModel", result.model.id);
+      message.success(`已加载信道文件：${result.model.label}`);
+      onSuccess?.(result);
+    } catch (error) {
+      message.error(error.message || "上传信道文件失败");
+      onError?.(error);
+    }
   };
 
   // === 新增功能 A: 点击保存按钮 ===
@@ -1064,6 +1150,49 @@ const CCSDSPlatform = () => {
         legend: { data: ["Rx 接收信号", "Tx 参考信号"], top: 45, right: 30 },
       });
     }
+
+    // 4. 信道输入/输出功率：只显示后端抽样后的曲线，避免把原始长波形传到浏览器。
+    const channelPower = data.channelPower;
+    if (channelPower?.time_ms?.length) {
+      if (channelPowerRef.current) {
+        const old = echarts.getInstanceByDom(channelPowerRef.current);
+        if (old) old.dispose();
+        const chart = echarts.init(channelPowerRef.current);
+        chartInstances.current.channelPower = chart;
+        chart.setOption({
+          title: { text: "信道输入/输出瞬时功率", left: "center", top: 8 },
+          tooltip: { trigger: "axis" },
+          grid: { top: 45, bottom: 45, left: 55, right: 25, containLabel: true },
+          xAxis: { type: "category", data: channelPower.time_ms.map((v) => Number(v).toFixed(3)), name: "时间 (ms)" },
+          yAxis: { type: "value", name: "功率 (dBm)", scale: true },
+          legend: { top: 28 },
+          series: [
+            { name: "信道输入", type: "line", data: channelPower.input_power_dbm, showSymbol: false, smooth: true, lineStyle: { color: "#1677ff" } },
+            { name: "信道输出", type: "line", data: channelPower.output_power_dbm, showSymbol: false, smooth: true, lineStyle: { color: "#ff4d4f" } },
+          ],
+        });
+      }
+    }
+    if (channelPower?.frequency_mhz?.length) {
+      const old = channelSpectrumRef.current && echarts.getInstanceByDom(channelSpectrumRef.current);
+      if (old) old.dispose();
+      if (channelSpectrumRef.current) {
+        const chart = echarts.init(channelSpectrumRef.current);
+        chartInstances.current.channelSpectrum = chart;
+        chart.setOption({
+          title: { text: "信道输入/输出 PSD", left: "center", top: 8 },
+          tooltip: { trigger: "axis" },
+          grid: { top: 45, bottom: 45, left: 55, right: 25, containLabel: true },
+          xAxis: { type: "category", data: channelPower.frequency_mhz.map((v) => Number(v).toFixed(3)), name: "频率 (MHz)" },
+          yAxis: { type: "value", name: "PSD (dBm/Hz)", scale: true },
+          legend: { top: 28 },
+          series: [
+            { name: "信道输入", type: "line", data: channelPower.input_psd_dbmhz, showSymbol: false, lineStyle: { color: "#1677ff" } },
+            { name: "信道输出", type: "line", data: channelPower.output_psd_dbmhz, showSymbol: false, lineStyle: { color: "#ff4d4f" } },
+          ],
+        });
+      }
+    }
   };
 
   const renderEvaluationInsights = () => {
@@ -1183,6 +1312,20 @@ const CCSDSPlatform = () => {
                 <Descriptions.Item label="实际码率">
                   {simResult.stats.CodeRate}
                 </Descriptions.Item>
+                <Descriptions.Item label="数据通路">
+                  {simResult.stats.DataPathMode === "unequalDualIQ"
+                    ? "UQPSK 不等速 I/Q 分路"
+                    : simResult.stats.DataPathMode === "dualIQ"
+                      ? "I/Q 分路"
+                      : "合路（单路 TM）"}
+                </Descriptions.Item>
+                <Descriptions.Item label="加扰">
+                  {!simResult.stats.RandomizerEnabled
+                    ? "关闭"
+                    : simResult.stats.RandomizerFECPosition === "beforeEncoding"
+                      ? "编码前"
+                      : "编码后"}
+                </Descriptions.Item>
                 <Descriptions.Item label="采样率">
                   {isFiniteNumber(simResult.stats.Fs)
                     ? `${formatMetricValue(simResult.stats.Fs / 1e6)} MHz`
@@ -1238,6 +1381,11 @@ const CCSDSPlatform = () => {
                         3,
                       )} ms`
                     : "N/A"}
+                </Descriptions.Item>
+                <Descriptions.Item label="AGC">
+                  {!simResult.stats.AGCEnabled
+                    ? "关闭"
+                    : `${formatMetricValue(simResult.stats.AGCTimeConstantMs, 0)} ms`}
                 </Descriptions.Item>
                 <Descriptions.Item label="MATLAB耗时">
                   {formatMetricValue(simResult.stats.ElapsedTime, 3)} s
@@ -1392,38 +1540,8 @@ const CCSDSPlatform = () => {
                 {({ getFieldValue }) => {
                   const mod = getFieldValue("modType");
 
-                  // 1. APSK (16/32) - FACM 模式
-                  if (mod === "16APSK" || mod === "32APSK") {
-                    return (
-                      <Col span={4}>
-                        <Form.Item
-                          name="acmFormat"
-                          label="ACM 格式"
-                          initialValue={mod === "16APSK" ? 14 : 21}
-                          rules={[
-                            enumRule(
-                              mod === "16APSK" ? [13, 14, 15] : [20, 21, 22],
-                              "ACM 格式",
-                            ),
-                          ]}
-                        >
-                          <Select>
-                            {(mod === "16APSK"
-                              ? [13, 14, 15]
-                              : [20, 21, 22]
-                            ).map((fmt) => (
-                              <Option
-                                value={fmt}
-                                key={fmt}
-                              >{`Fmt ${fmt}`}</Option>
-                            ))}
-                          </Select>
-                        </Form.Item>
-                      </Col>
-                    );
-                  }
-                  // 2. 4D-8PSK-TCM
-                  else if (mod === "4D-8PSK-TCM") {
+                  // APSK 统一走 ordinary TM，不再向用户暴露 FACM/ACMFormat。
+                  if (mod === "4D-8PSK-TCM") {
                     return (
                       <Col span={4}>
                         <Form.Item
@@ -1922,41 +2040,41 @@ const CCSDSPlatform = () => {
             <Row gutter={16}>
               <Col span={6}>
                 <Form.Item
-                  name="RandomizerEnabled"
-                  valuePropName="checked"
-                  initialValue={false}
+                  name="RandomizerMode"
+                  label="加扰方式"
+                  initialValue="off"
+                  rules={[enumRule(["off", "beforeEncoding", "afterEncoding"], "加扰方式")]}
                 >
-                  <Checkbox>启用加扰 (Randomizer)</Checkbox>
+                  <Select>
+                    <Option value="off">关闭</Option>
+                    <Option value="beforeEncoding">编码前加扰</Option>
+                    <Option value="afterEncoding">编码后加扰</Option>
+                  </Select>
                 </Form.Item>
               </Col>
               <Col span={6}>
                 <Form.Item
-                  name="hasASM"
-                  valuePropName="checked"
-                  initialValue={false}
+                  name="AGCMode"
+                  label="AGC时间常数"
+                  initialValue="off"
+                  rules={[enumRule(["off", "1", "10", "100", "1000"], "AGC时间常数")]}
                 >
-                  <Checkbox>插入同步头 (ASM)</Checkbox>
+                  <Select>
+                    <Option value="off">关闭</Option>
+                    <Option value="1">1 ms</Option>
+                    <Option value="10">10 ms</Option>
+                    <Option value="100">100 ms</Option>
+                    <Option value="1000">1000 ms</Option>
+                  </Select>
                 </Form.Item>
               </Col>
-              <Col span={10}>
-                <Form.Item name="hasPilots" valuePropName="checked">
-                  <Checkbox>插入导频 (Distributed Pilots)</Checkbox>
+              <Col span={6}>
+                <Form.Item name="hasASM" valuePropName="checked" initialValue={true}>
+                  <Checkbox>插入同步头 (ASM)</Checkbox>
                 </Form.Item>
               </Col>
             </Row>
             <Row gutter={16}>
-              <Col span={8}>
-                <Form.Item
-                  name="RandomizerFECPosition"
-                  label="加扰位置"
-                  initialValue="afterEncoding"
-                >
-                  <Select>
-                    <Option value="afterEncoding">FEC 编码后</Option>
-                    <Option value="beforeEncoding">FEC 编码前</Option>
-                  </Select>
-                </Form.Item>
-              </Col>
               <Col span={8}>
                 <Form.Item
                   name="DataPathMode"
@@ -1964,46 +2082,44 @@ const CCSDSPlatform = () => {
                   initialValue="single"
                 >
                   <Select>
-                    <Option value="single">单路</Option>
-                    <Option value="dualIQ">I/Q 双路</Option>
-                  </Select>
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item
-                  name="WaveformMode"
-                  label="波形分支"
-                  initialValue="ordinaryTM"
-                >
-                  <Select>
-                    <Option value="ordinaryTM">普通 TM</Option>
-                    <Option value="FACM">官方 FACM（仅 APSK）</Option>
+                    <Option value="single">合路（共用一条 TM 帧）</Option>
+                    <Option value="dualIQ">分路（I/Q 各自一条 TM 帧）</Option>
                   </Select>
                 </Form.Item>
               </Col>
             </Row>
             <Row gutter={16}>
-              <Col span={6}>
+              <Col span={10}>
                 <Form.Item
-                  name="hDamageLevel"
-                  label={labelWithDefault(
-                    "多径损伤",
-                    "hDamageLevel",
-                    "中/强会自动启用 H 多径信道参数",
-                  )}
-                  rules={[
-                    ...defaultRule("hDamageLevel"),
-                    enumRule(["none", "medium", "strong"], "多径损伤"),
-                  ]}
+                  name="channelModel"
+                  label={labelWithDefault("信道模型", "channelModel", "可选择内置信道或上传 MAT 文件")}
+                  rules={defaultRule("channelModel")}
                 >
                   <Select>
-                    <Option value="none">无</Option>
-                    <Option value="medium">中</Option>
-                    <Option value="strong">强</Option>
+                    <Option value="none">无 H 信道</Option>
+                    <Option value="synthetic_medium">内置中等多径</Option>
+                    <Option value="synthetic_strong">内置强多径</Option>
+                    {channelModels.map((model) => (
+                      <Option key={model.id} value={model.id} disabled={!model.available}>
+                        {model.label}{model.available ? "" : "（文件不存在）"}
+                      </Option>
+                    ))}
+                    {uploadedChannelModel && (
+                      <Option value={uploadedChannelModel.id}>
+                        自定义：{uploadedChannelModel.label}
+                      </Option>
+                    )}
                   </Select>
                 </Form.Item>
               </Col>
-              <Col span={6}>
+              <Col span={5}>
+                <Form.Item label="自定义信道" extra="MAT 至少应包含 H_Martix_tMode 或 H_Matrix_tMode">
+                  <Upload accept=".mat" maxCount={1} showUploadList={false} customRequest={handleChannelUpload}>
+                    <Button icon={<UploadOutlined />}>上传 MAT</Button>
+                  </Upload>
+                </Form.Item>
+              </Col>
+              <Col span={5}>
                 <Form.Item
                   name="enableEqualizer"
                   valuePropName="checked"
@@ -2093,7 +2209,25 @@ const CCSDSPlatform = () => {
             </Col>
           </Row>
 
-          {/* 第二行：频谱图 + 统计 (占满整行 24/24) */}
+          {/* 第二行：信道功率轨迹 */}
+          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+            <Col span={12}>
+              <Card title="信道输入/输出瞬时功率" bordered={false}>
+                <div className="rect-container" style={{ height: 300 }}>
+                  <div ref={channelPowerRef} className="chart-box" />
+                </div>
+              </Card>
+            </Col>
+            <Col span={12}>
+              <Card title="信道输入/输出 PSD" bordered={false}>
+                <div className="rect-container" style={{ height: 300 }}>
+                  <div ref={channelSpectrumRef} className="chart-box" />
+                </div>
+              </Card>
+            </Col>
+          </Row>
+
+          {/* 第三行：频谱图 + 统计 (占满整行 24/24) */}
           <Row gutter={[16, 16]}>
             <Col span={24}>
               <Card
