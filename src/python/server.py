@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 from flask_cors import CORS  # ✅ 1. 新增这行：引入插件
 import matlab.engine
@@ -29,11 +29,17 @@ eng.eval("rehash; clear classes;", nargout=0)
 print(f"✅ [Server] MATLAB 引擎启动完毕！耗时: {time.time() - t_start:.2f} 秒")
 # ----------------------------------------
 
-app = Flask(__name__)
+project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
+frontend_build_dir = os.path.join(project_root, 'build')
+
+app = Flask(
+    __name__,
+    static_folder=frontend_build_dir,
+    static_url_path='',
+)
 app.config['MAX_CONTENT_LENGTH'] = 256 * 1024 * 1024
 CORS(app)  # ✅ 2. 新增这行：开启跨域许可
 
-project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
 channel_upload_dir = os.path.join(project_root, 'artifacts', 'ccsds', 'channel_uploads')
 os.makedirs(channel_upload_dir, exist_ok=True)
 channel_library_dir = os.environ.get(
@@ -147,13 +153,29 @@ def _worker_loop():
                     f"{result_data.get('ResidualCFO_Hz')} "
                     f"ResidualCFO_valid={result_data.get('ResidualCFO_valid')}"
                 )
-                _set_task(
-                    task_id,
-                    status="completed",
-                    result=result_data,
-                    finishedAt=datetime.datetime.now().isoformat(timespec="seconds"),
-                )
-                print(f"✅ [Task {task_id}] 完成")
+                finished_at = datetime.datetime.now().isoformat(timespec="seconds")
+                if result_data.get("success") is True:
+                    _set_task(
+                        task_id,
+                        status="completed",
+                        result=result_data,
+                        finishedAt=finished_at,
+                    )
+                    print(f"✅ [Task {task_id}] 完成")
+                else:
+                    matlab_error = (
+                        result_data.get("error")
+                        or result_data.get("errorMsg")
+                        or "MATLAB 仿真失败"
+                    )
+                    _set_task(
+                        task_id,
+                        status="failed",
+                        result=result_data,
+                        error=matlab_error,
+                        finishedAt=finished_at,
+                    )
+                    print(f"❌ [Task {task_id}] MATLAB 返回失败: {matlab_error}")
         except Exception as e:
             with tasks_lock:
                 cancel_requested = tasks.get(task_id, {}).get("cancelRequested", False)
@@ -216,6 +238,40 @@ def init_db():
 init_db()
 
 # 调用matlab接口
+
+
+@app.route('/', methods=['GET'])
+def frontend_index():
+    """Serve the production React build from the simulation computer."""
+    index_file = os.path.join(frontend_build_dir, 'index.html')
+    if not os.path.isfile(index_file):
+        return jsonify({
+            'success': False,
+            'error': 'React 前端尚未构建，请先在项目根目录执行 npm run build。',
+        }), 503
+    return send_from_directory(frontend_build_dir, 'index.html')
+
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Report whether the web build, MATLAB engine, and worker are ready."""
+    with tasks_lock:
+        running_task_ids = [
+            task_id
+            for task_id, task in tasks.items()
+            if task.get('status') in ('running', 'cancelling')
+        ]
+
+    return jsonify({
+        'status': 'ready',
+        'matlabReady': eng is not None,
+        'frontendBuilt': os.path.isfile(
+            os.path.join(frontend_build_dir, 'index.html')
+        ),
+        'workerBusy': bool(running_task_ids),
+        'runningTaskId': running_task_ids[0] if running_task_ids else None,
+        'queueLength': task_queue.qsize(),
+    })
 
 
 @app.route('/channel_models', methods=['GET'])
@@ -487,4 +543,4 @@ def get_record_detail():
 
 if __name__ == '__main__':
     # 启动 HTTP 服务
-    app.run(host='127.0.0.1', port=5000, use_reloader=False, threaded=True)
+    app.run(host='0.0.0.0', port=5000, use_reloader=False, threaded=True)

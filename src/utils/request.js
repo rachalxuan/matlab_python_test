@@ -1,6 +1,11 @@
 // src/utils/request.js
 
-const BASE_URL = "http://127.0.0.1:5000";
+// Development uses the separately started local Python server. In a production
+// build, API requests stay on the same origin that served the React page, so a
+// controller on another LAN device calls the simulation computer rather than
+// its own 127.0.0.1.
+const BASE_URL =
+  process.env.NODE_ENV === "development" ? "http://127.0.0.1:5000" : "";
 
 const request = async (urlOrConfig, options = {}) => {
   let url;

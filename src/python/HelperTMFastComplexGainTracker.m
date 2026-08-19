@@ -106,12 +106,32 @@ end
 end
 
 function [y, info] = localEnvelope(x, refConst, options, info)
-% Causal power tracking.  By default the target is estimated from the
-% leading samples and then held.  The ordinary-TM H front end supplies an
-% explicit unit-power target because the downstream timing/carrier loop
-% detector gains are calibrated for a normalized constellation.  This is
-% still receiver observable: only the received power estimate is used to
-% calculate the gain.
+% Two envelope estimators are intentionally retained for strict A/B tests:
+%   iir          - original sample-by-sample power IIR
+%   robust-block - block power estimates interpolated in log-power
+%
+% The IIR is useful for constant-envelope PSK.  On QAM/APSK it can mistake
+% constellation-ring and RRC sample-power variation for a fade, producing
+% a modulation-dependent gain ripple.  The robust block estimator averages
+% over many symbols and rate-limits its gain, so it follows H rather than
+% individual constellation points.  It has bounded block look-ahead; an
+% FPGA implementation can realize the same operation with a block buffer.
+estimatorMode = lower(strtrim(localText(options, ...
+    'FastEnvelopeEstimatorMode', 'iir')));
+switch estimatorMode
+    case {"iir","legacy-iir"}
+        [y, info] = localEnvelopeIIR(x, refConst, options, info);
+    case {"robust-block","block"}
+        [y, info] = localEnvelopeRobustBlock(x, refConst, options, info);
+    otherwise
+        error('HelperTMFastComplexGainTracker:InvalidEnvelopeEstimator', ...
+            ['FastEnvelopeEstimatorMode must be ''iir'' or ', ...
+             '''robust-block'' (received "%s").'], char(estimatorMode));
+end
+end
+
+function [y, info] = localEnvelopeIIR(x, refConst, options, info)
+% Original causal sample-power IIR, preserved without changing its response.
 n = numel(x);
 sampleRate = localNumber(options, 'FastEnvelopeSampleRateHz', NaN);
 if ~isfinite(sampleRate) || sampleRate <= 0
@@ -166,6 +186,149 @@ info.TauSymbols = tauSymbols;
 info.SampleRateHz = sampleRate;
 info.GainMin_dB = 20*log10(max(min(gains),eps));
 info.GainMax_dB = 20*log10(max(max(gains),eps));
+info.EstimatorMode = 'iir';
+end
+
+function [y, info] = localEnvelopeRobustBlock(x, refConst, options, info)
+n = numel(x);
+sampleRate = localNumber(options, 'FastEnvelopeSampleRateHz', NaN);
+if ~isfinite(sampleRate) || sampleRate <= 0, sampleRate = 1; end
+sps = max(1, localNumber(options, 'FastEnvelopeSamplesPerSymbol', 2));
+
+blockSymbols = round(localNumber(options, ...
+    'FastEnvelopeBlockSymbols', 256));
+hopSymbols = round(localNumber(options, 'FastEnvelopeHopSymbols', 64));
+medianBlocks = round(localNumber(options, ...
+    'FastEnvelopeMedianBlocks', 3));
+trimFraction = localNumber(options, 'FastEnvelopeTrimFraction', 0.05);
+gainSlewDBPerSymbol = localNumber(options, ...
+    'FastEnvelopeGainSlewDBPerSymbol', 0.05);
+if ~isfinite(blockSymbols) || blockSymbols < 8, blockSymbols = 256; end
+if ~isfinite(hopSymbols) || hopSymbols < 1, hopSymbols = 64; end
+if ~isfinite(medianBlocks) || medianBlocks < 1, medianBlocks = 3; end
+if ~isfinite(trimFraction), trimFraction = 0.05; end
+trimFraction = min(max(trimFraction,0),0.24);
+if ~isfinite(gainSlewDBPerSymbol) || gainSlewDBPerSymbol <= 0
+    gainSlewDBPerSymbol = inf;
+end
+
+blockSamples = min(n, max(16, round(blockSymbols*sps)));
+hopSamples = max(1, round(hopSymbols*sps));
+if n <= blockSamples
+    centers = round((n+1)/2);
+else
+    firstCenter = 1 + floor((blockSamples-1)/2);
+    lastCenter = n - ceil((blockSamples-1)/2);
+    centers = firstCenter:hopSamples:lastCenter;
+    if isempty(centers), centers = round((n+1)/2); end
+    if centers(end) < lastCenter
+        centers(end+1) = lastCenter; %#ok<AGROW>
+    end
+end
+
+powerKnots = zeros(numel(centers),1);
+leftHalf = floor((blockSamples-1)/2);
+for i = 1:numel(centers)
+    lo = max(1, centers(i)-leftHalf);
+    hi = min(n, lo+blockSamples-1);
+    lo = max(1, hi-blockSamples+1);
+    powerKnots(i) = localTrimmedPower(x(lo:hi), trimFraction);
+end
+powerKnots = localRunningMedian(powerKnots, medianBlocks);
+
+fallbackPower = mean(abs(refConst).^2);
+if ~isfinite(fallbackPower) || fallbackPower <= 0, fallbackPower = 1; end
+validPower = isfinite(powerKnots) & powerKnots > 0;
+if ~any(validPower)
+    powerKnots(:) = fallbackPower;
+else
+    firstValid = find(validPower,1,'first');
+    powerKnots(~validPower) = powerKnots(firstValid);
+end
+powerKnots = max(powerKnots,1e-12);
+
+initialPower = powerKnots(1);
+targetPower = localNumber(options, 'FastEnvelopeTargetPower', initialPower);
+if ~isfinite(targetPower) || targetPower <= 0, targetPower = initialPower; end
+
+if numel(centers) == 1
+    powerTrace = repmat(powerKnots(1),n,1);
+else
+    logPowerKnots = log(powerKnots);
+    powerTrace = exp(interp1(double(centers(:)), logPowerKnots, ...
+        (1:n).', 'linear', 'extrap'));
+    powerTrace(1:centers(1)) = powerKnots(1);
+    powerTrace(centers(end):end) = powerKnots(end);
+end
+powerTrace = max(powerTrace,1e-12);
+
+minGainDB = localNumber(options, 'FastEnvelopeMinGainDB', -20);
+maxGainDB = localNumber(options, 'FastEnvelopeMaxGainDB', 20);
+if ~isfinite(minGainDB), minGainDB = -20; end
+if ~isfinite(maxGainDB) || maxGainDB < minGainDB, maxGainDB = 20; end
+rawGainDB = 10*log10(targetPower./powerTrace);
+rawGainDB = min(max(rawGainDB,minGainDB),maxGainDB);
+
+gainDB = rawGainDB;
+maxStepDB = gainSlewDBPerSymbol/sps;
+if isfinite(maxStepDB)
+    for k = 2:n
+        delta = rawGainDB(k)-gainDB(k-1);
+        delta = min(max(delta,-maxStepDB),maxStepDB);
+        gainDB(k) = gainDB(k-1)+delta;
+    end
+end
+gains = 10.^(gainDB/20);
+y = gains.*x;
+
+info.Applied = true;
+info.TargetPower = targetPower;
+info.InitialPower = initialPower;
+info.FinalPower = powerTrace(end);
+info.FinalMagnitude = gains(end);
+info.FinalMagnitude_dB = gainDB(end);
+info.AcceptanceRate = 1;
+info.SamplesPerSymbol = sps;
+info.TauSymbols = NaN;
+info.SampleRateHz = sampleRate;
+info.GainMin_dB = min(gainDB);
+info.GainMax_dB = max(gainDB);
+info.EstimatorMode = 'robust-block';
+info.BlockSymbols = blockSamples/sps;
+info.HopSymbols = hopSamples/sps;
+info.MedianBlocks = medianBlocks;
+info.TrimFraction = trimFraction;
+info.GainSlewDBPerSymbol = gainSlewDBPerSymbol;
+end
+
+function powerValue = localTrimmedPower(x, trimFraction)
+p = abs(x(:)).^2;
+p = sort(p(isfinite(p)));
+if isempty(p)
+    powerValue = NaN;
+    return;
+end
+nTrim = floor(trimFraction*numel(p));
+if 2*nTrim < numel(p)
+    p = p((nTrim+1):(end-nTrim));
+end
+powerValue = mean(p);
+end
+
+function y = localRunningMedian(x, width)
+x = x(:);
+width = max(1,round(width));
+if width <= 1 || numel(x) <= 1
+    y = x;
+    return;
+end
+halfWidth = floor(width/2);
+y = zeros(size(x));
+for k = 1:numel(x)
+    lo = max(1,k-halfWidth);
+    hi = min(numel(x),k+halfWidth);
+    y(k) = median(x(lo:hi),'omitnan');
+end
 end
 
 function [y, info] = localComplexGain(x, refConst, options, info)
@@ -340,6 +503,15 @@ if nargin >= 1 && isstruct(options) && isfield(options,name) && ...
 end
 end
 
+function v = localText(options, name, defaultValue)
+v = string(defaultValue);
+if nargin >= 1 && isstruct(options) && isfield(options,name) && ...
+        ~isempty(options.(name))
+    v = string(options.(name));
+    v = v(1);
+end
+end
+
 function m = localFiniteMean(x)
 x = x(isfinite(x));
 if isempty(x), m = NaN; else, m = mean(x); end
@@ -367,5 +539,11 @@ info = struct( ...
     'GainMax_dB',NaN, ...
     'SamplesPerSymbol',NaN, ...
     'TauSymbols',NaN, ...
-    'SampleRateHz',NaN);
+    'SampleRateHz',NaN, ...
+    'EstimatorMode','', ...
+    'BlockSymbols',NaN, ...
+    'HopSymbols',NaN, ...
+    'MedianBlocks',NaN, ...
+    'TrimFraction',NaN, ...
+    'GainSlewDBPerSymbol',NaN);
 end

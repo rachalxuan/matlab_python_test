@@ -160,6 +160,15 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     frontResult.EVM_pre_pct  = res.EVM_pre_pct;
     frontResult.MER_dB       = res.MER_dB;
     frontResult.SNR_est_dB   = res.SNR_est_dB;
+    residualGeometryFields = { ...
+        'EVMRadial_pct','EVMTangential_pct', ...
+        'ResidualPhaseRMS_deg','ResidualRadiusRMS_dB'};
+    for iResidualGeometry = 1:numel(residualGeometryFields)
+        geometryField = residualGeometryFields{iResidualGeometry};
+        if isfield(res,geometryField)
+            frontResult.(geometryField) = res.(geometryField);
+        end
+    end
     if isfield(res,'QualityMetricType')
         frontResult.QualityMetricType = res.QualityMetricType;
     end
@@ -172,6 +181,64 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     if isfield(res,'MatchedFrames'), frontResult.MatchedFrames = res.MatchedFrames; end
     if isfield(res,'DecodedFrames'), frontResult.DecodedFrames = res.DecodedFrames; end
     if isfield(res,'GMSKDetectorUsed'), frontResult.GMSKDetectorUsed = res.GMSKDetectorUsed; end
+    gmskPLLFields = { ...
+        'GMSKSecondOrderPLLApplied','GMSKSecondOrderPLLReason', ...
+        'GMSKSecondOrderPLLLocked','GMSKSecondOrderPLLFinalMode', ...
+        'GMSKSecondOrderPLLFinalFrequency_Hz', ...
+        'GMSKSecondOrderPLLFrequencyMin_Hz', ...
+        'GMSKSecondOrderPLLFrequencyMax_Hz', ...
+        'GMSKSecondOrderPLLUpdateAcceptanceRate', ...
+        'GMSKSecondOrderPLLFadeHoldSamples', ...
+        'GMSKSecondOrderPLLMeanAbsPhaseError'};
+    for iGMSKPLL = 1:numel(gmskPLLFields)
+        gmskPLLField = gmskPLLFields{iGMSKPLL};
+        if isfield(res,gmskPLLField)
+            frontResult.(gmskPLLField) = res.(gmskPLLField);
+        end
+    end
+    gmskTrackerFields = { ...
+        'GMSKResidualTrackerApplied','GMSKResidualWindowCount', ...
+        'GMSKResidualAcceptedWindows','GMSKResidualHoldWindows', ...
+        'GMSKResidualWindowSymbols','GMSKResidualHopSymbols', ...
+        'GMSKResidualMin_Hz','GMSKResidualMedian_Hz', ...
+        'GMSKResidualMax_Hz','GMSKResidualRMS_Hz', ...
+        'GMSKResidualFinal_Hz','GMSKResidualMedianConfidence_dB'};
+    for iGMSKTracker = 1:numel(gmskTrackerFields)
+        trackerField = gmskTrackerFields{iGMSKTracker};
+        if isfield(res,trackerField)
+            frontResult.(trackerField) = res.(trackerField);
+        end
+    end
+    if isfield(res,'GMSKResidualRawAcceptedRate')
+        frontResult.GMSKResidualRawAcceptedRate = res.GMSKResidualRawAcceptedRate;
+    end
+    candidateTrackerFields = { ...
+        'GMSKResidualCandidateFiniteRate','GMSKResidualCandidateMin_Hz', ...
+        'GMSKResidualCandidateMedian_Hz','GMSKResidualCandidateMax_Hz', ...
+        'GMSKResidualCandidateRMS_Hz','GMSKResidualNonfiniteWindows', ...
+        'GMSKResidualConfidenceRejectedWindows', ...
+        'GMSKResidualRangeRejectedWindows'};
+    for iCandidateTracker = 1:numel(candidateTrackerFields)
+        trackerField = candidateTrackerFields{iCandidateTracker};
+        if isfield(res,trackerField)
+            frontResult.(trackerField) = res.(trackerField);
+        end
+    end
+    if isfield(res,'GMSKResidualRawMin_Hz')
+        frontResult.GMSKResidualRawMin_Hz = res.GMSKResidualRawMin_Hz;
+        frontResult.GMSKResidualRawMedian_Hz = res.GMSKResidualRawMedian_Hz;
+        frontResult.GMSKResidualRawMax_Hz = res.GMSKResidualRawMax_Hz;
+        frontResult.GMSKResidualRawRMS_Hz = res.GMSKResidualRawRMS_Hz;
+    end
+    if isfield(res,'GMSKResidualJumpMax_Hz')
+        frontResult.GMSKResidualJumpMax_Hz = res.GMSKResidualJumpMax_Hz;
+        frontResult.GMSKResidualJumpRMS_Hz = res.GMSKResidualJumpRMS_Hz;
+        frontResult.GMSKResidualPhaseCorrectionEnd_deg = ...
+            res.GMSKResidualPhaseCorrectionEnd_deg;
+    end
+    if isfield(res,'GMSKResidualWindowDebug')
+        frontResult.GMSKResidualWindowDebug = res.GMSKResidualWindowDebug;
+    end
     if isfield(res,'AcquisitionFrames'), frontResult.AcquisitionFrames = res.AcquisitionFrames; end
     if isfield(res,'AcquisitionTime_s'), frontResult.AcquisitionTime_s = res.AcquisitionTime_s; end
     asmFramePhaseFields = { ...
@@ -219,7 +286,8 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     if isfield(res,'TMAPSKPilotMeanAmp'), frontResult.TMAPSKPilotMeanAmp = res.TMAPSKPilotMeanAmp; end
     if isfield(res,'TMAPSKPilotCorrectionMode'), frontResult.TMAPSKPilotCorrectionMode = res.TMAPSKPilotCorrectionMode; end
     pilotRobustnessFields = { ...
-        'TMAPSKPilotFadeFraction','TMAPSKPilotMaxAppliedGain_dB', ...
+        'TMAPSKPilotFadeFraction','TMAPSKPilotDataFadeSymbols', ...
+        'TMAPSKPilotDataFadeFraction','TMAPSKPilotMaxAppliedGain_dB', ...
         'TMAPSKPilotRegularization','TMAPSKPilotNoiseVariance'};
     for iPilotRobustness = 1:numel(pilotRobustnessFields)
         pilotField = pilotRobustnessFields{iPilotRobustness};
@@ -242,6 +310,7 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
         end
     end
     adaptiveResultFields = { ...
+        'UQPSKPostCarrierEQEnabled', ...
         'AdaptiveEqualizerEnabled','AdaptiveEqualizerMode', ...
         'AdaptiveEqualizerReason','AdaptiveEqualizerTaps', ...
         'AdaptiveEqualizerCMASymbols','AdaptiveEqualizerDDPasses', ...
@@ -269,11 +338,21 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
         'AdaptiveEqualizerDDGoodWindows', ...
         'AdaptiveEqualizerDDHoldWindows', ...
         'AdaptiveEqualizerDDFadeHoldWindows', ...
+        'AdaptiveEqualizerExternalFadeMaskProvided', ...
+        'AdaptiveEqualizerExternalFadeMaskLengthMatched', ...
+        'AdaptiveEqualizerExternalFadeMaskInputLength', ...
+        'AdaptiveEqualizerExternalFadeInputSymbols', ...
+        'AdaptiveEqualizerExternalFadeExpandedSymbols', ...
+        'AdaptiveEqualizerDDExternalFadeHoldWindows', ...
+        'AdaptiveEqualizerDDExternalFadeHoldSymbols', ...
         'AdaptiveEqualizerFadeHoldDB', ...
         'AdaptiveEqualizerDDHoldReason', ...
         'AdaptiveEqualizerOutputAccepted', ...
         'AdaptiveEqualizerRollbackReason', ...
-        'AdaptiveEqualizerConverged'};
+        'AdaptiveEqualizerConverged', ...
+        'ASMTrainingEqualizerASMCount','ASMTrainingEqualizerUpdates', ...
+        'ASMTrainingEqualizerMedianScoreBefore', ...
+        'ASMTrainingEqualizerMedianScoreAfter'};
     for iAdaptiveResult = 1:numel(adaptiveResultFields)
         adaptiveField = adaptiveResultFields{iAdaptiveResult};
         if isfield(res, adaptiveField)
@@ -281,7 +360,11 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
         end
     end
     fastTrackerFields = { ...
-        'FastEnvelopeApplied','FastEnvelopeTauSymbols', ...
+        'FastEnvelopeApplied','FastEnvelopeEstimatorMode', ...
+        'FastEnvelopeTauSymbols','FastEnvelopeBlockSymbols', ...
+        'FastEnvelopeHopSymbols','FastEnvelopeMedianBlocks', ...
+        'FastEnvelopeTrimFraction', ...
+        'FastEnvelopeGainSlewDBPerSymbol', ...
         'FastEnvelopeFinalGain_dB', ...
         'FastEnvelopeGainMin_dB','FastEnvelopeGainMax_dB', ...
         'FastComplexGainApplied','FastComplexGainFinalMagnitude_dB', ...
@@ -290,7 +373,16 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
         'FastComplexGainMax_dB', ...
         'HighRatePhaseTrackingApplied','HighRatePhaseWindowSymbols', ...
         'HighRatePhaseMeanConfidence','HighRatePhaseHoldSamples', ...
-        'HighRatePhaseFinalRelativePhase_deg'};
+        'HighRatePhaseFinalRelativePhase_deg', ...
+        'UQPSKCarrierPLLApplied','UQPSKCarrierPLLDualBandwidth', ...
+        'UQPSKCarrierPLLLocked','UQPSKCarrierPLLFinalMode', ...
+        'UQPSKCarrierPLLAcquireBW','UQPSKCarrierPLLTrackBW', ...
+        'UQPSKCarrierPLLFinalFrequency_Hz', ...
+        'UQPSKCarrierPLLLockTransitions', ...
+        'UQPSKCarrierPLLReacquisitions', ...
+        'UQPSKCarrierPLLFadeHoldSymbols', ...
+        'UQPSKCarrierPLLUpdateAcceptanceRate', ...
+        'UQPSKCarrierPLLMeanAbsPhaseError'};
     for iFastTracker = 1:numel(fastTrackerFields)
         fastField = fastTrackerFields{iFastTracker};
         if isfield(res,fastField)
@@ -325,6 +417,26 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     if isfield(res,'IFHz'),          frontResult.IFHz = res.IFHz; end
     if isfield(res,'centerFrequencyHz'), frontResult.centerFrequencyHz = res.centerFrequencyHz; end
     if isfield(res,'inputLevelDbm'), frontResult.inputLevelDbm = res.inputLevelDbm; end
+    if isfield(res,'outputLevelDbm'), frontResult.outputLevelDbm = res.outputLevelDbm; end
+    converterResultFields = { ...
+        'ConverterChainEnabled','BasebandIFLevel_dBm', ...
+        'UpconverterFixedGain_dB','UpconverterAttenuation_dB', ...
+        'UpconverterNetGain_dB','UpconverterOutputLevel_dBm', ...
+        'UpconverterCompressionRisk','UpconverterCompression_dB', ...
+        'UpconverterInputWithinTypicalRange','HAppliedGain_dB', ...
+        'DownconverterInputLevel_dBm','DownconverterFixedGain_dB', ...
+        'DownconverterAttenuation_dB','DownconverterAutoAttenuation', ...
+        'DownconverterNetGain_dB', ...
+        'DownconverterOutputLevel_dBm','DownconverterCompressionRisk', ...
+        'DownconverterCompression_dB','DownconverterInputWithinTypicalRange', ...
+        'ADCEquivalentEnabled','ADCBits','ADCFullScalePower_dBm', ...
+        'ADCRMSBackoff_dB','ADCClipFraction','ADCQuantizationSNR_dB'};
+    for iConverterResult = 1:numel(converterResultFields)
+        converterField = converterResultFields{iConverterResult};
+        if isfield(res, converterField)
+            frontResult.(converterField) = res.(converterField);
+        end
+    end
     if isfield(res,'carrierFreqHz'), frontResult.carrierFreqHz = res.carrierFreqHz; end
     if isfield(res,'ACMFormat'), frontResult.ACMFormat = res.ACMFormat; end
     if isfield(res,'fmDetectedFrames'), frontResult.fmDetectedFrames = res.fmDetectedFrames; end
@@ -481,8 +593,27 @@ end
 % "json"  ：按 JSON 字符串返回
 function [opt, outputMode] = parseEvaluationEntryInputs(varargin)
     outputMode = "json";
-    defaults = struct('modType','QPSK','symbolRate',1e6,'sps',8, ...
+    defaults = struct('modType','QPSK','symbolRate',10e6,'sps',8, ...
         'snr',12,'cfo',0,'phaseOffset',0,'delay',0, ...
+        'noiseMode','psd','noisePSDdBmHz',-115.3, ...
+        'noiseBandwidthHz',[], ...
+        'inputLevelDbm',-10, ...
+        'enableConverterChain',false, ...
+        'upconverterFixedGainDB',31, ...
+        'upconverterAttenuationDB',21, ...
+        'downconverterFixedGainDB',31, ...
+        'downconverterAttenuationDB',21, ...
+        'downconverterAutoAttenuation',true, ...
+        'downconverterTargetOutputDBm',0, ...
+        'converterAttenuationStepDB',0.5, ...
+        'converterMaxAttenuationDB',30, ...
+        'converterOutputP1dBDBm',11, ...
+        'converterInputMinimumDBm',-60, ...
+        'converterInputMaximumDBm',-10, ...
+        'enableConverterCompression',false, ...
+        'enableADCEquivalent',false, ...
+        'adcBits',12, ...
+        'adcFullScalePowerDBm',0, ...
         'channelCoding','none','RolloffFactor',0.35, ...
         'RandomizerEnabled',false, ...
         'RandomizerFECPosition','afterEncoding', ...
@@ -623,6 +754,17 @@ function rejectLegacyEvaluationFields(opt)
                 'Parameter "%s" has been removed. Use "%s".', ...
                 legacyNames{k}, canonicalNames{k});
         end
+    end
+
+    if isfield(opt, 'GMSKDetectionMode') && ...
+            ~isempty(opt.GMSKDetectionMode) && ...
+            ~strcmpi(string(opt.GMSKDetectionMode), ...
+            "official-viterbi-frame-reset")
+        error('run_ccsds_tm_evaluation:GMSKProductionDetectorRemoved', ...
+            ['GMSKDetectionMode="%s" is no longer a production receiver ', ...
+             'mode. Use "official-viterbi-frame-reset"; instantiate a ', ...
+             'legacy helper directly only in an isolated debug script.'], ...
+            char(string(opt.GMSKDetectionMode)));
     end
 end
 
@@ -1151,7 +1293,38 @@ function [res, ctx] = runOneShot(opt)
         txWithDelay = txWithCFO;
     end
 
-    [txAfterH, hInfo, hState] = applyHChannelDamage(txWithDelay, opt, Fs);
+    converterChainEnabled = getLogicalField(opt, 'enableConverterChain', false);
+    converterAttenuationStepDB = getfieldnumeric( ...
+        opt, 'converterAttenuationStepDB', 0.5);
+    converterMaxAttenuationDB = getfieldnumeric( ...
+        opt, 'converterMaxAttenuationDB', 30);
+    converterOutputP1dBDBm = getfieldnumeric( ...
+        opt, 'converterOutputP1dBDBm', 11);
+    converterCompressionEnabled = getLogicalField( ...
+        opt, 'enableConverterCompression', false);
+    basebandIFLevelDBm = getInputLevelDbm(opt, -10);
+
+    upconverterCfg = struct( ...
+        'Enabled', converterChainEnabled, ...
+        'StageName', 'upconverter', ...
+        'InputSignalLevelDBm', basebandIFLevelDBm, ...
+        'InputTotalLevelDBm', basebandIFLevelDBm, ...
+        'FixedGainDB', getfieldnumeric(opt, 'upconverterFixedGainDB', 31), ...
+        'AttenuationDB', getfieldnumeric(opt, 'upconverterAttenuationDB', 21), ...
+        'AttenuationStepDB', converterAttenuationStepDB, ...
+        'MaxAttenuationDB', converterMaxAttenuationDB, ...
+        'OutputP1dBDBm', converterOutputP1dBDBm, ...
+        'InputMinimumDBm', getfieldnumeric(opt, 'converterInputMinimumDBm', -60), ...
+        'InputMaximumDBm', getfieldnumeric(opt, 'converterInputMaximumDBm', -10), ...
+        'EnableCompression', converterCompressionEnabled);
+    [txAfterUpconverter, upconverterInfo] = ...
+        HelperTMConverterGain(txWithDelay, upconverterCfg);
+
+    [txAfterH, hInfo, hState] = applyHChannelDamage( ...
+        txAfterUpconverter, opt, Fs);
+    hAppliedGainDB = 10*log10( ...
+        (mean(abs(txAfterH).^2) + eps) / ...
+        (mean(abs(txAfterUpconverter).^2) + eps));
     actualCodeRateForHStats = getfieldnumeric(tmWaveInfo, 'ActualCodeRate', NaN);
     bitsPerSymbolForHStats = getfieldnumeric(tmWaveInfo, 'NumBitsPerSymbol', NaN);
     localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, ...
@@ -1159,20 +1332,80 @@ function [res, ctx] = runOneShot(opt)
 
     noisePlacement = getNoisePlacementMode(opt);
     noiseInfo = makeLegacyNoiseInfo(snr_val);
+    if converterChainEnabled && noisePlacement == "afterEqualizer"
+        error('run_ccsds_tm_evaluation:ConverterChainNoiseOrder', ...
+            ['enableConverterChain requires noisePlacement=''afterChannel'' ', ...
+             'so that H -> receiver noise -> downconverter -> ADC is physical.']);
+    end
+    noiseOpt = opt;
+    noiseOpt.signalReferenceLevelDbm = ...
+        upconverterInfo.OutputSignalLevelDBm;
+    downconverterInfo = localDisabledConverterInfo( ...
+        'downconverter', upconverterInfo.OutputSignalLevelDBm);
+    adcInfo = localDisabledADCInfo();
+    rxAfterDownconverter = [];
+    rxAfterADC = [];
     if noisePlacement == "afterEqualizer"
         rxEqualizedClean = applyKnownChannelEqualizer(txAfterH, opt, snr_val, false, hState);
-        [rxNoisyWaveform, noiseInfo] = addReceiverNoise(rxEqualizedClean, opt, Fs, snr_val, rxEqualizedClean);
+        [rxNoisyWaveform, noiseInfo] = addReceiverNoise( ...
+            rxEqualizedClean, noiseOpt, Fs, snr_val, txAfterUpconverter);
         rxWaveform = rxNoisyWaveform;
     else
-        [rxNoisyWaveform, noiseInfo] = addReceiverNoise(txAfterH, opt, Fs, snr_val, txWithDelay);
-        rxWaveform = applyKnownChannelEqualizer(rxNoisyWaveform, opt, noiseInfo.EquivalentSNR_dB, false, hState);
+        [rxNoisyWaveform, noiseInfo] = addReceiverNoise( ...
+            txAfterH, noiseOpt, Fs, snr_val, txAfterUpconverter);
+
+        signalAtDownconverterDBm = ...
+            upconverterInfo.OutputSignalLevelDBm + hAppliedGainDB;
+        receiverNoisePowerDBm = localReceiverNoisePowerDBm( ...
+            noiseInfo, signalAtDownconverterDBm);
+        totalAtDownconverterDBm = localSumPowerDBm( ...
+            signalAtDownconverterDBm, receiverNoisePowerDBm);
+        downconverterCfg = struct( ...
+            'Enabled', converterChainEnabled, ...
+            'StageName', 'downconverter', ...
+            'InputSignalLevelDBm', signalAtDownconverterDBm, ...
+            'InputTotalLevelDBm', totalAtDownconverterDBm, ...
+            'FixedGainDB', getfieldnumeric(opt, 'downconverterFixedGainDB', 31), ...
+            'AttenuationDB', getfieldnumeric(opt, 'downconverterAttenuationDB', 21), ...
+            'AutoAttenuation', getLogicalField(opt, ...
+                'downconverterAutoAttenuation', true), ...
+            'TargetOutputTotalLevelDBm', getfieldnumeric(opt, ...
+                'downconverterTargetOutputDBm', 0), ...
+            'AttenuationStepDB', converterAttenuationStepDB, ...
+            'MaxAttenuationDB', converterMaxAttenuationDB, ...
+            'OutputP1dBDBm', converterOutputP1dBDBm, ...
+            'InputMinimumDBm', getfieldnumeric(opt, 'converterInputMinimumDBm', -60), ...
+            'InputMaximumDBm', getfieldnumeric(opt, 'converterInputMaximumDBm', -10), ...
+            'EnableCompression', converterCompressionEnabled);
+        [rxAfterDownconverter, downconverterInfo] = ...
+            HelperTMConverterGain(rxNoisyWaveform, downconverterCfg);
+
+        adcCfg = struct( ...
+            'Enabled', converterChainEnabled && ...
+                getLogicalField(opt, 'enableADCEquivalent', false), ...
+            'Bits', getfieldnumeric(opt, 'adcBits', 12), ...
+            'FullScalePowerDBm', getfieldnumeric(opt, 'adcFullScalePowerDBm', 0), ...
+            'InputTotalLevelDBm', downconverterInfo.OutputTotalLevelDBm);
+        [rxAfterADC, adcInfo] = HelperTMADCEquivalent( ...
+            rxAfterDownconverter, adcCfg);
+        rxWaveform = applyKnownChannelEqualizer( ...
+            rxAfterADC, opt, noiseInfo.EquivalentSNR_dB, false, hState);
+    end
+
+    if getLogicalField(opt, 'debugConverterChain', false)
+        localPrintConverterChain(basebandIFLevelDBm, upconverterInfo, ...
+            hAppliedGainDB, noiseInfo, downconverterInfo, adcInfo);
     end
 
     % 动态AGC
     % =========================================================
     % Ordinary TM dynamic AGC
     %
-    % H -> AWGN -> equalizer -> AGC -> synchronization
+    % Optional hardware path:
+    % upconverter -> H -> receiver noise -> downconverter -> ADC
+    % Then the existing receiver continues with equalizer -> digital AGC ->
+    % synchronization.  With the converter path disabled, historical sample
+    % ordering and scaling are preserved.
     % =========================================================
 
 %     % ===== 临时 AGC 突发衰落测试：测试完整段删除 =====
@@ -1194,11 +1427,21 @@ function [res, ctx] = runOneShot(opt)
     rxWaveformBeforeAGC = rxWaveform;
 
 
+    agcTargetSignalPower = NaN;
+    if converterChainEnabled
+        if ~agcEnabled
+            error('run_ccsds_tm_evaluation:ConverterChainRequiresAGC', ...
+                ['enableConverterChain models the analog front end and ', ...
+                 'requires AGCEnabled=true to restore the FPGA demodulator ', ...
+                 'input scale after the ADC reference plane.']);
+        end
+        agcTargetSignalPower = mean(abs(txWithDelay).^2) + eps;
+    end
     agcCfg = struct( ...
         'Enabled',agcEnabled, ...
         'SampleRateHz',Fs, ...
         'TimeConstantMs',agcTimeConstantMs, ...
-        'TargetSignalPower',NaN, ...
+        'TargetSignalPower',agcTargetSignalPower, ...
         'MinGainDB',-40, ...
         'MaxGainDB',40, ...
         'PowerFloor',1e-12, ...
@@ -1264,9 +1507,16 @@ function [res, ctx] = runOneShot(opt)
         'Filtered',complex(zeros(0,1)), ...
         'Timing',complex(zeros(0,1)), ...
         'Carrier',complex(zeros(0,1)), ...
-        'Equalizer',complex(zeros(0,1)));
+        'PilotInput',complex(zeros(0,1)), ...
+        'Pilot',complex(zeros(0,1)), ...
+        'PreEQTracker',complex(zeros(0,1)), ...
+        'Equalizer',complex(zeros(0,1)), ...
+        'PostEQTracker',complex(zeros(0,1)));
     fastEnvelopeInfo = struct('Applied',false,'FinalMagnitude_dB',0, ...
-        'GainMin_dB',NaN,'GainMax_dB',NaN,'TauSymbols',NaN);
+        'GainMin_dB',NaN,'GainMax_dB',NaN,'TauSymbols',NaN, ...
+        'EstimatorMode','','BlockSymbols',NaN,'HopSymbols',NaN, ...
+        'MedianBlocks',NaN,'TrimFraction',NaN, ...
+        'GainSlewDBPerSymbol',NaN);
     fastComplexGainInfo = struct('Applied',false,'FinalMagnitude_dB',0, ...
         'FinalPhase_deg',0,'AcceptanceRate',NaN,'DDMSE',NaN, ...
         'GainMin_dB',NaN,'GainMax_dB',NaN);
@@ -1274,6 +1524,10 @@ function [res, ctx] = runOneShot(opt)
         'WindowSymbols',NaN,'WindowSamples',NaN, ...
         'MeanConfidence',NaN,'HoldSamples',0, ...
         'FinalRelativePhase_deg',0);
+    gmskResidualTrackerInfo = localEmptyGMSKResidualTrackerInfo();
+    gmskSecondOrderPLLInfo = localEmptyGMSKSecondOrderPLLInfo();
+    uqpskCarrierPLLInfo = localEmptyUQPSKCarrierPLLInfo();
+    uqpskPostCarrierEQEnabled = true;
     useFastEnvelopePath = false;
     useFastComplexPath = false;
     useFastPhasePath = false;
@@ -1358,6 +1612,19 @@ function [res, ctx] = runOneShot(opt)
             'enableGMSKCoarseFrequencyCompensator', true);
         [rxSynced, cfo_est] = localMSKGMSKX2CoarseCFO( ...
             rxWaveform, Fs, fSym, enableGMSKCoarse);
+        % Two explicitly selectable residual-Doppler implementations are
+        % kept separate for strict A/B testing.  The new GMSK differential
+        % phase detector feeds a second-order phase/frequency loop; when it
+        % is selected the old windowed feed-forward correction is not run.
+        enableGMSKSecondOrderPLL = getLogicalField( ...
+            opt,'enableGMSKSecondOrderPLL',false);
+        if enableGMSKSecondOrderPLL
+            [rxSynced, gmskSecondOrderPLLInfo] = ...
+                HelperGMSKSecondOrderPLL(rxSynced,Fs,fSym,opt);
+        else
+            [rxSynced, gmskResidualTrackerInfo] = ...
+                localGMSKResidualDopplerTracker(rxSynced, Fs, fSym, opt);
+        end
         coarseSynced = rxSynced;   % 统一变量名,供管线图使用
 
         % --- 2) 高斯匹配滤波（用真正的 btVal,不再写死 0.5）+ 抽到 2 sps ---
@@ -1380,9 +1647,8 @@ function [res, ctx] = runOneShot(opt)
         fineSynced = carrierSync(TimeSynced);
 
         % The official GMSK Viterbi detector must see the oversampled CPM
-        % waveform.  Keep the existing 1-sps path for plots/metrics, but
-        % route the coarse-CFO-corrected waveform to BER only when the
-        % explicit experimental mode is requested.
+        % waveform. Keep the existing 1-sps path only for plots/metrics;
+        % production BER always uses the continuously tracked 8-sps path.
         gmskModeFrontend = "official-viterbi-frame-reset";
         if isfield(opt,'GMSKDetectionMode') && ~isempty(opt.GMSKDetectionMode)
             gmskModeFrontend = lower(string(opt.GMSKDetectionMode));
@@ -1394,6 +1660,36 @@ function [res, ctx] = runOneShot(opt)
         fprintf(['   [GMSK coarse CFO] enabled=%d, estimated=%+.1f Hz ', ...
                  '(input=%+.1f Hz)\n'], ...
                 enableGMSKCoarse, cfo_est, getf(opt,'cfo',0));
+        if getLogicalField(opt,'debugGMSK',false) || ...
+                getLogicalField(opt,'debugCodedBoundary',false)
+            if enableGMSKSecondOrderPLL
+                fprintf(['   [GMSK second-order PLL] applied=%d mode=%s ', ...
+                    'locked=%d freq=%+.1f Hz range=[%+.1f,%+.1f] Hz ', ...
+                    'updates=%.1f%% fadeHold=%d mean|e|=%.4g rad\n'], ...
+                    gmskSecondOrderPLLInfo.Applied, ...
+                    gmskSecondOrderPLLInfo.FinalMode, ...
+                    gmskSecondOrderPLLInfo.Locked, ...
+                    gmskSecondOrderPLLInfo.FinalFrequency_Hz, ...
+                    gmskSecondOrderPLLInfo.FrequencyMin_Hz, ...
+                    gmskSecondOrderPLLInfo.FrequencyMax_Hz, ...
+                    100*gmskSecondOrderPLLInfo.UpdateAcceptanceRate, ...
+                    gmskSecondOrderPLLInfo.FadeHoldSamples, ...
+                    gmskSecondOrderPLLInfo.MeanAbsPhaseError);
+            else
+                fprintf(['   [GMSK residual tracker] applied=%d windows=%d ', ...
+                    'accepted=%d hold=%d residual=%+.1f/%+.1f/%+.1f Hz ', ...
+                    'rms=%.1f Hz confidence=%.1f dB\n'], ...
+                    gmskResidualTrackerInfo.Applied, ...
+                    gmskResidualTrackerInfo.WindowCount, ...
+                    gmskResidualTrackerInfo.AcceptedWindows, ...
+                    gmskResidualTrackerInfo.HoldWindows, ...
+                    gmskResidualTrackerInfo.ResidualMin_Hz, ...
+                    gmskResidualTrackerInfo.ResidualMedian_Hz, ...
+                    gmskResidualTrackerInfo.ResidualMax_Hz, ...
+                    gmskResidualTrackerInfo.ResidualRMS_Hz, ...
+                    gmskResidualTrackerInfo.MedianConfidence_dB);
+            end
+        end
     elseif contains(modStr,'4D-8PSK-TCM')
         % 4D-8PSK-TCM 专用同步分支。
         % 不能把 "4D-8PSK-TCM" 直接交给官方 CarrierSynchronizer,
@@ -1658,8 +1954,25 @@ function [res, ctx] = runOneShot(opt)
                 uqpskCarrierLoopBW = double(opt.uqpskCarrierLoopBW);
             end
 
-            fineSynced = uqpskCarrierRecover( ...
-                TimeSynced, 2, uqpskCarrierLoopBW);
+            [fineSynced, uqpskCarrierPLLInfo] = uqpskCarrierRecover( ...
+                TimeSynced, 2, uqpskCarrierLoopBW, opt, fSym);
+            if getLogicalField(opt,'debugUQPSK',false)
+                fprintf(['   [UQPSK carrier PLL] dual=%d mode=%s locked=%d ', ...
+                    'BW(acq/track)=%.4g/%.4g finalFreq=%+.2f Hz ', ...
+                    'locks=%d reacq=%d fadeHold=%d accept=%.1f%% ', ...
+                    'mean|e|=%.4g\n'], ...
+                    uqpskCarrierPLLInfo.DualBandwidth, ...
+                    uqpskCarrierPLLInfo.FinalMode, ...
+                    uqpskCarrierPLLInfo.Locked, ...
+                    uqpskCarrierPLLInfo.AcquireLoopBW, ...
+                    uqpskCarrierPLLInfo.TrackLoopBW, ...
+                    uqpskCarrierPLLInfo.FinalFrequency_Hz, ...
+                    uqpskCarrierPLLInfo.LockTransitions, ...
+                    uqpskCarrierPLLInfo.Reacquisitions, ...
+                    uqpskCarrierPLLInfo.FadeHoldSymbols, ...
+                    100*uqpskCarrierPLLInfo.UpdateAcceptanceRate, ...
+                    uqpskCarrierPLLInfo.MeanAbsPhaseError);
+            end
             if syncDebugRequested
                 syncDebugStages.Carrier = fineSynced;
             end
@@ -1829,8 +2142,24 @@ function [res, ctx] = runOneShot(opt)
                 getLogicalField(opt,'enableAdaptiveFastPhaseTracker',true);
             if useFastEnvelopePath
                 defaultEnvelopeTauSymbols = 64;
+                % Keep production/release behaviour unchanged.  The new
+                % robust-block estimator is an explicit diagnostic mode
+                % until it passes the full time-varying H matrix.
+                defaultEnvelopeEstimatorMode = "iir";
                 if useConstantEnvelopePath
                     defaultEnvelopeTauSymbols = 16;
+                    defaultEnvelopeEstimatorMode = "iir";
+                end
+                envelopeEstimatorMode = lower(strtrim(string( ...
+                    getfieldwithdefault(opt, ...
+                    'adaptiveFastEnvelopeEstimatorMode','auto'))));
+                if envelopeEstimatorMode == "auto"
+                    envelopeEstimatorMode = defaultEnvelopeEstimatorMode;
+                end
+                if ~any(envelopeEstimatorMode == ["iir","robust-block"])
+                    error('run_ccsds_tm_evaluation:InvalidFastEnvelopeEstimator', ...
+                        ['adaptiveFastEnvelopeEstimatorMode must be ', ...
+                         '''auto'', ''iir'', or ''robust-block''.']);
                 end
                 envelopeTauSymbols = getfieldnumeric(opt, ...
                     'adaptiveFastEnvelopeTauSymbols', ...
@@ -1842,13 +2171,47 @@ function [res, ctx] = runOneShot(opt)
                         ['adaptiveFastEnvelopeTauSymbols must be a ', ...
                          'finite positive scalar.']);
                 end
+                envelopeMinGainDB = getfieldnumeric(opt, ...
+                    'adaptiveFastEnvelopeMinGainDB', -40);
+                envelopeMaxGainDB = getfieldnumeric(opt, ...
+                    'adaptiveFastEnvelopeMaxGainDB', 100);
+                if ~isscalar(envelopeMinGainDB) || ...
+                        ~isfinite(envelopeMinGainDB) || ...
+                        ~isscalar(envelopeMaxGainDB) || ...
+                        ~isfinite(envelopeMaxGainDB) || ...
+                        envelopeMaxGainDB < envelopeMinGainDB
+                    error('run_ccsds_tm_evaluation:InvalidFastEnvelopeGainLimits', ...
+                        ['adaptiveFastEnvelopeMinGainDB and ', ...
+                         'adaptiveFastEnvelopeMaxGainDB must be finite ', ...
+                         'scalars with max >= min.']);
+                end
                 envelopeCfg = struct( ...
                     'FastEnvelopeSampleRateHz',Fs/rxFilterDecimationFactor, ...
                     'FastEnvelopeSamplesPerSymbol',sps_after, ...
+                    'FastEnvelopeEstimatorMode',char(envelopeEstimatorMode), ...
                     'FastEnvelopeTauSymbols',envelopeTauSymbols, ...
                     'FastEnvelopeTargetPower',1, ...
-                    'FastEnvelopeMinGainDB',-40, ...
-                    'FastEnvelopeMaxGainDB',100);
+                    'FastEnvelopeMinGainDB',envelopeMinGainDB, ...
+                    'FastEnvelopeMaxGainDB',envelopeMaxGainDB);
+                if envelopeEstimatorMode == "iir"
+                    % Preserve the original constant-envelope PSK response.
+                else
+                    % Keep the original unit-power operating point used to
+                    % calibrate Gardner/carrier loop gains.  Only the received
+                    % power estimator changes: it now averages constellation
+                    % activity instead of reacting to individual ring samples.
+                    envelopeCfg.FastEnvelopeBlockSymbols = getfieldnumeric( ...
+                        opt,'adaptiveFastEnvelopeBlockSymbols',256);
+                    envelopeCfg.FastEnvelopeHopSymbols = getfieldnumeric( ...
+                        opt,'adaptiveFastEnvelopeHopSymbols',64);
+                    envelopeCfg.FastEnvelopeMedianBlocks = getfieldnumeric( ...
+                        opt,'adaptiveFastEnvelopeMedianBlocks',3);
+                    envelopeCfg.FastEnvelopeTrimFraction = getfieldnumeric( ...
+                        opt,'adaptiveFastEnvelopeTrimFraction',0.05);
+                    envelopeCfg.FastEnvelopeGainSlewDBPerSymbol = ...
+                        getfieldnumeric(opt, ...
+                        'adaptiveFastEnvelopeGainSlewDBPerSymbol',0.05);
+                end
                 [filtered, fastEnvelopeInfo] = ...
                     HelperTMFastComplexGainTracker(filtered,[], ...
                     envelopeCfg,'envelope');
@@ -1856,10 +2219,14 @@ function [res, ctx] = runOneShot(opt)
                     syncDebugStages.Filtered = filtered;
                 end
                 if getLogicalField(opt,'debugAdaptiveEqualizer',false)
-                    fprintf(['   [TM fast envelope] applied=%d tau=%.1f sym ', ...
+                    fprintf(['   [TM fast envelope] applied=%d mode=%s ', ...
+                        'tau=%.1f block=%.1f hop=%.1f sym ', ...
                         'gain=%+.2f dB range=[%+.2f,%+.2f] dB\n'], ...
                         fastEnvelopeInfo.Applied, ...
+                        fastEnvelopeInfo.EstimatorMode, ...
                         fastEnvelopeInfo.TauSymbols, ...
+                        fastEnvelopeInfo.BlockSymbols, ...
+                        fastEnvelopeInfo.HopSymbols, ...
                         fastEnvelopeInfo.FinalMagnitude_dB, ...
                         fastEnvelopeInfo.GainMin_dB, ...
                         fastEnvelopeInfo.GainMax_dB);
@@ -1869,11 +2236,27 @@ function [res, ctx] = runOneShot(opt)
             SyncMod = 'PAM/PSK/QAM';
             Kp = 1/(pi*(1-((rolloff^2)/4))) * cos(pi*rolloff/2);
 
+            defaultTimingLoopBandwidth = 0.01;
+            if contains(modStr,'APSK')
+                % At the unit-power operating point used by the H-channel
+                % envelope tracker, 0.01 turns APSK ring-power variation
+                % into Gardner timing jitter.  A narrower loop preserves
+                % acquisition while avoiding the deterministic EVM floor.
+                defaultTimingLoopBandwidth = 0.005;
+            end
+            timingLoopBandwidth = getfieldnumeric( ...
+                opt, 'timingLoopBandwidth', defaultTimingLoopBandwidth);
+            if ~isscalar(timingLoopBandwidth) || ...
+                    ~isfinite(timingLoopBandwidth) || ...
+                    timingLoopBandwidth <= 0 || timingLoopBandwidth > 0.2
+                error('run_ccsds_tm_evaluation:InvalidTimingLoopBandwidth', ...
+                    'timingLoopBandwidth must be a scalar in (0, 0.2].');
+            end
             timingCfg = struct( ...
                 'SamplesPerSymbol',sps_after, ...
                 'DetectorGain',Kp, ...
                 'Modulation',SyncMod, ...
-                'NormalizedLoopBandwidth',0.01, ...
+                'NormalizedLoopBandwidth',timingLoopBandwidth, ...
                 'ChunkSizeSamples',50000);
             [TimeSynced, timingChunkInfo] = ...
                 HelperTMSymbolSynchronizerChunked(filtered,timingCfg);
@@ -1969,9 +2352,23 @@ function [res, ctx] = runOneShot(opt)
     tmAPSKPilotInfo = localEmptyTMAPSKPilotInfo();
     if contains(modStr,'APSK') && getLogicalField(opt, 'HasTMAPSKPilots', false) && ...
             exist('fineSynced','var') && ~isempty(fineSynced)
-        [fineSynced, tmAPSKPilotInfo] = localCorrectAndRemoveTMAPSKPilots( ...
-            fineSynced, opt, fSym);
+        [fineSynced, tmAPSKPilotInfo, pilotInputData] = ...
+            localCorrectAndRemoveTMAPSKPilots(fineSynced, opt, fSym);
         fineSyncedForBER = fineSynced;
+        if syncDebugRequested
+            syncDebugStages.PilotInput = pilotInputData;
+            syncDebugStages.Pilot = fineSynced;
+            fprintf(['   [TM APSK pilot diagnostics] applied=%d start=%d ', ...
+                'pilots=%d corrRatio=%.3f cfo=%+.3f Hz meanAmp=%.4g ', ...
+                'fade=%.2f%% maxGain=%+.2f dB noiseVar=%.4g mode=%s\n'], ...
+                tmAPSKPilotInfo.Applied,tmAPSKPilotInfo.Start, ...
+                tmAPSKPilotInfo.NumPilots,tmAPSKPilotInfo.CorrRatio, ...
+                tmAPSKPilotInfo.CFO_Hz,tmAPSKPilotInfo.MeanAmp, ...
+                100*tmAPSKPilotInfo.FadeFraction, ...
+                tmAPSKPilotInfo.MaxAppliedGain_dB, ...
+                tmAPSKPilotInfo.PilotNoiseVariance, ...
+                tmAPSKPilotInfo.CorrectionMode);
+        end
     end
 
     if useFastComplexPath && exist('fineSynced','var') && ~isempty(fineSynced)
@@ -1982,7 +2379,7 @@ function [res, ctx] = runOneShot(opt)
                 'FastComplexGainDecisionGate',0.60, ...
                 'FastComplexGainMaxMagnitudeDB',24),'complex');
         if syncDebugRequested
-            syncDebugStages.Carrier = fineSynced;
+            syncDebugStages.PreEQTracker = fineSynced;
         end
         if getLogicalField(opt,'debugAdaptiveEqualizer',false)
             fprintf(['   [TM fast complex gain] applied=%d gain=%+.2f dB ', ...
@@ -2001,7 +2398,7 @@ function [res, ctx] = runOneShot(opt)
                 'FastPhaseFrequencyStep',0.002, ...
                 'FastPhaseDecisionGate',0.35),'phase');
         if syncDebugRequested
-            syncDebugStages.Carrier = fineSynced;
+            syncDebugStages.PreEQTracker = fineSynced;
         end
         if getLogicalField(opt,'debugAdaptiveEqualizer',false)
             fprintf(['   [TM fast phase] phase=%+.2f deg ', ...
@@ -2018,13 +2415,74 @@ function [res, ctx] = runOneShot(opt)
     % dedicated 2-sps RRC/Gardner/carrier path has produced a 1-sps stream;
     % OQPSK and CPM paths retain their rail/continuous-phase semantics.
     adaptiveEqInfo = localEmptyTMAdaptiveEqualizerInfo();
+    uqpskPostCarrierEQEnabled = getLogicalField(opt, ...
+        'enableUQPSKPostCarrierAdaptiveEqualizer', true);
     if localIsAdaptiveEqualizerMode(adaptiveEqMode)
         adaptiveEqInfo.Mode = char(adaptiveEqMode);
-        if localSupportsTMBlindAdaptiveModulation(modStr) && ...
+        if localIsASMTrainingEqualizerMode(adaptiveEqMode)
+            [asmModeSupported,asmModeReason] = ...
+                localSupportsASMTrainingEqualizer(modStr,codeStr,opt,hasASM);
+            if asmModeSupported && exist('fineSynced','var') && ...
+                    ~isempty(fineSynced)
+                asmBitsForTraining = localTMASM(opt,codeStr);
+                asmPeriodBits = localASMPeriodBits(modStr,codeStr,opt);
+                [fineSynced,~,adaptiveEqInfo] = ...
+                    HelperTMASMTrainingEqualizer(fineSynced, ...
+                    asmBitsForTraining,modStr,asmPeriodBits,opt);
+                adaptiveEqInfo.Mode = char(adaptiveEqMode);
+                fineSyncedForBER = fineSynced;
+                if syncDebugRequested
+                    syncDebugStages.Equalizer = fineSynced;
+                end
+                if getLogicalField(opt,'debugAdaptiveEqualizer',false)
+                    fprintf(['   [TM ASM-training EQ] modulation=%s ', ...
+                        'ASM=%d score=%.4f->%.4f taps=%d ', ...
+                        'train=%d DDaccept=%.1f%% outputAccepted=%d ', ...
+                        'reason=%s\n'], ...
+                        char(modStr),getfieldnumeric(adaptiveEqInfo, ...
+                        'ASMCount',0),getfieldnumeric(adaptiveEqInfo, ...
+                        'ASMMedianScoreBefore',NaN), ...
+                        getfieldnumeric(adaptiveEqInfo, ...
+                        'ASMMedianScoreAfter',NaN),adaptiveEqInfo.NumTaps, ...
+                        getfieldnumeric(adaptiveEqInfo, ...
+                        'ASMTrainingUpdates',0), ...
+                        100*adaptiveEqInfo.AcceptanceRate, ...
+                        adaptiveEqInfo.OutputAccepted,adaptiveEqInfo.Reason);
+                end
+            else
+                adaptiveEqInfo.Reason = asmModeReason;
+            end
+        elseif localSupportsTMBlindAdaptiveModulation(modStr) && ...
+                (~contains(upper(string(modStr)),'UQPSK') || ...
+                 uqpskPostCarrierEQEnabled) && ...
                 exist('fineSynced','var') && ~isempty(fineSynced)
             adaptiveRefConst = getReferenceConstellation(modStr);
 
             ddOpt = opt;
+            pilotFadeBridgeEnabled = contains(upper(string(modStr)),'APSK') && ...
+                getLogicalField(opt, ...
+                'enableAPSKPilotFadeEqualizerHold', true);
+            pilotFadeMaskPassed = false;
+            if pilotFadeBridgeEnabled && tmAPSKPilotInfo.Applied && ...
+                    isfield(tmAPSKPilotInfo,'DataFadeMask') && ...
+                    numel(tmAPSKPilotInfo.DataFadeMask) == numel(fineSynced)
+                ddOpt.adaptiveEqualizerExternalFadeMask = ...
+                    logical(tmAPSKPilotInfo.DataFadeMask(:));
+                pilotFadeMaskPassed = true;
+            end
+            if getLogicalField(opt,'debugAdaptiveEqualizer',false) && ...
+                    contains(upper(string(modStr)),'APSK')
+                fprintf(['   [TM APSK fade bridge] enabled=%d pilotApplied=%d ', ...
+                    'maskPassed=%d maskLength=%d eqLength=%d ', ...
+                    'fadeSymbols=%d (%.2f%%) envGainLimit=[%+.1f,%+.1f] dB\n'], ...
+                    pilotFadeBridgeEnabled,tmAPSKPilotInfo.Applied, ...
+                    pilotFadeMaskPassed, ...
+                    numel(tmAPSKPilotInfo.DataFadeMask),numel(fineSynced), ...
+                    nnz(tmAPSKPilotInfo.DataFadeMask), ...
+                    100*mean(double(tmAPSKPilotInfo.DataFadeMask(:))), ...
+                    getfieldnumeric(opt,'adaptiveFastEnvelopeMinGainDB',-40), ...
+                    getfieldnumeric(opt,'adaptiveFastEnvelopeMaxGainDB',100));
+            end
             if strcmpi(char(adaptiveEqMode),'dd-nlms')
                 ddOpt.adaptiveEqualizerStage = 'dd';
             else
@@ -2056,7 +2514,8 @@ function [res, ctx] = runOneShot(opt)
                 fprintf(['   [TM adaptive EQ] mode=%s taps=%d CMA=%d ', ...
                     ['DD decisions=%d passes=%d/%d ', ...
                      'qualified=%d outputAccepted=%d structure=%s ', ...
-                     'sideRatio=%.4f hold=%d/%d ', ...
+                     'sideRatio=%.4f hold=%d/%d externalHold=%d ', ...
+                     'externalMask=%d/%d ', ...
                      'accept=%.1f%% CMA-MSE=%.4g DD-MSE=%.4g\n']], ...
                     adaptiveEqInfo.Mode, adaptiveEqInfo.NumTaps, ...
                     adaptiveEqInfo.CMASymbols, adaptiveEqInfo.DecisionCount, ...
@@ -2070,6 +2529,12 @@ function [res, ctx] = runOneShot(opt)
                         'SideTapEnergyRatio',NaN), ...
                     getfieldnumeric(adaptiveEqInfo,'DDHoldWindows',0), ...
                     getfieldnumeric(adaptiveEqInfo,'DDWindowCount',0), ...
+                    getfieldnumeric(adaptiveEqInfo, ...
+                        'DDExternalFadeHoldWindows',0), ...
+                    getfieldnumeric(adaptiveEqInfo, ...
+                        'ExternalFadeInputSymbols',0), ...
+                    getfieldnumeric(adaptiveEqInfo, ...
+                        'ExternalFadeExpandedSymbols',0), ...
                     100*adaptiveEqInfo.AcceptanceRate, ...
                     adaptiveEqInfo.CMAMSE, adaptiveEqInfo.DDMSE);
                 fprintf(['   [TM adaptive EQ gate] blind=%s ', ...
@@ -2084,9 +2549,15 @@ function [res, ctx] = runOneShot(opt)
                     adaptiveEqInfo.Reason);
             end
         else
-            adaptiveEqInfo.Reason = sprintf( ...
-                'unsupported modulation or empty synchronized symbols: %s', ...
-                char(modStr));
+            if contains(upper(string(modStr)),'UQPSK') && ...
+                    ~uqpskPostCarrierEQEnabled
+                adaptiveEqInfo.Reason = ...
+                    'UQPSK post-carrier adaptive equalizer disabled by option';
+            else
+                adaptiveEqInfo.Reason = sprintf( ...
+                    'unsupported modulation or empty synchronized symbols: %s', ...
+                    char(modStr));
+            end
         end
     end
 
@@ -2105,7 +2576,7 @@ function [res, ctx] = runOneShot(opt)
         fastComplexGainInfo = fastComplexGainInfoPost;
         fineSyncedForBER = fineSynced;
         if syncDebugRequested
-            syncDebugStages.Equalizer = fineSynced;
+            syncDebugStages.PostEQTracker = fineSynced;
         end
         if getLogicalField(opt,'debugAdaptiveEqualizer',false)
             fprintf(['   [TM fast complex gain post-DD] gain=%+.2f dB ', ...
@@ -2125,7 +2596,7 @@ function [res, ctx] = runOneShot(opt)
         fastComplexGainInfo = fastComplexGainInfoPost;
         fineSyncedForBER = fineSynced;
         if syncDebugRequested
-            syncDebugStages.Equalizer = fineSynced;
+            syncDebugStages.PostEQTracker = fineSynced;
         end
         if getLogicalField(opt,'debugAdaptiveEqualizer',false)
             fprintf(['   [TM fast phase post-DD] phase=%+.2f deg ', ...
@@ -2292,6 +2763,17 @@ function [res, ctx] = runOneShot(opt)
         snr_est              = computeSNRest(fineSyncedAligned, refConst);
     end
 
+    evmRadialPct = NaN;
+    evmTangentialPct = NaN;
+    residualPhaseRMSDeg = NaN;
+    residualRadiusRMSDB = NaN;
+    if ~isFMMod && ~isCPMMod && ~isOQPSKMod && ~isempty(refConst)
+        [evmRadialPct,evmTangentialPct,residualPhaseRMSDeg, ...
+            residualRadiusRMSDB] = ...
+            localConstellationResidualComponents( ...
+            fineSyncedAligned,refConst);
+    end
+
     % ===== 打包返回 =====
     res = struct();
     res.modType  = char(modStr);
@@ -2302,16 +2784,45 @@ function [res, ctx] = runOneShot(opt)
         res.NoisePSD_dBmHz = noiseInfo.PSD_dBmHz;
         res.NoiseBandwidthHz = noiseInfo.BandwidthHz;
         res.NoisePower_dBm = noiseInfo.NoisePower_dBm;
-        res.NoiseEquivalentSNR_dB = noiseInfo.EquivalentSNR_dB;
         res.NoiseReferenceLevel_dBm = noiseInfo.ReferenceLevel_dBm;
     end
+    res.NoiseEquivalentSNR_dB = noiseInfo.EquivalentSNR_dB;
     res.cfo_in   = cfo_val;
     res.phase_in = getf(opt,'phaseOffset',0);
     res.delay_in = delay_val;
     res.centerFrequencyHz = getCenterFrequencyHz(opt, 0);
     res.IFHz = res.centerFrequencyHz;
     res.carrierFreqHz = res.centerFrequencyHz;
-    res.inputLevelDbm = getInputLevelDbm(opt, 0);
+    res.inputLevelDbm = getInputLevelDbm(opt, -10);
+    res.outputLevelDbm = res.inputLevelDbm;
+    res.ConverterChainEnabled = logical(converterChainEnabled);
+    res.BasebandIFLevel_dBm = basebandIFLevelDBm;
+    res.UpconverterFixedGain_dB = upconverterInfo.FixedGainDB;
+    res.UpconverterAttenuation_dB = upconverterInfo.AppliedAttenuationDB;
+    res.UpconverterNetGain_dB = upconverterInfo.NetGainDB;
+    res.UpconverterOutputLevel_dBm = upconverterInfo.OutputSignalLevelDBm;
+    res.UpconverterCompressionRisk = logical(upconverterInfo.CompressionRisk);
+    res.UpconverterCompression_dB = upconverterInfo.EstimatedCompressionDB;
+    res.UpconverterInputWithinTypicalRange = ...
+        logical(upconverterInfo.InputWithinTypicalRange);
+    res.HAppliedGain_dB = hAppliedGainDB;
+    res.DownconverterInputLevel_dBm = downconverterInfo.InputSignalLevelDBm;
+    res.DownconverterFixedGain_dB = downconverterInfo.FixedGainDB;
+    res.DownconverterAttenuation_dB = downconverterInfo.AppliedAttenuationDB;
+    res.DownconverterAutoAttenuation = ...
+        logical(downconverterInfo.AutoAttenuation);
+    res.DownconverterNetGain_dB = downconverterInfo.NetGainDB;
+    res.DownconverterOutputLevel_dBm = downconverterInfo.OutputSignalLevelDBm;
+    res.DownconverterCompressionRisk = logical(downconverterInfo.CompressionRisk);
+    res.DownconverterCompression_dB = downconverterInfo.EstimatedCompressionDB;
+    res.DownconverterInputWithinTypicalRange = ...
+        logical(downconverterInfo.InputWithinTypicalRange);
+    res.ADCEquivalentEnabled = logical(adcInfo.Enabled);
+    res.ADCBits = adcInfo.Bits;
+    res.ADCFullScalePower_dBm = adcInfo.FullScalePowerDBm;
+    res.ADCRMSBackoff_dB = adcInfo.RMSBackoffDB;
+    res.ADCClipFraction = adcInfo.ClipFraction;
+    res.ADCQuantizationSNR_dB = adcInfo.QuantizationSNRDB;
     res.HasASM = logical(hasASM);
     res.HasFECF = getLogicalField(opt, 'HasFECF', ...
         getLogicalField(opt, 'CRCEnabled', false));
@@ -2349,7 +2860,14 @@ function [res, ctx] = runOneShot(opt)
     res.WaveformDurationOverTau = agcInfo.WaveformDurationOverTau;
     res.AGCSufficientObservation = logical(agcInfo.SufficientObservation);
     res.FastEnvelopeApplied = logical(fastEnvelopeInfo.Applied);
+    res.FastEnvelopeEstimatorMode = fastEnvelopeInfo.EstimatorMode;
     res.FastEnvelopeTauSymbols = fastEnvelopeInfo.TauSymbols;
+    res.FastEnvelopeBlockSymbols = fastEnvelopeInfo.BlockSymbols;
+    res.FastEnvelopeHopSymbols = fastEnvelopeInfo.HopSymbols;
+    res.FastEnvelopeMedianBlocks = fastEnvelopeInfo.MedianBlocks;
+    res.FastEnvelopeTrimFraction = fastEnvelopeInfo.TrimFraction;
+    res.FastEnvelopeGainSlewDBPerSymbol = ...
+        fastEnvelopeInfo.GainSlewDBPerSymbol;
     res.FastEnvelopeFinalGain_dB = fastEnvelopeInfo.FinalMagnitude_dB;
     res.FastEnvelopeGainMin_dB = fastEnvelopeInfo.GainMin_dB;
     res.FastEnvelopeGainMax_dB = fastEnvelopeInfo.GainMax_dB;
@@ -2366,6 +2884,23 @@ function [res, ctx] = runOneShot(opt)
     res.HighRatePhaseHoldSamples = highRatePhaseInfo.HoldSamples;
     res.HighRatePhaseFinalRelativePhase_deg = ...
         highRatePhaseInfo.FinalRelativePhase_deg;
+    res.UQPSKCarrierPLLApplied = logical(uqpskCarrierPLLInfo.Applied);
+    res.UQPSKCarrierPLLDualBandwidth = ...
+        logical(uqpskCarrierPLLInfo.DualBandwidth);
+    res.UQPSKCarrierPLLLocked = logical(uqpskCarrierPLLInfo.Locked);
+    res.UQPSKCarrierPLLFinalMode = char(uqpskCarrierPLLInfo.FinalMode);
+    res.UQPSKCarrierPLLAcquireBW = uqpskCarrierPLLInfo.AcquireLoopBW;
+    res.UQPSKCarrierPLLTrackBW = uqpskCarrierPLLInfo.TrackLoopBW;
+    res.UQPSKCarrierPLLFinalFrequency_Hz = ...
+        uqpskCarrierPLLInfo.FinalFrequency_Hz;
+    res.UQPSKCarrierPLLLockTransitions = uqpskCarrierPLLInfo.LockTransitions;
+    res.UQPSKCarrierPLLReacquisitions = uqpskCarrierPLLInfo.Reacquisitions;
+    res.UQPSKCarrierPLLFadeHoldSymbols = uqpskCarrierPLLInfo.FadeHoldSymbols;
+    res.UQPSKCarrierPLLUpdateAcceptanceRate = ...
+        uqpskCarrierPLLInfo.UpdateAcceptanceRate;
+    res.UQPSKCarrierPLLMeanAbsPhaseError = ...
+        uqpskCarrierPLLInfo.MeanAbsPhaseError;
+    res.UQPSKPostCarrierEQEnabled = logical(uqpskPostCarrierEQEnabled);
     res.AdaptiveEqualizerEnabled = logical(adaptiveEqInfo.Enabled);
     res.AdaptiveEqualizerMode = char(adaptiveEqInfo.Mode);
     res.AdaptiveEqualizerReason = char(adaptiveEqInfo.Reason);
@@ -2423,6 +2958,20 @@ function [res, ctx] = runOneShot(opt)
         adaptiveEqInfo, 'DDHoldWindows', 0);
     res.AdaptiveEqualizerDDFadeHoldWindows = getfieldnumeric( ...
         adaptiveEqInfo, 'DDFadeHoldWindows', 0);
+    res.AdaptiveEqualizerExternalFadeMaskProvided = getLogicalField( ...
+        adaptiveEqInfo, 'ExternalFadeMaskProvided', false);
+    res.AdaptiveEqualizerExternalFadeMaskLengthMatched = getLogicalField( ...
+        adaptiveEqInfo, 'ExternalFadeMaskLengthMatched', false);
+    res.AdaptiveEqualizerExternalFadeMaskInputLength = getfieldnumeric( ...
+        adaptiveEqInfo, 'ExternalFadeMaskInputLength', 0);
+    res.AdaptiveEqualizerExternalFadeInputSymbols = getfieldnumeric( ...
+        adaptiveEqInfo, 'ExternalFadeInputSymbols', 0);
+    res.AdaptiveEqualizerExternalFadeExpandedSymbols = getfieldnumeric( ...
+        adaptiveEqInfo, 'ExternalFadeExpandedSymbols', 0);
+    res.AdaptiveEqualizerDDExternalFadeHoldWindows = getfieldnumeric( ...
+        adaptiveEqInfo, 'DDExternalFadeHoldWindows', 0);
+    res.AdaptiveEqualizerDDExternalFadeHoldSymbols = getfieldnumeric( ...
+        adaptiveEqInfo, 'DDExternalFadeHoldSymbols', 0);
     res.AdaptiveEqualizerFadeHoldDB = getfieldnumeric( ...
         adaptiveEqInfo, 'FadeHoldDB', NaN);
     res.AdaptiveEqualizerDDHoldReason = char(getfieldwithdefault( ...
@@ -2433,9 +2982,21 @@ function [res, ctx] = runOneShot(opt)
         res.SyncDiagnostics = syncDiagnostics;
     end
     res.AdaptiveEqualizerConverged = logical(adaptiveEqInfo.Converged);
+    res.ASMTrainingEqualizerASMCount = getfieldnumeric( ...
+        adaptiveEqInfo,'ASMCount',0);
+    res.ASMTrainingEqualizerUpdates = getfieldnumeric( ...
+        adaptiveEqInfo,'ASMTrainingUpdates',0);
+    res.ASMTrainingEqualizerMedianScoreBefore = getfieldnumeric( ...
+        adaptiveEqInfo,'ASMMedianScoreBefore',NaN);
+    res.ASMTrainingEqualizerMedianScoreAfter = getfieldnumeric( ...
+        adaptiveEqInfo,'ASMMedianScoreAfter',NaN);
     res.BER         = berVal;
     res.EVM_pre_pct = evm_pre;
     res.EVM_post_pct= evm_post;
+    res.EVMRadial_pct = evmRadialPct;
+    res.EVMTangential_pct = evmTangentialPct;
+    res.ResidualPhaseRMS_deg = residualPhaseRMSDeg;
+    res.ResidualRadiusRMS_dB = residualRadiusRMSDB;
     res.MER_dB      = mer_post;
     res.SNR_est_dB  = snr_est;
     if isCPMMod
@@ -2455,6 +3016,69 @@ function [res, ctx] = runOneShot(opt)
     res.MatchedFrames = berStats.MatchedFrames;
     res.DecodedFrames = berStats.NumRxFrames;
     res.GMSKDetectorUsed = berStats.GMSKDetectorUsed;
+    res.GMSKSecondOrderPLLApplied = ...
+        logical(gmskSecondOrderPLLInfo.Applied);
+    res.GMSKSecondOrderPLLReason = gmskSecondOrderPLLInfo.Reason;
+    res.GMSKSecondOrderPLLLocked = ...
+        logical(gmskSecondOrderPLLInfo.Locked);
+    res.GMSKSecondOrderPLLFinalMode = ...
+        char(gmskSecondOrderPLLInfo.FinalMode);
+    res.GMSKSecondOrderPLLFinalFrequency_Hz = ...
+        gmskSecondOrderPLLInfo.FinalFrequency_Hz;
+    res.GMSKSecondOrderPLLFrequencyMin_Hz = ...
+        gmskSecondOrderPLLInfo.FrequencyMin_Hz;
+    res.GMSKSecondOrderPLLFrequencyMax_Hz = ...
+        gmskSecondOrderPLLInfo.FrequencyMax_Hz;
+    res.GMSKSecondOrderPLLUpdateAcceptanceRate = ...
+        gmskSecondOrderPLLInfo.UpdateAcceptanceRate;
+    res.GMSKSecondOrderPLLFadeHoldSamples = ...
+        gmskSecondOrderPLLInfo.FadeHoldSamples;
+    res.GMSKSecondOrderPLLMeanAbsPhaseError = ...
+        gmskSecondOrderPLLInfo.MeanAbsPhaseError;
+    res.GMSKResidualTrackerApplied = ...
+        logical(gmskResidualTrackerInfo.Applied);
+    res.GMSKResidualWindowCount = gmskResidualTrackerInfo.WindowCount;
+    res.GMSKResidualAcceptedWindows = ...
+        gmskResidualTrackerInfo.AcceptedWindows;
+    res.GMSKResidualHoldWindows = gmskResidualTrackerInfo.HoldWindows;
+    res.GMSKResidualWindowSymbols = gmskResidualTrackerInfo.WindowSymbols;
+    res.GMSKResidualHopSymbols = gmskResidualTrackerInfo.HopSymbols;
+    res.GMSKResidualMin_Hz = gmskResidualTrackerInfo.ResidualMin_Hz;
+    res.GMSKResidualMedian_Hz = gmskResidualTrackerInfo.ResidualMedian_Hz;
+    res.GMSKResidualMax_Hz = gmskResidualTrackerInfo.ResidualMax_Hz;
+    res.GMSKResidualRMS_Hz = gmskResidualTrackerInfo.ResidualRMS_Hz;
+    res.GMSKResidualFinal_Hz = gmskResidualTrackerInfo.FinalResidual_Hz;
+    res.GMSKResidualMedianConfidence_dB = ...
+        gmskResidualTrackerInfo.MedianConfidence_dB;
+    res.GMSKResidualRawAcceptedRate = ...
+        gmskResidualTrackerInfo.RawAcceptedRate;
+    res.GMSKResidualCandidateFiniteRate = ...
+        gmskResidualTrackerInfo.CandidateFiniteRate;
+    res.GMSKResidualCandidateMin_Hz = ...
+        gmskResidualTrackerInfo.CandidateMin_Hz;
+    res.GMSKResidualCandidateMedian_Hz = ...
+        gmskResidualTrackerInfo.CandidateMedian_Hz;
+    res.GMSKResidualCandidateMax_Hz = ...
+        gmskResidualTrackerInfo.CandidateMax_Hz;
+    res.GMSKResidualCandidateRMS_Hz = ...
+        gmskResidualTrackerInfo.CandidateRMS_Hz;
+    res.GMSKResidualNonfiniteWindows = ...
+        gmskResidualTrackerInfo.NonfiniteWindows;
+    res.GMSKResidualConfidenceRejectedWindows = ...
+        gmskResidualTrackerInfo.ConfidenceRejectedWindows;
+    res.GMSKResidualRangeRejectedWindows = ...
+        gmskResidualTrackerInfo.RangeRejectedWindows;
+    res.GMSKResidualRawMin_Hz = gmskResidualTrackerInfo.RawMin_Hz;
+    res.GMSKResidualRawMedian_Hz = gmskResidualTrackerInfo.RawMedian_Hz;
+    res.GMSKResidualRawMax_Hz = gmskResidualTrackerInfo.RawMax_Hz;
+    res.GMSKResidualRawRMS_Hz = gmskResidualTrackerInfo.RawRMS_Hz;
+    res.GMSKResidualJumpMax_Hz = gmskResidualTrackerInfo.JumpMax_Hz;
+    res.GMSKResidualJumpRMS_Hz = gmskResidualTrackerInfo.JumpRMS_Hz;
+    res.GMSKResidualPhaseCorrectionEnd_deg = ...
+        gmskResidualTrackerInfo.PhaseCorrectionEnd_deg;
+    if getLogicalField(opt,'debugGMSKResidualTracker',false)
+        res.GMSKResidualWindowDebug = gmskResidualTrackerInfo.WindowDebug;
+    end
     res.AcquisitionFrames = berStats.AcquisitionFrames;
     res.AcquisitionTime_s = berStats.AcquisitionTime_s;
     res.CRCCheckedFrames = getfieldnumeric(berStats, 'CRCCheckedFrames', 0);
@@ -2528,6 +3152,9 @@ function [res, ctx] = runOneShot(opt)
     res.TMAPSKPilotMeanAmp = tmAPSKPilotInfo.MeanAmp;
     res.TMAPSKPilotCorrectionMode = tmAPSKPilotInfo.CorrectionMode;
     res.TMAPSKPilotFadeFraction = tmAPSKPilotInfo.FadeFraction;
+    res.TMAPSKPilotDataFadeSymbols = nnz(tmAPSKPilotInfo.DataFadeMask);
+    res.TMAPSKPilotDataFadeFraction = ...
+        mean(double(tmAPSKPilotInfo.DataFadeMask(:)));
     res.TMAPSKPilotMaxAppliedGain_dB = tmAPSKPilotInfo.MaxAppliedGain_dB;
     res.TMAPSKPilotRegularization = tmAPSKPilotInfo.Regularization;
     res.TMAPSKPilotNoiseVariance = tmAPSKPilotInfo.PilotNoiseVariance;
@@ -2551,9 +3178,12 @@ function [res, ctx] = runOneShot(opt)
 
     % 给绘图用 — fineSynced 应用 best 旋转后再画,星座视觉对齐参考
     ctx.txWaveform   = txWaveform;
-    ctx.channelInput = txWithDelay;
+    ctx.txAfterUpconverter = txAfterUpconverter;
+    ctx.channelInput = txAfterUpconverter;
     ctx.channelOutput = txAfterH;
     ctx.rxNoisyWaveform = rxNoisyWaveform;
+    ctx.rxAfterDownconverter = rxAfterDownconverter;
+    ctx.rxAfterADC = rxAfterADC;
     ctx.rxWaveform   = rxWaveform;
     ctx.rxWaveformBeforeAGC = rxWaveformBeforeAGC;
     ctx.rxWaveformAfterAGC = rxWaveformAfterAGC;
@@ -2674,7 +3304,13 @@ function fc = getCenterFrequencyHz(s, defv)
 end
 
 function levelDbm = getInputLevelDbm(s, defv)
-    names = {'inputLevelDbm','input_level_dbm','outputPowerDbm','output_power_dbm'};
+    % This is the absolute signal level assigned to referenceSignal before
+    % receiver noise is added.  Keep the historical inputLevelDbm aliases,
+    % but also accept names that make the TX/link-budget meaning explicit.
+    names = {'transmitOutputLevelDbm','txOutputLevelDbm', ...
+        'outputLevelDbm','signalReferenceLevelDbm', ...
+        'inputLevelDbm','input_level_dbm', ...
+        'outputPowerDbm','output_power_dbm'};
     levelDbm = defv;
     for k = 1:numel(names)
         name = names{k};
@@ -3263,6 +3899,7 @@ function localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, actualC
         double(actualCodeRate) / double(bitsPerSymbol) * double(sps)));
     frameDuration = samplesPerFrame / double(Fs);
     hAbs = abs(hState.pathCoeff(dominantPath, :));
+    hComplex = hState.pathCoeff(dominantPath, :);
     numFramesAvailable = floor(numel(hAbs) / samplesPerFrame);
     numFramesAvailable = min(numFramesAvailable, floor(double(totalFrames)));
     if numFramesAvailable < 1
@@ -3291,11 +3928,14 @@ function localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, actualC
 
     frameStats = struct('Frame', {}, 'TimeStart_s', {}, 'TimeEnd_s', {}, ...
         'MinAbsH', {}, 'RmsAbsH', {}, 'MedianAbsH', {}, 'MaxAbsH', {}, ...
-        'MinAbsH_dB', {}, 'RmsAbsH_dB', {}, 'MedianAbsH_dB', {}, 'MaxAbsH_dB', {});
+        'MinAbsH_dB', {}, 'RmsAbsH_dB', {}, 'MedianAbsH_dB', {}, 'MaxAbsH_dB', {}, ...
+        'HDopplerMedian_Hz', {}, 'HDopplerRMS_Hz', {}, ...
+        'HDopplerMaxAbs_Hz', {});
     for frameIdx = startFrame:endFrame
         idx = (frameIdx-1)*samplesPerFrame + (1:samplesPerFrame);
         idx = idx(idx <= numel(hAbs));
         a = hAbs(idx);
+        hFrame = hComplex(idx);
         if isempty(a)
             continue;
         end
@@ -3305,11 +3945,31 @@ function localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, actualC
         maxA = max(a);
         t0 = (idx(1)-1) / double(Fs);
         t1 = idx(end) / double(Fs);
+        if numel(hFrame) >= 2
+            phaseStep = angle(hFrame(2:end).*conj(hFrame(1:end-1)));
+            phaseValid = a(1:end-1) > 0.1*max(medA,eps) & ...
+                a(2:end) > 0.1*max(medA,eps) & isfinite(phaseStep);
+            phaseStep = phaseStep(phaseValid);
+        else
+            phaseStep = [];
+        end
+        if isempty(phaseStep)
+            hDopplerMedian = NaN;
+            hDopplerRMS = NaN;
+            hDopplerMax = NaN;
+        else
+            hDoppler = phaseStep*double(Fs)/(2*pi);
+            hDopplerMedian = median(hDoppler);
+            hDopplerRMS = sqrt(mean(hDoppler.^2));
+            hDopplerMax = max(abs(hDoppler));
+        end
         fprintf(['      frame=%03d t=[%.6f %.6f] s |h| min/rms/med/max = ' ...
-                 '%.4g/%.4g/%.4g/%.4g  dB=%.2f/%.2f/%.2f/%.2f\n'], ...
+                 '%.4g/%.4g/%.4g/%.4g  dB=%.2f/%.2f/%.2f/%.2f ' ...
+                 'Hdoppler[med/rms/max]=%+.1f/%.1f/%.1f Hz\n'], ...
             frameIdx, t0, t1, minA, rmsA, medA, maxA, ...
             20*log10(max(minA, eps)), 20*log10(max(rmsA, eps)), ...
-            20*log10(max(medA, eps)), 20*log10(max(maxA, eps)));
+            20*log10(max(medA, eps)), 20*log10(max(maxA, eps)), ...
+            hDopplerMedian,hDopplerRMS,hDopplerMax);
 
         frameStats(end+1).Frame = frameIdx; %#ok<AGROW>
         frameStats(end).TimeStart_s = t0;
@@ -3322,6 +3982,9 @@ function localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, actualC
         frameStats(end).RmsAbsH_dB = 20*log10(max(rmsA, eps));
         frameStats(end).MedianAbsH_dB = 20*log10(max(medA, eps));
         frameStats(end).MaxAbsH_dB = 20*log10(max(maxA, eps));
+        frameStats(end).HDopplerMedian_Hz = hDopplerMedian;
+        frameStats(end).HDopplerRMS_Hz = hDopplerRMS;
+        frameStats(end).HDopplerMaxAbs_Hz = hDopplerMax;
     end
 
     try
@@ -3566,23 +4229,45 @@ function [yOut, noiseInfo] = addReceiverNoise(xIn, opt, sampleRateHz, snr_dB, re
     end
     noiseInfo = makeLegacyNoiseInfo(snr_dB);
 
+    noiseMode = lower(strtrim(getOptionString(opt, ...
+        {'noiseMode','receiverNoiseMode','awgnMode'}, "psd")));
+    noiseModeKey = string(erase(noiseMode, ["_","-"," "]));
+    useMeasuredSNR = any(noiseModeKey == ...
+        ["snr","measured","legacy","legacymeasured","awgn"]);
+
     psd_dBmHz = getOptionDouble(opt, ...
         {'noisePSDdBmHz','noisePsdDbmHz','noisePSD_dBmHz', ...
          'noisePowerSpectralDensityDbmHz','noiseDensityDbmHz', ...
-         'noisePSDdBmPerHz','N0dBmHz','N0_dBmHz'}, NaN);
-    if ~isfinite(psd_dBmHz)
+         'noisePSDdBmPerHz','N0dBmHz','N0_dBmHz'}, -115.3);
+    if useMeasuredSNR
         yOut = awgn(xIn, snr_dB, 'measured');
         return;
     end
+    if ~isfinite(psd_dBmHz)
+        psd_dBmHz = -115.3;
+    end
 
     noiseBandwidthHz = getOptionDouble(opt, ...
-        {'noiseBandwidthHz','noiseBWHz','noiseBandwidth','NoiseBandwidthHz'}, sampleRateHz);
+        {'noiseBandwidthHz','noiseBWHz','noiseBandwidth','NoiseBandwidthHz'}, NaN);
     if ~isfinite(noiseBandwidthHz) || noiseBandwidthHz <= 0
-        noiseBandwidthHz = sampleRateHz;
+        % For complex baseband, integrate the two-sided PSD over the
+        % occupied RRC bandwidth.  Users can override this with the actual
+        % receiver equivalent-noise bandwidth.
+        symbolRateHz = getOptionDouble(opt, ...
+            {'symbolRate','SymbolRate','symbol_rate'}, NaN);
+        rolloff = getOptionDouble(opt, ...
+            {'RolloffFactor','rolloffFactor','rolloff'}, 0.35);
+        if isfinite(symbolRateHz) && symbolRateHz > 0 && ...
+                isfinite(rolloff) && rolloff >= 0
+            noiseBandwidthHz = min(sampleRateHz, (1 + rolloff)*symbolRateHz);
+        else
+            noiseBandwidthHz = sampleRateHz;
+        end
     end
 
     referencePowerDigital = mean(abs(referenceSignal(:)).^2) + eps;
-    signalPowerW = 1e-3 * 10.^(getInputLevelDbm(opt, 0)/10);
+    referenceLevel_dBm = getInputLevelDbm(opt, -10);
+    signalPowerW = 1e-3 * 10.^(referenceLevel_dBm/10);
     digitalUnitsPerWatt = referencePowerDigital / max(signalPowerW, realmin);
 
     noisePSD_WHz = 1e-3 * 10.^(psd_dBmHz/10);
@@ -3604,7 +4289,7 @@ function [yOut, noiseInfo] = addReceiverNoise(xIn, opt, sampleRateHz, snr_dB, re
         'PSD_dBmHz', psd_dBmHz, ...
         'BandwidthHz', noiseBandwidthHz, ...
         'NoisePower_dBm', psd_dBmHz + 10*log10(noiseBandwidthHz), ...
-        'ReferenceLevel_dBm', getInputLevelDbm(opt, 0), ...
+        'ReferenceLevel_dBm', referenceLevel_dBm, ...
         'EquivalentSNR_dB', 10*log10(currentSignalPowerDigital / max(noiseVarianceDigital, realmin)));
 end
 
@@ -3758,7 +4443,139 @@ function tf = localIsAdaptiveEqualizerMode(mode)
     mode = lower(string(mode));
     tf = any(strcmp(mode, [ ...
         "blind-cma-lms", "cma-dd-nlms", "cma-lms", ...
-        "adaptive-cma-lms", "blind", "dd-nlms"]));
+        "adaptive-cma-lms", "blind", "dd-nlms", ...
+        "asm-training-nlms"]));
+end
+
+function levelDBm = localReceiverNoisePowerDBm(noiseInfo, fallbackSignalLevelDBm)
+    levelDBm = -Inf;
+    if isstruct(noiseInfo) && isfield(noiseInfo, 'NoisePower_dBm') && ...
+            isfinite(noiseInfo.NoisePower_dBm)
+        levelDBm = double(noiseInfo.NoisePower_dBm);
+        return;
+    end
+    if isstruct(noiseInfo) && isfield(noiseInfo, 'EquivalentSNR_dB') && ...
+            isfinite(noiseInfo.EquivalentSNR_dB)
+        levelDBm = fallbackSignalLevelDBm - double(noiseInfo.EquivalentSNR_dB);
+    end
+end
+
+function totalDBm = localSumPowerDBm(varargin)
+    totalW = 0;
+    for k = 1:nargin
+        value = double(varargin{k});
+        if isfinite(value)
+            totalW = totalW + 1e-3 * 10.^(value/10);
+        end
+    end
+    if totalW <= 0
+        totalDBm = -Inf;
+    else
+        totalDBm = 10*log10(totalW/1e-3);
+    end
+end
+
+function info = localDisabledConverterInfo(stageName, levelDBm)
+    info = struct( ...
+        'Enabled', false, ...
+        'StageName', char(stageName), ...
+        'InputSignalLevelDBm', levelDBm, ...
+        'InputTotalLevelDBm', levelDBm, ...
+        'FixedGainDB', 0, ...
+        'RequestedAttenuationDB', 0, ...
+        'AppliedAttenuationDB', 0, ...
+        'ConfiguredNetGainDB', 0, ...
+        'NetGainDB', 0, ...
+        'OutputSignalLevelDBm', levelDBm, ...
+        'OutputTotalLevelDBm', levelDBm, ...
+        'CompressionRisk', false, ...
+        'EstimatedCompressionDB', 0, ...
+        'IdealPeakOutputLevelDBm', levelDBm, ...
+        'AutoAttenuation', false, ...
+        'InputWithinTypicalRange', false);
+end
+
+function info = localDisabledADCInfo()
+    info = struct( ...
+        'Enabled', false, ...
+        'Bits', NaN, ...
+        'FullScalePowerDBm', NaN, ...
+        'InputTotalLevelDBm', NaN, ...
+        'RMSBackoffDB', NaN, ...
+        'ClipFraction', 0, ...
+        'QuantizationSNRDB', Inf);
+end
+
+function localPrintConverterChain(basebandIFLevelDBm, upInfo, hGainDB, ...
+        noiseInfo, downInfo, adcInfo)
+    fprintf('\n[TM converter chain]\n');
+    fprintf('  baseband/IF reference : %+.2f dBm\n', basebandIFLevelDBm);
+    fprintf(['  upconverter           : fixed=%+.2f dB, atten=%.2f dB, ', ...
+        'net=%+.2f dB, output=%+.2f dBm\n'], ...
+        upInfo.FixedGainDB, upInfo.AppliedAttenuationDB, ...
+        upInfo.NetGainDB, upInfo.OutputSignalLevelDBm);
+    fprintf('  H applied mean gain   : %+.2f dB\n', hGainDB);
+    if isfield(noiseInfo, 'NoisePower_dBm') && isfinite(noiseInfo.NoisePower_dBm)
+        fprintf('  receiver noise power  : %+.2f dBm\n', noiseInfo.NoisePower_dBm);
+    end
+    fprintf(['  downconverter         : input=%+.2f dBm, fixed=%+.2f dB, ', ...
+        'atten=%.2f dB, net=%+.2f dB, output=%+.2f dBm\n'], ...
+        downInfo.InputSignalLevelDBm, downInfo.FixedGainDB, ...
+        downInfo.AppliedAttenuationDB, downInfo.NetGainDB, ...
+        downInfo.OutputSignalLevelDBm);
+    if downInfo.AutoAttenuation
+        fprintf('  downconverter control : automatic attenuation, target=%+.2f dBm\n', ...
+            downInfo.TargetOutputTotalLevelDBm);
+    end
+    fprintf('  input range check     : up=%d, down=%d (typical -60..-10 dBm)\n', ...
+        upInfo.InputWithinTypicalRange, downInfo.InputWithinTypicalRange);
+    fprintf('  P1dB risk             : up=%d, down=%d\n', ...
+        upInfo.CompressionRisk, downInfo.CompressionRisk);
+    if adcInfo.Enabled
+        fprintf(['  ADC equivalent        : %d bit, FS=%+.2f dBm, ', ...
+            'backoff=%.2f dB, clip=%.4g%%, qSNR=%.2f dB\n'], ...
+            adcInfo.Bits, adcInfo.FullScalePowerDBm, adcInfo.RMSBackoffDB, ...
+            100*adcInfo.ClipFraction, adcInfo.QuantizationSNRDB);
+    else
+        fprintf('  ADC equivalent        : disabled (full-scale not yet calibrated)\n');
+    end
+end
+
+function tf = localIsASMTrainingEqualizerMode(mode)
+    tf = strcmpi(string(mode),'asm-training-nlms');
+end
+
+function [tf,reason] = localSupportsASMTrainingEqualizer( ...
+        modStr,codeStr,opt,hasASM)
+    modulation = upper(string(modStr));
+    coding = lower(string(codeStr));
+    pcmFormat = upper(string(getfieldwithdefault(opt,'PCMFormat','NRZ-L')));
+    tf = false;
+    if ~logical(hasASM)
+        reason = 'asm-training-nlms requires hasASM=true';
+        return;
+    end
+    if ~any(strcmp(modulation,["QPSK","16QAM"]))
+        reason = sprintf( ...
+            'asm-training-nlms is isolated to QPSK/16QAM; %s bypassed', ...
+            char(modulation));
+        return;
+    end
+    if contains(coding,'convolutional') || contains(coding,'tpc')
+        reason = sprintf( ...
+            ['asm-training-nlms first version requires a raw transmitted ', ...
+             'ASM; coding=%s encodes/groups the ASM and is bypassed'], ...
+            char(coding));
+        return;
+    end
+    if pcmFormat ~= "NRZ-L"
+        reason = sprintf( ...
+            'asm-training-nlms first version requires NRZ-L, not %s', ...
+            char(pcmFormat));
+        return;
+    end
+    tf = true;
+    reason = 'supported';
 end
 
 function tf = localSupportsTMBlindAdaptiveModulation(modStr)
@@ -3863,8 +4680,11 @@ function info = localBuildTMSyncDiagnostics( ...
             max(info.TimingExpectedSymbols,1);
     end
 
-    stageNames = {'postTiming','postCarrier','postEqualizer'};
-    stageSignals = {stages.Timing,stages.Carrier,stages.Equalizer};
+    stageNames = {'postTiming','postCarrier','pilotInput','postPilot', ...
+        'preEQTracker','postEqualizer','postEQTracker'};
+    stageSignals = {stages.Timing,stages.Carrier,stages.PilotInput, ...
+        stages.Pilot,stages.PreEQTracker,stages.Equalizer, ...
+        stages.PostEQTracker};
     stageResult = repmat(localEmptyTMSymbolStageDiagnostics(),0,1);
     for iStage = 1:numel(stageNames)
         if isempty(stageSignals{iStage})
@@ -3895,7 +4715,13 @@ function info = localBuildTMSyncDiagnostics( ...
         'debugCarrierResidualThreshold_Hz',100));
     info.SuspectTimingRate = isfinite(info.TimingRateError_ppm) && ...
         abs(info.TimingRateError_ppm) > timingRateThreshold;
-    carrierStage = localFindTMSyncStage(info.Stages,'postCarrier');
+    carrierStage = localFindTMSyncStage(info.Stages,'preEQTracker');
+    if ~carrierStage.Available
+        carrierStage = localFindTMSyncStage(info.Stages,'postPilot');
+    end
+    if ~carrierStage.Available
+        carrierStage = localFindTMSyncStage(info.Stages,'postCarrier');
+    end
     info.SuspectCarrierResidual = carrierStage.Available && ...
         isfinite(carrierStage.ResidualCFO_Hz) && ...
         abs(carrierStage.ResidualCFO_Hz) > carrierResidualThreshold;
@@ -3927,6 +4753,9 @@ function stage = localEmptyTMSymbolStageDiagnostics()
         'NumSymbols',0, ...
         'Power_dB',NaN, ...
         'StructureMSE',NaN, ...
+        'RadialEVM_pct',NaN, ...
+        'TangentialEVM_pct',NaN, ...
+        'RadiusRMS_dB',NaN, ...
         'ResidualCFO_Hz',NaN, ...
         'PhaseMean_deg',NaN, ...
         'PhaseJitter_deg',NaN, ...
@@ -3955,6 +4784,9 @@ function stage = localTMSymbolStageDiagnostics( ...
     [stage.StructureMSE,stage.ResidualCFO_Hz, ...
         stage.PhaseMean_deg,stage.PhaseJitter_deg] = ...
         localTMSymbolResidualMetrics(symbols,refConst,symbolRate);
+    [stage.RadialEVM_pct,stage.TangentialEVM_pct,~, ...
+        stage.RadiusRMS_dB] = ...
+        localConstellationResidualComponents(symbols,refConst);
 
     nSegments = max(1,round(getfieldnumeric(opt, ...
         'debugSyncSegmentCount',8)));
@@ -4029,13 +4861,16 @@ function localPrintTMSyncDiagnostics(info)
         '(rate error=%+.1f ppm)\n'], ...
         info.TimingInputSamples,info.TimingExpectedSymbols, ...
         info.TimingOutputSymbols,info.TimingRateError_ppm);
-    fprintf(['  stage             symbols  power(dB) structure   ', ...
-        'resCFO(Hz) phaseMean phaseJitter\n']);
+    fprintf(['  stage             symbols  power(dB) structure radial%% tang%% ', ...
+        'radiusdB resCFO(Hz) phaseMean phaseJitter\n']);
     for iStage = 1:numel(info.Stages)
         stage = info.Stages(iStage);
-        fprintf('  %-16s %7d %9.3f %9.4g %11.3f %9.2f %11.2f\n', ...
+        fprintf(['  %-16s %7d %9.3f %9.4g %7.2f %6.2f %8.3f ', ...
+            '%10.3f %9.2f %11.2f\n'], ...
             stage.Name,stage.NumSymbols,stage.Power_dB, ...
-            stage.StructureMSE,stage.ResidualCFO_Hz, ...
+            stage.StructureMSE,stage.RadialEVM_pct, ...
+            stage.TangentialEVM_pct,stage.RadiusRMS_dB, ...
+            stage.ResidualCFO_Hz, ...
             stage.PhaseMean_deg,stage.PhaseJitter_deg);
     end
     eqStage = localFindTMSyncStage(info.Stages,'postEqualizer');
@@ -4183,6 +5018,40 @@ function snr_est = computeSNRest(rxSym, refConst)
     Ps = mean(abs(ideal).^2);
     Pn = mean(abs(rxSym - ideal).^2);
     snr_est = 10*log10(Ps / (Pn+eps));
+end
+
+function [radialPct,tangentialPct,phaseRMSDeg,radiusRMSDB] = ...
+        localConstellationResidualComponents(rxSym,refConst)
+% Decision-directed decomposition of the same tail segment used by EVM.
+% Radial error exposes amplitude/ring-radius residuals; tangential error
+% exposes phase residuals.  This is diagnostic only and does not alter the
+% received symbols or use transmitted payload bits.
+radialPct = NaN;
+tangentialPct = NaN;
+phaseRMSDeg = NaN;
+radiusRMSDB = NaN;
+if isempty(rxSym) || isempty(refConst), return; end
+
+rx = rxSym(:);
+L = min(numel(rx),5000);
+rx = rx(end-L+1:end);
+ref = refConst(:);
+[~,idx] = min(abs(rx-ref.'),[],2);
+ideal = ref(idx);
+valid = isfinite(real(rx)) & isfinite(imag(rx)) & abs(ideal) > sqrt(eps);
+if ~any(valid), return; end
+rx = rx(valid);
+ideal = ideal(valid);
+
+unitIdeal = ideal./abs(ideal);
+localError = (rx-ideal).*conj(unitIdeal);
+referencePower = mean(abs(ref).^2);
+radialPct = 100*sqrt(mean(real(localError).^2)/max(referencePower,eps));
+tangentialPct = 100*sqrt(mean(imag(localError).^2)/max(referencePower,eps));
+phaseError = angle(rx.*conj(ideal));
+phaseRMSDeg = sqrt(mean(phaseError.^2))*180/pi;
+radiusErrorDB = 20*log10(max(abs(rx),sqrt(eps))./abs(ideal));
+radiusRMSDB = sqrt(mean(radiusErrorDB.^2));
 end
 
 function noiseVar = localEstimateDemodNoiseVariance(rxSym, refConst)
@@ -5496,18 +6365,9 @@ function [stats, errs, bitsComp, perFrameBER] = ...
     end
     measurementWarmUpFrames = max(0, round(double(measurementWarmUpFrames)));
 
-    txMap = containers.Map('KeyType','double','ValueType','any');
-    for k = 1:numel(txFrames)
-        fr = txFrames{k};
-        txMap(localTMFrameID(fr)) = fr;
-    end
-    measurementIdMap = containers.Map( ...
-        'KeyType','double','ValueType','logical');
+    txCatalog = localBuildTMFrameCatalog(txFrames);
     firstMeasurementFrame = min( ...
         numel(txFrames) + 1, measurementWarmUpFrames + 1);
-    for k = firstMeasurementFrame:numel(txFrames)
-        measurementIdMap(localTMFrameID(txFrames{k})) = true;
-    end
 
     numRx = floor(numel(decodedBits) / bitsPerFrame);
     perFrameBER = nan(1, numRx);
@@ -5520,20 +6380,24 @@ function [stats, errs, bitsComp, perFrameBER] = ...
     acquisitionMaxFrameBER = localAcquisitionMaxFrameBER(opt);
     acquiredForBER = false;
     matchedAfterAcquisition = 0;
+    lastMatchedTxIndex = NaN;
 
     for j = 1:numRx
         idx = (j-1)*bitsPerFrame + (1:bitsPerFrame);
         rxFr = double(decodedBits(idx));
         rxId = localTMFrameID(rxFr);
 
-        if ~isKey(txMap, rxId)
+        [frameMatched, txFrame, txFrameIndex] = ...
+            localMatchTMFrameOccurrence( ...
+                rxFr, txFrames, txCatalog, lastMatchedTxIndex);
+        if ~frameMatched
             hasLastId = false;
             consecIdCount = 0;
             continue;
         end
 
         stats.MatchedFrames = stats.MatchedFrames + 1;
-        thisErrs = biterr(txMap(rxId), rxFr);
+        thisErrs = biterr(txFrame, rxFr);
         perFrameBER(j) = thisErrs / bitsPerFrame;
 
         % acquisition 阶段只接受“帧号连续 + 本帧 BER 不像随机”的匹配帧。
@@ -5543,6 +6407,7 @@ function [stats, errs, bitsComp, perFrameBER] = ...
         goodFrameForAcq = perFrameBER(j) <= acquisitionMaxFrameBER && ...
             (~crcEnabledForAcq || crcValidForAcq);
         if goodFrameForAcq
+            lastMatchedTxIndex = txFrameIndex;
             if ~hasLastId
                 consecIdCount = 1;
                 hasLastId = true;
@@ -5569,7 +6434,7 @@ function [stats, errs, bitsComp, perFrameBER] = ...
 
         % acquisition 通过后，后续匹配帧直接计入 BER/FER。
         % 防假锁靠上面的连续 ID + per-frame BER 门限完成，不再要求连续 numWarmUp 帧。
-        counted = acquiredForBER && isKey(measurementIdMap, rxId);
+        counted = acquiredForBER && txFrameIndex >= firstMeasurementFrame;
         if counted
             stats.CountedFrames = stats.CountedFrames + 1;
             stats = localUpdateCRCStats(stats, rxFr, opt);
@@ -6251,7 +7116,9 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotationCandidat
             randomizerEnabled, hasASM, btVal, numWarmUp);
     catch candidateError
         if startsWith(string(candidateError.identifier), ...
-                "gmsk_ccsds_official_demodulate:")
+                "gmsk_ccsds_official_demodulate:") || ...
+                strcmp(string(candidateError.identifier), ...
+                "run_ccsds_tm_evaluation:GMSKProductionDetectorRemoved")
             rethrow(candidateError);
         end
         berVal = inf;
@@ -6472,10 +7339,9 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         pcmFormatRx = "NRZ-L";
     end
 
-    % The frame-reset official Viterbi receiver is the production GMSK
-    % path.  Legacy modes remain available only as explicit diagnostics.
+    % The frame-reset official Viterbi receiver is the sole production
+    % GMSK path. Legacy detector helpers are not selectable here.
     gmskFrameResetAligned = false;
-    gmskFrameResetInfo = struct();
 
     if HelperCCSDSTMPCMDemodulator.supports(tmMod)
         demodData = real(fineSynced(:));
@@ -6542,187 +7408,103 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         if isfield(opt,'GMSKDetectionMode') && ~isempty(opt.GMSKDetectionMode)
             gmskDetectionMode = lower(string(opt.GMSKDetectionMode));
         end
-
-        useLegacyFrameReset = strcmp(gmskDetectionMode, "legacy-frame-reset");
         useOfficialFrameReset = strcmp(gmskDetectionMode, ...
             "official-viterbi-frame-reset");
-        supportedFrameResetCode = strcmpi(string(tmCode), "none") || ...
-            contains(lower(string(tmCode)), "convolutional");
+        if ~useOfficialFrameReset
+            error('run_ccsds_tm_evaluation:GMSKProductionDetectorRemoved', ...
+                ['The production GMSK path only supports ', ...
+                 'GMSKDetectionMode="official-viterbi-frame-reset".']);
+        end
 
         if useOfficialFrameReset
             officialReceiverCfg = struct();
-            officialReceiverCfg.ChannelCoding = tmCode;
-            officialCodeKey = lower(string(tmCode));
-            if contains(officialCodeKey, "convolutional")
-                officialReceiverCfg.CodeRate = getfieldwithdefault(opt, ...
-                    'ConvolutionalCodeRate', '1/2');
-            elseif officialCodeKey == "ldpc" || officialCodeKey == "turbo"
-                if ~isfield(opt, 'CodeRate') || isempty(opt.CodeRate)
-                    error('run_ccsds_tm_evaluation:MissingOfficialGMSKCodeRate', ...
-                        ['Official GMSK with ChannelCoding="%s" requires ', ...
-                         'the same CodeRate used by the transmitter.'], ...
-                        char(tmCode));
-                end
-                if ~isfield(opt, 'NumBitsInInformationBlock') || ...
-                        isempty(opt.NumBitsInInformationBlock)
-                    error(['run_ccsds_tm_evaluation:', ...
-                           'MissingOfficialGMSKInformationBlockLength'], ...
-                        ['Official GMSK with ChannelCoding="%s" requires ', ...
-                         'the same NumBitsInInformationBlock used by the ', ...
-                         'transmitter.'], char(tmCode));
-                end
-
-                officialReceiverCfg.CodeRate = opt.CodeRate;
-                officialReceiverCfg.NumBitsInInformationBlock = ...
-                    opt.NumBitsInInformationBlock;
-                if officialCodeKey == "ldpc"
-                    officialReceiverCfg.IsLDPCOnSMTF = ...
-                        getLogicalField(opt, 'IsLDPCOnSMTF', false);
-                    if isfield(opt, 'LDPCCodeblockSize') && ...
-                            ~isempty(opt.LDPCCodeblockSize)
-                        officialReceiverCfg.LDPCCodeblockSize = ...
-                            opt.LDPCCodeblockSize;
-                    end
-                end
-            elseif officialCodeKey == "tpc"
-                officialReceiverCfg.CodeRate = 'N/A';
-                officialReceiverCfg.TPCCodeRate = ...
-                    localTPCCodeRateValue(opt);
-                officialReceiverCfg.TPCBlocksPerTF = ...
-                    getfieldwithdefault(opt, 'TPCBlocksPerTF', 1);
-            elseif officialCodeKey == "rs"
-                officialReceiverCfg.CodeRate = 'N/A';
-                officialReceiverCfg.RSMessageLength = ...
-                    getfieldnumeric(opt, 'RSMessageLength', 223);
-                officialReceiverCfg.RSInterleavingDepth = ...
-                    getfieldnumeric(opt, 'RSInterleavingDepth', 1);
-                officialReceiverCfg.IsRSMessageShortened = ...
-                    getLogicalField(opt, 'IsRSMessageShortened', false);
-                officialReceiverCfg.RSShortenedMessageLength = ...
-                    getfieldnumeric(opt, 'RSShortenedMessageLength', ...
-                    officialReceiverCfg.RSMessageLength);
-            else
-                % The rate is not part of the uncoded GMSK frame layout.
-                % Unsupported coding families are rejected by the official
-                % receiver entry point; do not invent a convolutional rate.
-                officialReceiverCfg.CodeRate = 'N/A';
+        officialReceiverCfg.ChannelCoding = tmCode;
+        officialCodeKey = lower(string(tmCode));
+        if contains(officialCodeKey, "convolutional")
+            officialReceiverCfg.CodeRate = getfieldwithdefault(opt, ...
+                'ConvolutionalCodeRate', '1/2');
+        elseif officialCodeKey == "ldpc" || officialCodeKey == "turbo"
+            if ~isfield(opt, 'CodeRate') || isempty(opt.CodeRate)
+                error('run_ccsds_tm_evaluation:MissingOfficialGMSKCodeRate', ...
+                    ['Official GMSK with ChannelCoding="%s" requires ', ...
+                     'the same CodeRate used by the transmitter.'], ...
+                    char(tmCode));
             end
-            officialReceiverCfg.NumBytesInTransferFrame = numBytesTF;
-            officialReceiverCfg.ASMBits = localTMASM(opt, tmCode);
-            officialReceiverCfg.HasASM = hasASM;
-            officialReceiverCfg.PCMFormat = pcmFormatRx;
-            officialReceiverCfg.SamplesPerSymbol = ...
-                getfieldnumeric(opt, 'sps', 8);
-            officialReceiverCfg.BandwidthTimeProduct = btVal;
-            officialReceiverCfg.PrintDebug = debugGMSK;
-
-            [demodData, officialReceiverInfo] = ...
-                gmsk_ccsds_official_demodulate( ...
-                fineSynced, officialReceiverCfg);
-            gmskDetectorUsed = "official";
-            gmskFrameResetAligned = true;
-            if debugGMSK
-                fprintf(['   [GMSK official receiver] detector=%s, ', ...
-                    'success=%d, input=%d, output=%d, accepted=%d/%d\n'], ...
-                    officialReceiverInfo.GMSKDetectorUsed, ...
-                    officialReceiverInfo.DetectorSucceeded, ...
-                    officialReceiverInfo.Viterbi.InputSamples, ...
-                    officialReceiverInfo.Viterbi.OutputSymbols, ...
-                    officialReceiverInfo.FrameReset.AcceptedFrames, ...
-                    officialReceiverInfo.FrameReset.TotalFrames);
-                assignin('base', 'debugGMSKOfficialReceiverInfo', ...
-                    officialReceiverInfo);
+            if ~isfield(opt, 'NumBitsInInformationBlock') || ...
+                    isempty(opt.NumBitsInInformationBlock)
+                error(['run_ccsds_tm_evaluation:', ...
+                       'MissingOfficialGMSKInformationBlockLength'], ...
+                    ['Official GMSK with ChannelCoding="%s" requires ', ...
+                     'the same NumBitsInInformationBlock used by the ', ...
+                     'transmitter.'], char(tmCode));
             end
-        elseif useLegacyFrameReset && hasASM && supportedFrameResetCode
-            rateForReset = "1/2";
-            if isfield(opt,'ConvolutionalCodeRate') && ...
-                    ~isempty(opt.ConvolutionalCodeRate)
-                rateForReset = string(opt.ConvolutionalCodeRate);
+
+            officialReceiverCfg.CodeRate = opt.CodeRate;
+            officialReceiverCfg.NumBitsInInformationBlock = ...
+                opt.NumBitsInInformationBlock;
+            if officialCodeKey == "ldpc"
+                officialReceiverCfg.IsLDPCOnSMTF = ...
+                    getLogicalField(opt, 'IsLDPCOnSMTF', false);
+                if isfield(opt, 'LDPCCodeblockSize') && ...
+                        ~isempty(opt.LDPCCodeblockSize)
+                    officialReceiverCfg.LDPCCodeblockSize = ...
+                        opt.LDPCCodeblockSize;
+                end
             end
-            asmForReset = localTMASM(opt);
-            resetTemplateCfg = gmsk_frame_reset_asm_config( ...
-                tmCode, rateForReset, numBytesTF, asmForReset, pcmFormatRx);
-
-            if ~isempty(resetTemplateCfg.asmTemplates)
-                resetCfg = struct();
-                resetCfg.framePeriodBits = resetTemplateCfg.framePeriodBits;
-                resetCfg.asmTemplates = resetTemplateCfg.asmTemplates;
-                resetCfg.asmOffsetBits = resetTemplateCfg.asmOffsetBits;
-                resetCfg.asmMaxErrors = getfieldnumeric(opt, ...
-                    'gmskFrameResetASMMaxErrors', ...
-                    max(2, ceil(0.20*size(resetCfg.asmTemplates,1))));
-                resetCfg.asmMinGap = getfieldnumeric(opt, ...
-                    'gmskFrameResetASMMinGap', ...
-                    max(3, ceil(0.25*size(resetCfg.asmTemplates,1))));
-                resetCfg.maxSearchFrames = getfieldnumeric(opt, ...
-                    'gmskFrameResetMaxSearchFrames', 8);
-                resetCfg.minSearchFrames = getfieldnumeric(opt, ...
-                    'gmskFrameResetMinSearchFrames', 2);
-                resetCfg.printDebug = debugGMSK;
-
-                resetInput = fineSynced;
-
-                [frameResetData, gmskFrameResetInfo] = ...
-                    gmsk_frame_reset_demodulate(resetInput, resetCfg);
-                if gmskFrameResetInfo.GridFound && ~isempty(frameResetData)
-                    demodData = frameResetData;
-                    gmskFrameResetAligned = true;
-                    gmskDetectorUsed = "legacy-frame-reset";
-                    if debugGMSK
-                        fprintf(['   [GMSK frame reset] grid start=%d, ', ...
-                            'altPhase=%d, median ASM errors=%.2f, ', ...
-                            'accepted=%d/%d\n'], ...
-                            gmskFrameResetInfo.FrameStart, ...
-                            gmskFrameResetInfo.AltPhase, ...
-                            gmskFrameResetInfo.GridMedianASMErrors, ...
-                            gmskFrameResetInfo.AcceptedFrames, ...
-                            gmskFrameResetInfo.TotalFrames);
-                        assignin('base','debugGMSKFrameResetInfo', ...
-                            gmskFrameResetInfo);
-                    end
-                else
-                    if debugGMSK
-                        fprintf(['   [GMSK frame reset] acquisition failed: %s; ', ...
-                            'mode=%s.\n'], ...
-                            gmskFrameResetInfo.FailureReason, ...
-                            char(gmskDetectionMode));
-                    end
-                    if debugGMSK
-                        fprintf('   [GMSK frame reset] falling back to legacy detector.\n');
-                    end
-                    demodobj = HelperCCSDSTMDemodulator( ...
-                        'Modulation',tmMod, ...
-                        'ChannelCoding',tmCode, ...
-                        'BandwidthTimeProduct',btVal);
-                    demodData = demodobj(fineSynced);
-                    gmskDetectorUsed = "legacy-diff";
-                end
-            else
-                if debugGMSK
-                    fprintf(['   [GMSK frame reset] ASM templates are not ', ...
-                        'rectangular for this configuration.\n']);
-                end
-                if debugGMSK
-                    fprintf('   [GMSK frame reset] using legacy detector.\n');
-                end
-                demodobj = HelperCCSDSTMDemodulator( ...
-                    'Modulation',tmMod, ...
-                    'ChannelCoding',tmCode, ...
-                    'BandwidthTimeProduct',btVal);
-                demodData = demodobj(fineSynced);
-                gmskDetectorUsed = "legacy-diff";
-            end
+        elseif officialCodeKey == "tpc"
+            officialReceiverCfg.CodeRate = 'N/A';
+            officialReceiverCfg.TPCCodeRate = ...
+                localTPCCodeRateValue(opt);
+            officialReceiverCfg.TPCBlocksPerTF = ...
+                getfieldwithdefault(opt, 'TPCBlocksPerTF', 1);
+        elseif officialCodeKey == "rs"
+            officialReceiverCfg.CodeRate = 'N/A';
+            officialReceiverCfg.RSMessageLength = ...
+                getfieldnumeric(opt, 'RSMessageLength', 223);
+            officialReceiverCfg.RSInterleavingDepth = ...
+                getfieldnumeric(opt, 'RSInterleavingDepth', 1);
+            officialReceiverCfg.IsRSMessageShortened = ...
+                getLogicalField(opt, 'IsRSMessageShortened', false);
+            officialReceiverCfg.RSShortenedMessageLength = ...
+                getfieldnumeric(opt, 'RSShortenedMessageLength', ...
+                officialReceiverCfg.RSMessageLength);
         else
-            if useLegacyFrameReset && debugGMSK
-                fprintf(['   [GMSK frame reset] requires HasASM=true and ', ...
-                    'none/convolutional coding; using legacy.\n']);
-            end
-            demodobj = HelperCCSDSTMDemodulator( ...
-                'Modulation',tmMod, ...
-                'ChannelCoding',tmCode, ...
-                'BandwidthTimeProduct',btVal);
-            demodData = demodobj(fineSynced);
-            gmskDetectorUsed = "legacy-diff";
+            % The rate is not part of the uncoded GMSK frame layout.
+            % Unsupported coding families are rejected by the official
+            % receiver entry point; do not invent a convolutional rate.
+            officialReceiverCfg.CodeRate = 'N/A';
+        end
+        officialReceiverCfg.NumBytesInTransferFrame = numBytesTF;
+        officialReceiverCfg.ASMBits = localTMASM(opt, tmCode);
+        officialReceiverCfg.HasASM = hasASM;
+        officialReceiverCfg.PCMFormat = pcmFormatRx;
+        officialReceiverCfg.SamplesPerSymbol = ...
+            getfieldnumeric(opt, 'sps', 8);
+        officialReceiverCfg.BandwidthTimeProduct = btVal;
+        officialReceiverCfg.PrintDebug = debugGMSK;
+
+        [demodData, officialReceiverInfo] = ...
+            gmsk_ccsds_official_demodulate( ...
+            fineSynced, officialReceiverCfg);
+        % Canonical GMSK soft convention at the detector/FEC boundary:
+        % positive means encoded bit 0, negative means encoded bit 1.
+        % Every FEC adapter below converts from this one convention;
+        % detector choice is never allowed to change polarity.
+        demodData = localCanonicalGMSKSoftMetric(demodData);
+        gmskDetectorUsed = "official";
+        gmskFrameResetAligned = true;
+        if debugGMSK
+            fprintf(['   [GMSK official receiver] detector=%s, ', ...
+                'success=%d, input=%d, output=%d, accepted=%d/%d\n'], ...
+                officialReceiverInfo.GMSKDetectorUsed, ...
+                officialReceiverInfo.DetectorSucceeded, ...
+                officialReceiverInfo.Viterbi.InputSamples, ...
+                officialReceiverInfo.Viterbi.OutputSymbols, ...
+                officialReceiverInfo.FrameReset.AcceptedFrames, ...
+                officialReceiverInfo.FrameReset.TotalFrames);
+            assignin('base', 'debugGMSKOfficialReceiverInfo', ...
+                officialReceiverInfo);
+        end
         end
         if debugGMSK
             hard0 = demodData(:) < 0;
@@ -6951,16 +7733,12 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         id = localTMFrameID(fr);
         txMap(id)=fr;
     end
+    txCatalog = localBuildTMFrameCatalog(validTxFrames);
     excludeBERWarmUpFrames = getLogicalField(opt, ...
         'excludeBERWarmUpFrames', false);
-    measurementIdMap = containers.Map( ...
-        'KeyType','double','ValueType','logical');
     firstMeasurementFrame = 1;
     if excludeBERWarmUpFrames
         firstMeasurementFrame = min(numel(validTxFrames) + 1, numWarmUp + 1);
-    end
-    for k = firstMeasurementFrame:numel(validTxFrames)
-        measurementIdMap(localTMFrameID(validTxFrames{k})) = true;
     end
 
     if getLogicalField(opt, 'debugCodedBoundary', false)
@@ -7466,23 +8244,6 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             sprintf('%s %s post-decoder', char(tmMod), char(tmCode)), maxFrameDebug);
     end
 
-    if contains(tmMod,'GMSK') && length(decodedBits) >= bitsPerFrame
-        debugGMSKPolarity = getLogicalField(opt, 'debugGMSK', false) || ...
-            getLogicalField(opt, 'debugCodedBoundary', false);
-        [match0, run0] = scoreFrameIds(decodedBits, bitsPerFrame, txMap);
-        [match1, run1] = scoreFrameIds(~decodedBits, bitsPerFrame, txMap);
-        if match1 > match0 || (match1 == match0 && run1 > run0)
-            decodedBits = ~decodedBits;
-            if debugGMSKPolarity
-                fprintf('   [GMSK DEBUG] inverted decodedBits by frame-ID score: orig matched=%d/run=%d, inv matched=%d/run=%d\n', ...
-                    match0, run0, match1, run1);
-            end
-        elseif debugGMSKPolarity
-            fprintf('   [GMSK DEBUG] kept decodedBits by frame-ID score: orig matched=%d/run=%d, inv matched=%d/run=%d\n', ...
-                match0, run0, match1, run1);
-        end
-    end
-
     if strcmpi(string(tmCode), "TPC") && length(decodedBits) >= bitsPerFrame
         maxShift = min(bitsPerFrame-1, max(0, length(decodedBits)-bitsPerFrame));
         bestShift = 0;
@@ -7589,6 +8350,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     acquisitionMaxFrameBER = localAcquisitionMaxFrameBER(opt);
     acquiredForBER = false;
     matchedAfterAcquisition = 0;
+    lastMatchedTxIndex = NaN;
 
     framesMatched=0;
     perFrameBER = nan(1,numRx);
@@ -7606,9 +8368,12 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     for j=1:numRx
         rxFr = double(decodedBits((j-1)*bitsPerFrame+1:j*bitsPerFrame));
         rxId = localTMFrameID(rxFr);
-        if isKey(txMap,rxId)
+        [frameMatched, txFrame, txFrameIndex] = ...
+            localMatchTMFrameOccurrence( ...
+                rxFr, validTxFrames, txCatalog, lastMatchedTxIndex);
+        if frameMatched
             framesMatched = framesMatched + 1;          % 所有匹配帧计入 lockRate
-            thisErrs = biterr(txMap(rxId), rxFr);
+            thisErrs = biterr(txFrame, rxFr);
             perFrameBER(j) = thisErrs / bitsPerFrame;
 %             if rxId >= numWarmUp                          % 只用稳态帧算 BER
 %                 errs = errs + thisErrs;
@@ -7621,6 +8386,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             goodFrameForAcq = perFrameBER(j) <= acquisitionMaxFrameBER && ...
                 (~crcEnabledForAcq || crcValidForAcq);
             if goodFrameForAcq
+                lastMatchedTxIndex = txFrameIndex;
                 if ~hasLastId
                     % 第一个可靠匹配帧，没有上一帧。
                     hasLastId = true;
@@ -7651,7 +8417,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             % acquisition 已通过 5 连续帧检测（防假锁），之后所有匹配帧都计入 BER。
             % 不再要求 matchedAfterAcquisition > numWarmUp —— 因为 numWarmUp 语义现在
             % 是 "总匹配帧至少 N 才算有意义的样本量"，用 acquiredForBER 已经覆盖。
-            counted = acquiredForBER && isKey(measurementIdMap, rxId);
+            counted = acquiredForBER && txFrameIndex >= firstMeasurementFrame;
 
 %             fprintf('\n   [FrameCheck] j=%d, rxId=%d, perBER=%.3f, counted=%d', ...
 %                 j, rxId, perFrameBER(j), counted);
@@ -8276,7 +9042,14 @@ function stats = localMeasureEncodedBoundaryStats( ...
         context = struct();
     end
     stats = localEmptyPredecoderStats();
-    rxHard0 = int8(demodData(:) > 0);
+    if contains(upper(string(tmMod)), 'GMSK')
+        % The canonical GMSK detector boundary is positive=bit0 and
+        % negative=bit1. Report that fixed contract directly; do not make a
+        % diagnostic oracle hide an inverted FEC adapter.
+        rxHard0 = int8(demodData(:) < 0);
+    else
+        rxHard0 = int8(demodData(:) > 0);
+    end
     txBits = int8(txEncodedBits(:) ~= 0);
     if isempty(rxHard0) || isempty(txBits)
         return;
@@ -8643,6 +9416,7 @@ function info = localEmptyTMAPSKPilotInfo()
         'CorrectionMode', '', ...
         'CorrRatio', NaN, ...
         'FadeFraction', NaN, ...
+        'DataFadeMask', false(0,1), ...
         'MaxAppliedGain_dB', NaN, ...
         'Regularization', NaN, ...
         'PilotNoiseVariance', NaN);
@@ -8675,8 +9449,10 @@ function stats = localAttachPredecoderStats(stats, predecoderStats)
     end
 end
 
-function [dataSym, info] = localCorrectAndRemoveTMAPSKPilots(rxSym, opt, symbolRate)
+function [dataSym, info, uncorrectedDataSym] = ...
+        localCorrectAndRemoveTMAPSKPilots(rxSym, opt, symbolRate)
     dataSym = rxSym;
+    uncorrectedDataSym = rxSym;
     info = localEmptyTMAPSKPilotInfo();
     info.Enabled = true;
 
@@ -8687,6 +9463,7 @@ function [dataSym, info] = localCorrectAndRemoveTMAPSKPilots(rxSym, opt, symbolR
     end
 
     rx = rxSym(:);
+    rawFadeMask = false(numel(rx),1);
     if isempty(rx)
         info.Reason = 'empty input';
         dataSym = rx;
@@ -8756,6 +9533,7 @@ function [dataSym, info] = localCorrectAndRemoveTMAPSKPilots(rxSym, opt, symbolR
         end
     end
     dataMask(pilotMask) = false;
+    uncorrectedDataSym = rx(dataMask);
 
     if numel(pilotPos) < max(8, preambleLen)
         info.Reason = 'too few pilots';
@@ -8923,6 +9701,7 @@ function [dataSym, info] = localCorrectAndRemoveTMAPSKPilots(rxSym, opt, symbolR
     if isempty(dataSym)
         info.Reason = 'pilot removal produced no data symbols';
         dataSym = rxSym;
+        uncorrectedDataSym = rxSym;
         return;
     end
 
@@ -8931,6 +9710,7 @@ function [dataSym, info] = localCorrectAndRemoveTMAPSKPilots(rxSym, opt, symbolR
     info.Start = startPos;
     info.NumPilots = numel(pilotPos);
     info.NumDataSymbols = numel(dataSym);
+    info.DataFadeMask = logical(rawFadeMask(dataMask));
     info.CFO_Hz = totalSlopeRadPerSym * double(symbolRate) / (2*pi);
     info.MeanAmp = mean(amp);
 
@@ -9301,6 +10081,65 @@ function id = localTMFrameID(frameBits)
     id = bi2de(double(vcfcBits(:).'), 'left-msb');
 end
 
+function catalog = localBuildTMFrameCatalog(txFrames)
+    % VCFC is only eight bits and repeats every 256 frames.  A map keyed
+    % only by VCFC overwrites earlier frames in a long simulation.  Store
+    % every transmitted occurrence so BER/FER remains valid after wrap.
+    catalog = cell(256, 1);
+    for k = 1:numel(txFrames)
+        if isempty(txFrames{k})
+            continue;
+        end
+        id = localTMFrameID(txFrames{k});
+        catalog{id + 1}(end + 1) = k; %#ok<AGROW>
+    end
+end
+
+function [matched, txFrame, txFrameIndex] = ...
+        localMatchTMFrameOccurrence( ...
+            rxFrame, txFrames, catalog, lastMatchedTxIndex)
+    matched = false;
+    txFrame = [];
+    txFrameIndex = NaN;
+    rxId = localTMFrameID(rxFrame);
+    candidates = catalog{rxId + 1};
+    if isempty(candidates)
+        return;
+    end
+
+    % Once acquisition has a reliable frame, decoded frames are ordered, so
+    % choose the first same-VCFC occurrence after that absolute TX index.
+    % This makes measurement-window membership deterministic after wrap.
+    if nargin >= 4 && isfinite(lastMatchedTxIndex)
+        forwardCandidates = candidates(candidates > lastMatchedTxIndex);
+        if ~isempty(forwardCandidates)
+            txFrameIndex = forwardCandidates(1);
+            txFrame = txFrames{txFrameIndex};
+            matched = true;
+            return;
+        end
+    end
+
+    % Before the first reliable frame, use payload distance only to resolve
+    % which counter cycle supplied the acquisition frame.  This metadata is
+    % used only by the offline metric engine and never enters the receiver.
+    errorCounts = inf(size(candidates));
+    rxBits = double(rxFrame(:));
+    for k = 1:numel(candidates)
+        refBits = double(txFrames{candidates(k)}(:));
+        if numel(refBits) == numel(rxBits)
+            errorCounts(k) = biterr(refBits, rxBits);
+        end
+    end
+    [bestErrors, best] = min(errorCounts);
+    if isempty(best) || ~isfinite(bestErrors)
+        return;
+    end
+    txFrameIndex = candidates(best);
+    txFrame = txFrames{txFrameIndex};
+    matched = true;
+end
+
 function localPrintTMFrameInfo(fields, frameBytes, frameIndex)
     if isempty(fields) || isempty(frameBytes)
         return;
@@ -9336,6 +10175,23 @@ function printMetrics(res, opt)
     end
     fprintf(' 输入 SNR : %.1f dB,  CFO=%.1f Hz,  Phase=%.1f deg,  Delay=%.3f\n', ...
         res.snr_in, res.cfo_in, res.phase_in, res.delay_in);
+    if isfield(res,'NoiseMode') && strcmpi(char(res.NoiseMode), 'psd')
+        fprintf(' Noise mode   : fixed PSD; the legacy snr field above is inactive\n');
+    end
+    if isfield(res,'ConverterChainEnabled') && res.ConverterChainEnabled
+        fprintf([' Converter     : IF=%+.2f dBm -> up=%+.2f dBm -> ', ...
+            'H=%+.2f dB -> down-in=%+.2f dBm -> down-out=%+.2f dBm\n'], ...
+            res.BasebandIFLevel_dBm, res.UpconverterOutputLevel_dBm, ...
+            res.HAppliedGain_dB, res.DownconverterInputLevel_dBm, ...
+            res.DownconverterOutputLevel_dBm);
+        fprintf(' Converter chk : down-input-range=%d, P1dB-risk(up/down)=%d/%d\n', ...
+            res.DownconverterInputWithinTypicalRange, ...
+            res.UpconverterCompressionRisk, res.DownconverterCompressionRisk);
+        if isfield(res,'ADCEquivalentEnabled') && res.ADCEquivalentEnabled
+            fprintf(' ADC model     : %d bit, backoff=%.2f dB, clip=%.4g%%\n', ...
+                res.ADCBits, res.ADCRMSBackoff_dB, 100*res.ADCClipFraction);
+        end
+    end
     if isfield(res,'NoisePlacement')
         fprintf(' Noise order  : %s\n', res.NoisePlacement);
     end
@@ -9343,6 +10199,10 @@ function printMetrics(res, opt)
         fprintf(' Noise PSD    : %.2f dBm/Hz over %.3g Hz -> %.2f dBm, EqSNR=%.2f dB\n', ...
             res.NoisePSD_dBmHz, res.NoiseBandwidthHz, ...
             res.NoisePower_dBm, res.NoiseEquivalentSNR_dB);
+        if isfield(res,'NoiseReferenceLevel_dBm')
+            fprintf(' Signal ref   : %.2f dBm before H/channel damage\n', ...
+                res.NoiseReferenceLevel_dBm);
+        end
     end
     if isfield(res,'GMSKDetectorUsed') && ...
             ~strcmpi(char(res.GMSKDetectorUsed), 'not-applicable')
@@ -9715,16 +10575,17 @@ function [res, ctx] = runFACMOneShot(opt, fSym, sps)
         res.NoisePSD_dBmHz = noiseInfo.PSD_dBmHz;
         res.NoiseBandwidthHz = noiseInfo.BandwidthHz;
         res.NoisePower_dBm = noiseInfo.NoisePower_dBm;
-        res.NoiseEquivalentSNR_dB = noiseInfo.EquivalentSNR_dB;
         res.NoiseReferenceLevel_dBm = noiseInfo.ReferenceLevel_dBm;
     end
+    res.NoiseEquivalentSNR_dB = noiseInfo.EquivalentSNR_dB;
     res.cfo_in = cfo_val;
     res.phase_in = phase_deg;
     res.delay_in = delay_val;
     res.centerFrequencyHz = getCenterFrequencyHz(opt, 0);
     res.IFHz = res.centerFrequencyHz;
     res.carrierFreqHz = res.centerFrequencyHz;
-    res.inputLevelDbm = getInputLevelDbm(opt, 0);
+    res.inputLevelDbm = getInputLevelDbm(opt, -10);
+    res.outputLevelDbm = res.inputLevelDbm;
     res.BER = berVal;
     res.EVM_pre_pct = evm_pre;
     res.EVM_post_pct = evm_post;
@@ -10899,7 +11760,164 @@ function r = codeRateNum(opt)
         return;
     end
 end
-function y = uqpskCarrierRecover(x, aRatio, loopBW)
+function [y, info] = uqpskCarrierRecover(x, aRatio, loopBW, opt, symbolRate)
+%UQPSKCARRIERRECOVER UQPSK structure-aided second-order carrier PLL.
+% Uses a wide acquisition bandwidth, a narrow tracking bandwidth, an
+% amplitude-normalized teacher-style phase detector, and frequency coast
+% through deep fades. No transmitted bits or known H coefficients are used.
+    if nargin < 4 || isempty(opt), opt = struct(); end
+    if nargin < 5 || isempty(symbolRate), symbolRate = 1; end
+    if nargin < 3 || isempty(loopBW), loopBW = 0.002; end
+
+    x = complex(x(:));
+    y = zeros(size(x));
+    info = localEmptyUQPSKCarrierPLLInfo();
+    if isempty(x), return; end
+
+    hEnabled = getLogicalField(opt,'enableHChannel',false);
+    dualBandwidth = getLogicalField(opt, ...
+        'enableUQPSKDualBandwidthCarrierPLL',hEnabled);
+    acquireBW = getfieldnumeric(opt,'uqpskCarrierAcquireLoopBW',0.05);
+    trackBW = getfieldnumeric(opt,'uqpskCarrierTrackLoopBW',max(loopBW,0.02));
+    if ~dualBandwidth
+        acquireBW = loopBW;
+        trackBW = loopBW;
+    end
+    acquireBW = min(max(acquireBW,1e-5),0.2);
+    trackBW = min(max(trackBW,1e-5),acquireBW);
+
+    fadeThresholdDB = getfieldnumeric(opt,'uqpskCarrierFadeThresholdDB',-12);
+    fadeRatio = 10^(min(fadeThresholdDB,0)/20);
+    lockThreshold = getfieldnumeric(opt,'uqpskCarrierLockErrorThreshold',0.12);
+    unlockThreshold = getfieldnumeric(opt,'uqpskCarrierUnlockErrorThreshold',0.40);
+    lockSymbols = max(8,round(getfieldnumeric(opt,'uqpskCarrierLockSymbols',256)));
+    unlockSymbols = max(8,round(getfieldnumeric(opt,'uqpskCarrierUnlockSymbols',128)));
+    minAcquireSymbols = max(lockSymbols,round(getfieldnumeric(opt, ...
+        'uqpskCarrierMinAcquireSymbols',4096)));
+    errorTau = max(8,getfieldnumeric(opt,'uqpskCarrierErrorTauSymbols',64));
+    errorAlpha = exp(-1/errorTau);
+    maxFrequencyFraction = getfieldnumeric(opt, ...
+        'uqpskCarrierMaxFrequencyFraction',0.10);
+    maxFrequencyFraction = min(max(maxFrequencyFraction,1e-4),0.45);
+    maxOmega = 2*pi*maxFrequencyFraction;
+
+    nInit = min(numel(x),128);
+    amplitudeRef = median(abs(x(1:nInit)));
+    if ~isfinite(amplitudeRef) || amplitudeRef <= 1e-8
+        amplitudeRef = sqrt(mean(abs(x(1:nInit)).^2) + eps);
+    end
+    amplitudeRef = max(amplitudeRef,1e-8);
+    referenceDecay = exp(-1/max(1024,lockSymbols));
+
+    theta = 0;
+    omega = 0;
+    errorState = unlockThreshold;
+    goodCount = 0;
+    badCount = 0;
+    locked = false;
+    lockTransitions = 0;
+    reacquisitions = 0;
+    fadeHoldSymbols = 0;
+    acceptedUpdates = 0;
+    absErrorSum = 0;
+    mode = 'acquire';
+    acquireAge = 0;
+
+    for n = 1:numel(x)
+        if ~locked
+            acquireAge = acquireAge + 1;
+        end
+        z = x(n)*exp(-1j*theta);
+        y(n) = z;
+        amplitude = abs(z);
+        if isfinite(amplitude)
+            amplitudeRef = max(amplitude,referenceDecay*amplitudeRef);
+        end
+        inFade = ~isfinite(amplitude) || ...
+            amplitude < fadeRatio*max(amplitudeRef,1e-8);
+
+        if inFade
+            theta = theta + omega;
+            fadeHoldSymbols = fadeHoldSymbols + 1;
+        else
+            I = real(z);
+            Q = imag(z);
+            sI = sign(I); if sI == 0, sI = 1; end
+            sQ = sign(Q); if sQ == 0, sQ = 1; end
+            rawError = sI*Q*aRatio - sQ*I;
+            phaseError = rawError/max(amplitude,fadeRatio*amplitudeRef);
+            phaseError = min(max(phaseError,-1),1);
+
+            if locked, activeBW = trackBW; else, activeBW = acquireBW; end
+            Kp = activeBW;
+            Ki = activeBW^2/4;
+            omega = omega + Ki*phaseError;
+            omega = min(max(omega,-maxOmega),maxOmega);
+            theta = theta + omega + Kp*phaseError;
+
+            errorState = errorAlpha*errorState + ...
+                (1-errorAlpha)*abs(phaseError);
+            acceptedUpdates = acceptedUpdates + 1;
+            absErrorSum = absErrorSum + abs(phaseError);
+
+            if ~locked
+                if errorState <= lockThreshold
+                    goodCount = goodCount + 1;
+                else
+                    goodCount = 0;
+                end
+                if goodCount >= lockSymbols && acquireAge >= minAcquireSymbols
+                    locked = true;
+                    mode = 'track';
+                    lockTransitions = lockTransitions + 1;
+                    badCount = 0;
+                end
+            else
+                if errorState >= unlockThreshold
+                    badCount = badCount + 1;
+                else
+                    badCount = 0;
+                end
+                if badCount >= unlockSymbols
+                    locked = false;
+                    mode = 'acquire';
+                    reacquisitions = reacquisitions + 1;
+                    goodCount = 0;
+                    badCount = 0;
+                    acquireAge = 0;
+                end
+            end
+        end
+        theta = mod(theta+pi,2*pi)-pi;
+    end
+
+    info.Applied = true;
+    info.DualBandwidth = dualBandwidth;
+    info.Locked = locked;
+    info.FinalMode = mode;
+    info.AcquireLoopBW = acquireBW;
+    info.TrackLoopBW = trackBW;
+    info.FinalFrequencyRadPerSymbol = omega;
+    info.FinalFrequency_Hz = omega*symbolRate/(2*pi);
+    info.LockTransitions = lockTransitions;
+    info.Reacquisitions = reacquisitions;
+    info.FadeHoldSymbols = fadeHoldSymbols;
+    info.UpdateAcceptanceRate = acceptedUpdates/max(numel(x),1);
+    info.MeanAbsPhaseError = absErrorSum/max(acceptedUpdates,1);
+    info.FinalErrorState = errorState;
+end
+
+function info = localEmptyUQPSKCarrierPLLInfo()
+    info = struct( ...
+        'Applied',false,'DualBandwidth',false,'Locked',false, ...
+        'FinalMode','off','AcquireLoopBW',NaN,'TrackLoopBW',NaN, ...
+        'FinalFrequencyRadPerSymbol',NaN,'FinalFrequency_Hz',NaN, ...
+        'LockTransitions',0,'Reacquisitions',0,'FadeHoldSymbols',0, ...
+        'UpdateAcceptanceRate',NaN,'MeanAbsPhaseError',NaN, ...
+        'FinalErrorState',NaN);
+end
+
+function y = uqpskCarrierRecoverLegacy(x, aRatio, loopBW)
 
 % 借鉴 UQPSKDem.m 的载波相位误差：
 %   e_theta = sign(I_est)*Q_est*ARatio - sign(Q_est)*I_est
@@ -11439,6 +12457,323 @@ function [y, cfoEst] = localMSKGMSKX2CoarseCFO( ...
     y = x .* exp( ...
         -1j*2*pi*cfoEst*sampleIndex/Fs);
 end
+
+function [y, info] = localGMSKResidualDopplerTracker(x, Fs, fSym, opt)
+%LOCALGMSKRESIDUALDOPPLERTRACKER Track residual Doppler on an 8-sps CPM wave.
+% Every overlapping window estimates the midpoint of the two GMSK x^2
+% spectral lines.  Interpolating and integrating those estimates produces
+% one continuous phase correction with no block-boundary phase jumps.
+    x = complex(x(:));
+    y = x;
+    info = localEmptyGMSKResidualTrackerInfo();
+    enabled = getLogicalField(opt,'enableGMSKResidualDopplerTracker',true);
+    debugTracker = getLogicalField(opt,'debugGMSKResidualTracker',false);
+    % In debug mode an OFF run still computes the hypothetical estimate but
+    % never applies it. This makes ON/OFF comparisons use the same evidence.
+    if (~enabled && ~debugTracker) || numel(x) < 256 || ~isfinite(Fs) || Fs <= 0 || ...
+            ~isfinite(fSym) || fSym <= 0
+        return;
+    end
+
+    windowSymbols = max(256,round(getfieldnumeric(opt, ...
+        'gmskResidualWindowSymbols',1024)));
+    hopSymbols = max(64,round(getfieldnumeric(opt, ...
+        'gmskResidualHopSymbols',256)));
+    windowSamples = min(numel(x), ...
+        max(256,round(windowSymbols*Fs/fSym)));
+    hopSamples = max(64,round(hopSymbols*Fs/fSym));
+    maxFFT = min(2^17,2^nextpow2(windowSamples));
+
+    starts = 1:hopSamples:max(1,numel(x)-windowSamples+1);
+    finalStart = max(1,numel(x)-windowSamples+1);
+    if starts(end) ~= finalStart
+        starts(end+1) = finalStart; %#ok<AGROW>
+    end
+    centers = starts(:)+(windowSamples-1)/2;
+    estimates = nan(numel(starts),1);
+    candidateEstimates = nan(numel(starts),1);
+    confidence = nan(numel(starts),1);
+    minConfidenceDB = getfieldnumeric(opt,'gmskResidualMinConfidenceDB',8);
+    maxResidualHz = abs(getfieldnumeric(opt, ...
+        'gmskResidualMaxFrequencyFraction',0.02))*fSym;
+
+    for k = 1:numel(starts)
+        idx = starts(k):(starts(k)+windowSamples-1);
+        [estimateHz,confidenceDB] = localGMSKX2CFOEstimate( ...
+            x(idx),Fs,fSym,maxFFT);
+        candidateEstimates(k) = estimateHz;
+        confidence(k) = confidenceDB;
+        if isfinite(estimateHz) && isfinite(confidenceDB) && ...
+                confidenceDB >= minConfidenceDB && ...
+                abs(estimateHz) <= maxResidualHz
+            estimates(k) = estimateHz;
+        end
+    end
+
+    candidateFinite = isfinite(candidateEstimates);
+    finiteCandidates = candidateEstimates(candidateFinite);
+    if isempty(finiteCandidates)
+        candidateMin = NaN; candidateMedian = NaN;
+        candidateMax = NaN; candidateRMS = NaN;
+    else
+        candidateMin = min(finiteCandidates);
+        candidateMedian = median(finiteCandidates);
+        candidateMax = max(finiteCandidates);
+        candidateRMS = sqrt(mean(finiteCandidates.^2));
+    end
+    nonfiniteWindows = nnz(~candidateFinite);
+    confidenceRejected = nnz(candidateFinite & ...
+        (~isfinite(confidence) | confidence < minConfidenceDB));
+    rangeRejected = nnz(candidateFinite & isfinite(confidence) & ...
+        confidence >= minConfidenceDB & abs(candidateEstimates) > maxResidualHz);
+
+    rawEstimates = estimates;
+    rawAccepted = isfinite(rawEstimates);
+    rawFinite = rawEstimates(rawAccepted);
+    if isempty(rawFinite)
+        rawMin = NaN; rawMedian = NaN; rawMax = NaN; rawRMS = NaN;
+        rawAcceptedRate = 0;
+    else
+        rawMin = min(rawFinite); rawMedian = median(rawFinite);
+        rawMax = max(rawFinite); rawRMS = sqrt(mean(rawFinite.^2));
+        rawAcceptedRate = nnz(rawAccepted)/numel(rawAccepted);
+    end
+    rawJumpsAll = diff(rawEstimates);
+    adjacentAccepted = rawAccepted(1:end-1) & rawAccepted(2:end);
+    rawJumps = rawJumpsAll(adjacentAccepted);
+    if isempty(rawJumps)
+        jumpMax = 0; jumpRMS = 0;
+    else
+        jumpMax = max(abs(rawJumps));
+        jumpRMS = sqrt(mean(rawJumps.^2));
+    end
+
+    accepted = rawAccepted;
+    info.WindowCount = numel(estimates);
+    info.AcceptedWindows = nnz(accepted);
+    info.HoldWindows = numel(estimates)-nnz(accepted);
+    info.WindowSymbols = windowSymbols;
+    info.HopSymbols = hopSymbols;
+    info.CandidateFiniteRate = nnz(candidateFinite)/numel(candidateFinite);
+    info.CandidateMin_Hz = candidateMin;
+    info.CandidateMedian_Hz = candidateMedian;
+    info.CandidateMax_Hz = candidateMax;
+    info.CandidateRMS_Hz = candidateRMS;
+    info.NonfiniteWindows = nonfiniteWindows;
+    info.ConfidenceRejectedWindows = confidenceRejected;
+    info.RangeRejectedWindows = rangeRejected;
+    info.RawAcceptedRate = rawAcceptedRate;
+    info.RawMin_Hz = rawMin;
+    info.RawMedian_Hz = rawMedian;
+    info.RawMax_Hz = rawMax;
+    info.RawRMS_Hz = rawRMS;
+    info.JumpMax_Hz = jumpMax;
+    info.JumpRMS_Hz = jumpRMS;
+    if any(accepted)
+        info.MedianConfidence_dB = median(confidence(accepted));
+    else
+        return;
+    end
+
+    % Coast through fade windows using the nearest reliable estimate, then
+    % reject isolated spectral-peak swaps with a short median smoother.
+    if nnz(accepted) == 1
+        estimates = repmat(estimates(accepted),numel(estimates),1);
+    else
+        estimates = interp1(centers(accepted),estimates(accepted),centers, ...
+            'nearest','extrap');
+    end
+    smoothWindows = max(1,round(getfieldnumeric(opt, ...
+        'gmskResidualMedianWindows',3)));
+    if mod(smoothWindows,2) == 0
+        smoothWindows = smoothWindows+1;
+    end
+    if smoothWindows > 1 && numel(estimates) > 1
+        estimates = movmedian(estimates, ...
+            min(smoothWindows,numel(estimates)),'Endpoints','shrink');
+    end
+
+    samplePositions = (1:numel(x)).';
+    if numel(estimates) == 1
+        frequencyTrace = repmat(estimates(1),numel(x),1);
+    else
+        frequencyTrace = interp1(centers,estimates,samplePositions, ...
+            'linear',NaN);
+        frequencyTrace(samplePositions < centers(1)) = estimates(1);
+        frequencyTrace(samplePositions > centers(end)) = estimates(end);
+    end
+    frequencyTrace(~isfinite(frequencyTrace)) = 0;
+    phaseCorrection = 2*pi/Fs*[0;cumsum(frequencyTrace(1:end-1))];
+    if enabled
+        y = x.*exp(-1j*phaseCorrection);
+    end
+
+    info.Applied = logical(enabled);
+    info.ResidualMin_Hz = min(estimates);
+    info.ResidualMedian_Hz = median(estimates);
+    info.ResidualMax_Hz = max(estimates);
+    info.ResidualRMS_Hz = sqrt(mean(estimates.^2));
+    info.FinalResidual_Hz = estimates(end);
+    info.PhaseCorrectionEnd_deg = rad2deg(phaseCorrection(end));
+    if debugTracker
+        maxPrint = max(0,round(getfieldnumeric(opt, ...
+            'gmskResidualDebugMaxWindows',32)));
+        debugIndices = localGMSKResidualDebugIndices( ...
+            candidateEstimates,rawAccepted,maxPrint);
+        take = numel(debugIndices);
+        info.WindowDebug = struct( ...
+            'WindowIndex',debugIndices(:), ...
+            'CenterSample',centers(debugIndices), ...
+            'CenterTime_s',(centers(debugIndices)-1)/Fs, ...
+            'CandidateEstimate_Hz',candidateEstimates(debugIndices), ...
+            'AcceptedEstimate_Hz',rawColumn(rawEstimates,rawAccepted,debugIndices), ...
+            'Confidence_dB',confidence(debugIndices), ...
+            'Accepted',rawAccepted(debugIndices));
+        fprintf(['   [GMSK residual debug] correctionApplied=%d ', ...
+            'finite/accepted=%.1f/%.1f%% ', ...
+            'reject[nan/conf/range]=%d/%d/%d ', ...
+            'rawHz[min/med/max/rms]=%+.1f/%+.1f/%+.1f/%.1f ', ...
+            'jump[max/rms]=%.1f/%.1f Hz phaseEnd=%+.1f deg\n'], ...
+            enabled,100*info.CandidateFiniteRate,100*rawAcceptedRate, ...
+            nonfiniteWindows,confidenceRejected,rangeRejected, ...
+            rawMin,rawMedian,rawMax,rawRMS, ...
+            jumpMax,jumpRMS,info.PhaseCorrectionEnd_deg);
+        for dbgIndex = 1:take
+            windowIndex = debugIndices(dbgIndex);
+            fprintf(['      win=%03d center=%.0f candidate=%+.2f Hz ', ...
+                'conf=%.1f dB accepted=%d\n'], ...
+                windowIndex,centers(windowIndex),candidateEstimates(windowIndex), ...
+                confidence(windowIndex),rawAccepted(windowIndex));
+        end
+    end
+end
+
+function indices = localGMSKResidualDebugIndices(candidates, accepted, maxPrint)
+% Select a compact mix of endpoints, uniformly spaced windows, largest
+% estimates, largest jumps, and rejected windows. This exposes late-frame
+% failures without dumping hundreds of ordinary windows.
+    n = numel(candidates);
+    if n == 0 || maxPrint <= 0
+        indices = zeros(0,1);
+        return;
+    end
+    maxPrint = min(n,maxPrint);
+    edgeCount = min(4,n);
+    edge = [1:edgeCount, max(1,n-edgeCount+1):n];
+    uniformCount = min(max(4,ceil(maxPrint/4)),n);
+    uniform = round(linspace(1,n,uniformCount));
+    finiteScore = abs(candidates);
+    finiteScore(~isfinite(finiteScore)) = -Inf;
+    [~,largeOrder] = sort(finiteScore,'descend');
+    large = largeOrder(1:min(ceil(maxPrint/4),n));
+    jumps = abs(diff(candidates));
+    jumps(~isfinite(jumps)) = -Inf;
+    [~,jumpOrder] = sort(jumps,'descend');
+    jumpTake = jumpOrder(1:min(ceil(maxPrint/4),numel(jumpOrder)));
+    jumpNeighbors = [jumpTake(:); jumpTake(:)+1];
+    rejected = find(~accepted);
+    proposed = unique([edge(:); uniform(:); large(:); ...
+        jumpNeighbors(:); rejected(:)],'stable');
+    if numel(proposed) > maxPrint
+        proposed = proposed(1:maxPrint);
+    end
+    indices = sort(proposed(:));
+end
+
+function out = rawColumn(smoothed, accepted, indices)
+% Preserve the raw per-window estimates for optional diagnostics.  The
+% production correction still uses the smoothed/interpolated trace.
+    out = smoothed(indices);
+    if numel(out) ~= numel(indices)
+        out = nan(numel(indices),1);
+    end
+    if nargin >= 2 && ~isempty(accepted)
+        out(~accepted(indices)) = NaN;
+    end
+end
+
+function [cfoEst,confidenceDB] = localGMSKX2CFOEstimate( ...
+        x,Fs,fSym,maxFFT)
+    x = complex(x(:));
+    cfoEst = NaN;
+    confidenceDB = -Inf;
+    if numel(x) < 64
+        return;
+    end
+    Lfft = min(numel(x),max(64,round(maxFFT)));
+    Nfft = 2^nextpow2(Lfft);
+    spectrum = fftshift(fft(x(1:Lfft).^2.*hamming(Lfft),Nfft));
+    powerSpectrum = abs(spectrum).^2;
+    frequencyAxis = (-Nfft/2:Nfft/2-1).'*(Fs/Nfft);
+    positiveIndices = find(frequencyAxis > 0.25*fSym & ...
+        frequencyAxis < 1.00*fSym);
+    negativeIndices = find(frequencyAxis < -0.25*fSym & ...
+        frequencyAxis > -1.00*fSym);
+    if isempty(positiveIndices) || isempty(negativeIndices)
+        return;
+    end
+    [positivePower,positiveLocal] = max(powerSpectrum(positiveIndices));
+    [negativePower,negativeLocal] = max(powerSpectrum(negativeIndices));
+    positivePeakIndex = positiveIndices(positiveLocal);
+    negativePeakIndex = negativeIndices(negativeLocal);
+    binHz = Fs/Nfft;
+    positivePeakHz = frequencyAxis(positivePeakIndex)+ ...
+        localParabolicSpectrumPeakOffset( ...
+        powerSpectrum,positivePeakIndex)*binHz;
+    negativePeakHz = frequencyAxis(negativePeakIndex)+ ...
+        localParabolicSpectrumPeakOffset( ...
+        powerSpectrum,negativePeakIndex)*binHz;
+    cfoEst = (positivePeakHz+negativePeakHz)/4;
+    searchPower = powerSpectrum([positiveIndices;negativeIndices]);
+    confidenceDB = 10*log10( ...
+        sqrt(max(positivePower,eps)*max(negativePower,eps))/ ...
+        (median(searchPower)+eps));
+end
+
+function info = localEmptyGMSKResidualTrackerInfo()
+    info = struct( ...
+        'Applied',false,'WindowCount',0,'AcceptedWindows',0, ...
+        'HoldWindows',0,'WindowSymbols',NaN,'HopSymbols',NaN, ...
+        'ResidualMin_Hz',NaN,'ResidualMedian_Hz',NaN, ...
+        'ResidualMax_Hz',NaN,'ResidualRMS_Hz',NaN, ...
+        'FinalResidual_Hz',NaN,'MedianConfidence_dB',NaN, ...
+        'RawAcceptedRate',0,'RawMin_Hz',NaN,'RawMedian_Hz',NaN, ...
+        'RawMax_Hz',NaN,'RawRMS_Hz',NaN,'JumpMax_Hz',NaN, ...
+        'JumpRMS_Hz',NaN,'PhaseCorrectionEnd_deg',NaN, ...
+        'CandidateFiniteRate',0,'CandidateMin_Hz',NaN, ...
+        'CandidateMedian_Hz',NaN,'CandidateMax_Hz',NaN, ...
+        'CandidateRMS_Hz',NaN,'NonfiniteWindows',0, ...
+        'ConfidenceRejectedWindows',0,'RangeRejectedWindows',0, ...
+        'WindowDebug',struct());
+end
+
+function info = localEmptyGMSKSecondOrderPLLInfo()
+    info = struct( ...
+        'Applied',false,'Reason','disabled','SamplesPerSymbol',NaN, ...
+        'AcquireLoopBandwidth',NaN,'TrackLoopBandwidth',NaN, ...
+        'DetectorTauSymbols',NaN,'Locked',false, ...
+        'FinalMode','off','LockTransitions',0,'Reacquisitions',0, ...
+        'AcceptedUpdates',0,'FadeHoldSamples',0, ...
+        'UpdateAcceptanceRate',NaN,'FinalFrequency_Hz',NaN, ...
+        'FrequencyMin_Hz',NaN,'FrequencyMax_Hz',NaN, ...
+        'FinalPhase_deg',NaN,'MeanAbsPhaseError',NaN, ...
+        'RMSPhaseError',NaN);
+end
+
+function softMetric = localCanonicalGMSKSoftMetric(softMetric)
+%LOCALCANONICALGMSKSOFTMETRIC Canonical detector/FEC boundary convention.
+% The official production detector produces positive=bit0 and
+% negative=bit1. Centralizing normalization here prevents FEC adapters from
+% inventing detector-dependent polarity workarounds.
+    softMetric = double(real(softMetric(:)));
+    softMetric(~isfinite(softMetric)) = 0;
+    scale = median(abs(softMetric(softMetric ~= 0)));
+    if isfinite(scale) && scale > eps
+        softMetric = 5*softMetric/scale;
+    end
+    softMetric = max(min(softMetric,20),-20);
+end
+
 function [symbols, bestPhase, bestScore, phaseScores] = ...
         localMSKFixedRateTiming(x, sps)
 

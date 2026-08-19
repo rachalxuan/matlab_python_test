@@ -693,14 +693,17 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     switch(obj.ChannelCoding)
                         case "none"
                             if n % For non zero value of n
+                                if isGMSKModulation
+                                    hardU = int8(u < 0);
+                                else
+                                    hardU = int8(u > 0);
+                                end
 %                                 if obj.RandomizerEnabled
                                 if randomizerEnabled
-                                    tempy = bitxor(int8(u>0),obj.pPRNSequence);
+                                    tempy = bitxor(hardU,obj.pPRNSequence);
                                     y = tempy(:);
-                                elseif strcmpi(string(obj.Modulation), "GMSK")
-                                    y = int8(u(:)<0);
                                 else
-                                    y = int8(u(:)>0);
+                                    y = hardU(:);
                                 end
                                 % valid = true;
                             else
@@ -709,10 +712,15 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             end
                         case "RS"
                             if n % For non zero value of n
-                                if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
-                                    derandom = logical(bitxor(int8(u>0),obj.pPRNSequence));
+                                if isGMSKModulation
+                                    hardU = int8(u < 0);
                                 else
-                                    derandom = logical(u>0);
+                                    hardU = int8(u > 0);
+                                end
+                                if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
+                                    derandom = logical(bitxor(hardU,obj.pPRNSequence));
+                                else
+                                    derandom = logical(hardU);
                                 end
                                 tfl = obj.pTFLen*8;
                                 y = zeros(n*tfl, 1, 'int8');
@@ -729,6 +737,13 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 % valid = false;
                             end
                         case "convolutional"
+                            % Canonical official GMSK is positive=bit0;
+                            % the generic soft-input Viterbi path below is
+                            % positive=bit1. Convert once at this FEC
+                            % boundary, independent of received frame data.
+                            if isGMSKModulation
+                                u = -u;
+                            end
                             if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
                                if strcmpi(obj.DataPathMode, 'single')
 
@@ -755,7 +770,18 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             if strcmp(obj.ConvolutionalCodeRate,"1/2")
                                 u(2:2:end) = -1*u(2:2:end);
                             end
-                            quantized = uencode(u,obj.ViterbiWordLength,max(abs(u(:))),'unsigned');
+                            peakValue = max(abs(u(:)));
+                            if isempty(peakValue) || ~isfinite(peakValue) || ...
+                                    peakValue <= 0
+                                % A rejected/erased official GMSK frame is
+                                % represented by zero soft values. Feed a
+                                % neutral quantizer level instead of making
+                                % uencode throw before the next phase/frame
+                                % candidate can be evaluated.
+                                peakValue = eps;
+                            end
+                            quantized = uencode(u,obj.ViterbiWordLength, ...
+                                peakValue,'unsigned');
                             % [vitin,obj.pInputBuffer] = buffer([obj.pInputBuffer;quantized], log2(obj.pDec.TrellisStructure.numOutputSymbols));
                             decoded = obj.pDec(quantized(:));
                             if obj.pFirstTimeStepCalling
@@ -803,6 +829,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 y = zeros(obj.pTFLen*8, 1, 'int8');
                             end
                         case "concatenated"
+                            if isGMSKModulation
+                                u = -u;
+                            end
                             if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'afterEncoding')
                                  if strcmpi(obj.DataPathMode, 'single')
 
@@ -824,7 +853,13 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             if strcmp(obj.ConvolutionalCodeRate,"1/2")
                                 u(2:2:end) = -1*u(2:2:end);
                             end
-                            quantized = uencode(u,obj.ViterbiWordLength,max(abs(u(:))),'unsigned');
+                            peakValue = max(abs(u(:)));
+                            if isempty(peakValue) || ~isfinite(peakValue) || ...
+                                    peakValue <= 0
+                                peakValue = eps;
+                            end
+                            quantized = uencode(u,obj.ViterbiWordLength, ...
+                                peakValue,'unsigned');
                             % [vitin,obj.pInputBuffer] = buffer([obj.pInputBuffer;quantized], log2(obj.pDec.TrellisStructure.numOutputSymbols));
                             decoded = obj.pDec(quantized(:));
                             if obj.pFirstTimeStepCalling
@@ -875,8 +910,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                 for iWord = 1:numWords
                                     llr = double(cwSoft(:, iWord));
                                     if strcmpi(string(obj.Modulation), "GMSK")
-                                        % Official/legacy GMSK soft metrics
-                                        % use positive for bit 0.  The Turbo
+                                        % Official GMSK soft metrics use
+                                        % positive for bit 0. The Turbo
                                         % decoder input convention used by
                                         % the generic TM chain is opposite,
                                         % so invert after applying a uniform

@@ -139,6 +139,37 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
         'adaptiveEqualizerFadeHoldDB', -12);
     fadeHoldPowerRatio = 10^(min(fadeHoldDB,0)/10);
 
+    % A front-end stage (currently the APSK pilot estimator) may observe a
+    % fade before envelope normalization hides it.  Accept an exactly
+    % symbol-aligned mask and expand it by the FIR span so no DD update uses
+    % a tap vector contaminated by a marked sample.  A length mismatch is
+    % deliberately ignored and reported rather than silently re-indexed.
+    externalFadeMask = false(numel(xNorm),1);
+    externalFadeMaskProvided = isfield(options, ...
+        'adaptiveEqualizerExternalFadeMask') && ...
+        ~isempty(options.adaptiveEqualizerExternalFadeMask);
+    externalFadeMaskInputLength = 0;
+    externalFadeMaskLengthMatched = false;
+    externalFadeInputSymbols = 0;
+    externalFadeExpandedSymbols = 0;
+    if externalFadeMaskProvided
+        externalFadeMaskRaw = logical( ...
+            options.adaptiveEqualizerExternalFadeMask(:));
+        externalFadeMaskInputLength = numel(externalFadeMaskRaw);
+        externalFadeMaskLengthMatched = ...
+            externalFadeMaskInputLength == numel(xNorm);
+        if externalFadeMaskLengthMatched
+            externalFadeInputSymbols = nnz(externalFadeMaskRaw);
+            if nTaps > 1 && externalFadeInputSymbols > 0
+                externalFadeMask = conv(double(externalFadeMaskRaw), ...
+                    ones(nTaps,1),'same') > 0;
+            else
+                externalFadeMask = externalFadeMaskRaw;
+            end
+            externalFadeExpandedSymbols = nnz(externalFadeMask);
+        end
+    end
+
     w = complex(zeros(nTaps,1));
     w(delay+1) = 1;
     yEq = xNorm;
@@ -163,6 +194,8 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
     sideTapEnergyRatio = 0;
     ddHoldWindows = 0;
     ddFadeHoldWindows = 0;
+    ddExternalFadeHoldWindows = 0;
+    ddExternalFadeHoldSymbols = 0;
     ddGoodWindows = 0;
     ddWindowCount = 0;
     ddHoldReason = '';
@@ -293,15 +326,38 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
                 windowW = w;
                 windowPowerRatio = mean(abs(xNorm(passStart:passEnd)).^2) / ...
                     max(refPower,eps);
-                if enableFadeHold && isfinite(windowPowerRatio) && ...
-                        windowPowerRatio < fadeHoldPowerRatio
+                powerFadeWindow = enableFadeHold && ...
+                    isfinite(windowPowerRatio) && ...
+                    windowPowerRatio < fadeHoldPowerRatio;
+                externalFadeWindow = externalFadeMaskLengthMatched && ...
+                    any(externalFadeMask(passStart:passEnd));
+                if powerFadeWindow || externalFadeWindow
                     w = lastGoodW;
                     ddHoldWindows = ddHoldWindows + 1;
-                    ddFadeHoldWindows = ddFadeHoldWindows + 1;
+                    if powerFadeWindow
+                        ddFadeHoldWindows = ddFadeHoldWindows + 1;
+                    end
+                    if externalFadeWindow
+                        ddExternalFadeHoldWindows = ...
+                            ddExternalFadeHoldWindows + 1;
+                        ddExternalFadeHoldSymbols = ...
+                            ddExternalFadeHoldSymbols + ...
+                            (passEnd-passStart+1);
+                    end
                     if isempty(ddHoldReason)
-                        ddHoldReason = sprintf(...
-                            'DD window power %.2f dB below %.2f dB', ...
-                            10*log10(max(windowPowerRatio,eps)),fadeHoldDB);
+                        if externalFadeWindow && powerFadeWindow
+                            ddHoldReason = sprintf([ ...
+                                'external fade mask and DD window power ', ...
+                                '%.2f dB below %.2f dB'], ...
+                                10*log10(max(windowPowerRatio,eps)),fadeHoldDB);
+                        elseif externalFadeWindow
+                            ddHoldReason = ...
+                                'external pilot-derived fade mask';
+                        else
+                            ddHoldReason = sprintf(...
+                                'DD window power %.2f dB below %.2f dB', ...
+                                10*log10(max(windowPowerRatio,eps)),fadeHoldDB);
+                        end
                     end
                     for n = passStart:passEnd
                         xv = xNorm(n+delay:-1:n-delay);
@@ -456,6 +512,14 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
     info.DDGoodWindows = ddGoodWindows;
     info.DDHoldWindows = ddHoldWindows;
     info.DDFadeHoldWindows = ddFadeHoldWindows;
+    info.ExternalFadeMaskProvided = logical(externalFadeMaskProvided);
+    info.ExternalFadeMaskLengthMatched = ...
+        logical(externalFadeMaskLengthMatched);
+    info.ExternalFadeMaskInputLength = externalFadeMaskInputLength;
+    info.ExternalFadeInputSymbols = externalFadeInputSymbols;
+    info.ExternalFadeExpandedSymbols = externalFadeExpandedSymbols;
+    info.DDExternalFadeHoldWindows = ddExternalFadeHoldWindows;
+    info.DDExternalFadeHoldSymbols = ddExternalFadeHoldSymbols;
     info.FadeHoldDB = fadeHoldDB;
     info.DDHoldReason = ddHoldReason;
     info.InputStructureMSE = inputStructureMSE;
@@ -561,6 +625,13 @@ function info = localEmptyInfo()
         'DDGoodWindows',0, ...
         'DDHoldWindows',0, ...
         'DDFadeHoldWindows',0, ...
+        'ExternalFadeMaskProvided',false, ...
+        'ExternalFadeMaskLengthMatched',false, ...
+        'ExternalFadeMaskInputLength',0, ...
+        'ExternalFadeInputSymbols',0, ...
+        'ExternalFadeExpandedSymbols',0, ...
+        'DDExternalFadeHoldWindows',0, ...
+        'DDExternalFadeHoldSymbols',0, ...
         'FadeHoldDB',NaN, ...
         'DDHoldReason','', ...
         'InputStructureMSE',NaN, ...
