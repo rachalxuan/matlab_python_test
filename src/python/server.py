@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 from flask_cors import CORS  # ✅ 1. 新增这行：引入插件
 import matlab.engine
+import base64
 import os
 import sys
 import json
@@ -42,6 +43,8 @@ CORS(app)  # ✅ 2. 新增这行：开启跨域许可
 
 channel_upload_dir = os.path.join(project_root, 'artifacts', 'ccsds', 'channel_uploads')
 os.makedirs(channel_upload_dir, exist_ok=True)
+simulation_result_dir = os.path.join(project_root, 'artifacts', 'ccsds', 'results')
+os.makedirs(simulation_result_dir, exist_ok=True)
 channel_library_dir = os.environ.get(
     'CCSDS_CHANNEL_DIR',
     r'E:\matlab_project\v3.0\v3.0\channel',
@@ -60,6 +63,39 @@ channel_library = [
 task_queue = queue.Queue()
 tasks = {}
 tasks_lock = threading.Lock()
+
+
+def _task_result_dir(task_id):
+    return os.path.abspath(os.path.join(simulation_result_dir, task_id))
+
+
+def _path_to_base64(file_path):
+    with open(file_path, 'rb') as image_file:
+        encoded = base64.b64encode(image_file.read()).decode('ascii')
+    return f'data:image/png;base64,{encoded}'
+
+
+def _image_paths_to_base64(image_paths, task_id):
+    """Match link_simulation's three-image Base64 result contract."""
+    paths = [path for path in str(image_paths).split(';') if path]
+    if len(paths) != 3:
+        raise ValueError(
+            f'run_ccsds_tm_evaluation 必须返回 3 张图片，实际为 {len(paths)} 张'
+        )
+
+    expected_dir = _task_result_dir(task_id)
+    resolved_paths = [os.path.abspath(path) for path in paths]
+    for path in resolved_paths:
+        if os.path.commonpath([expected_dir, path]) != expected_dir:
+            raise ValueError(f'MATLAB 返回了任务目录之外的图片路径: {path}')
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f'MATLAB 图片不存在: {path}')
+
+    return {
+        'time_base64': _path_to_base64(resolved_paths[0]),
+        'spectrum_base64': _path_to_base64(resolved_paths[1]),
+        'constellation_base64': _path_to_base64(resolved_paths[2]),
+    }
 
 
 def _task_snapshot(task_id):
@@ -121,7 +157,7 @@ def _worker_loop():
         try:
             print(f"▶️ [Task {task_id}] 开始 MATLAB 仿真")
             eng.eval("clear run_ccsds_tm_evaluation", nargout=0)
-            future = eng.run_ccsds_tm_evaluation(params_json, nargout=1, background=True)
+            future = eng.run_ccsds_tm_evaluation(params_json, nargout=2, background=True)
 
             while not future.done():
                 with tasks_lock:
@@ -135,7 +171,7 @@ def _worker_loop():
                     break
                 time.sleep(0.2)
 
-            result_json = future.result()
+            result_json, image_paths = future.result()
             with tasks_lock:
                 cancel_requested = tasks.get(task_id, {}).get("cancelRequested", False)
 
@@ -155,10 +191,17 @@ def _worker_loop():
                 )
                 finished_at = datetime.datetime.now().isoformat(timespec="seconds")
                 if result_data.get("success") is True:
+                    images = _image_paths_to_base64(image_paths, task_id)
+                    result_package = {
+                        "status": "success",
+                        "mode": "sync",
+                        "matlab_result_data": result_data,
+                        "images": images,
+                    }
                     _set_task(
                         task_id,
                         status="completed",
-                        result=result_data,
+                        result=result_package,
                         finishedAt=finished_at,
                     )
                     print(f"✅ [Task {task_id}] 完成")
@@ -335,7 +378,16 @@ def upload_channel():
 def run_simulation():
     try:
         # 1. 获取前端传来的 JSON 数据
-        params = request.json
+        params = dict(request.get_json(silent=True) or {})
+        task_id = uuid.uuid4().hex
+        output_dir = _task_result_dir(task_id)
+        os.makedirs(output_dir, exist_ok=True)
+
+        # 远控接口固定生成参考项目同款的三张 PNG。完整绘图数组默认关闭；
+        # 以后确实需要时，调用方可显式传 includeRawData=true 重新开启。
+        params['remoteMode'] = True
+        params['includeRawData'] = bool(params.get('includeRawData', False))
+        params['outputDir'] = output_dir
         params_json = json.dumps(params)
 
         print(f"📩 [Server] 收到仿真请求: Mod={params.get('modType', 'Unknown')}")
@@ -362,6 +414,9 @@ def run_simulation():
             "RandomizerEnabled": params.get("RandomizerEnabled"),
             "RandomizerFECPosition": params.get("RandomizerFECPosition"),
             "DataPathMode": params.get("DataPathMode"),
+            "TMDataSource": params.get("TMDataSource"),
+            "TMDataSourceI": params.get("TMDataSourceI"),
+            "TMDataSourceQ": params.get("TMDataSourceQ"),
             "WaveformMode": params.get("WaveformMode"),
             "AGCEnabled": params.get("AGCEnabled"),
             "AGCTimeConstantMs": params.get("AGCTimeConstantMs"),
@@ -372,7 +427,6 @@ def run_simulation():
         }
         print("[Server] 参数摘要:", json.dumps(debug_params, ensure_ascii=False))
 
-        task_id = uuid.uuid4().hex
         now = datetime.datetime.now().isoformat(timespec="seconds")
         with tasks_lock:
             tasks[task_id] = {

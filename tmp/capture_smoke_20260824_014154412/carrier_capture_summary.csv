@@ -1,0 +1,2 @@
+Scenario,ModType,TestedPoints,PassedPoints,MinimumPassedCFO_Hz,MaximumPassedCFO_Hz,ZeroCFOPassed
+NoH,QPSK,1,1,0,0,1

@@ -1,0 +1,4 @@
+Scenario,ModType,TestedPoints,PassedPoints,MinimumPassedCFO_Hz,MaximumPassedCFO_Hz,ZeroCFOPassed
+NoH,UQPSK,3,3,-2000000,2000000,1
+NoH,16APSK,3,2,-2000000,2000000,0
+NoH,32APSK,3,2,-2000000,0,1

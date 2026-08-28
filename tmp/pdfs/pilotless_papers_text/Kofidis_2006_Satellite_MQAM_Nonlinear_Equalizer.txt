@@ -1,0 +1,1112 @@
+Hindawi Publishing Corporation
+EURASIP Journal on Applied Signal Processing
+Volume 2006, Article ID 34343, Pages 1–16
+DOI 10.1155/ASP/2006/34343
+
+A Novel Efﬁcient Cluster-Based MLSE Equalizer for Satellite
+Communication Channels with M-QAM Signaling
+
+Eleftherios Koﬁdis,1 Vassilis Dalakas,2 Yannis Kopsinis,3 and Sergios Theodoridis2
+
+1 Department of Statistics and Insurance Science, University of Piraeus, 80 Karaoli & Dimitriou Street, 185 34 Piraeus, Greece
+2 Department of Informatics and Telecommunications, University of Athens, Panepistimioupolis, Ilissia, 157 84 Athens, Greece
+3 Institute for Digital Communications, School of Engineering and Electronics, the University of Edinburgh, Kings Buildings,
+ Mayﬁeld Road, Edinburgh EH9 3JL, UK
+
+Received 24 April 2005; Revised 19 December 2005; Accepted 18 February 2006
+
+Recommended for Publication by Bernard Mulgrew
+
+In satellites, nonlinear ampliﬁers used near saturation severely distort the transmitted signal and cause diﬃculties in its reception.
+Nevertheless, the nonlinearities introduced by memoryless bandpass ampliﬁers preserve the symmetries of the M-ary quadrature
+amplitude modulation (M-QAM) constellation. In this paper, a cluster-based sequence equalizer (CBSE) that takes advantage of
+these symmetries is presented. The proposed equalizer exhibits enhanced performance compared to other techniques, including
+the conventional linear transversal equalizer, Volterra equalizers, and RBF network equalizers. Moreover, this gain in performance
+is obtained at a substantially lower computational cost.
+
+Copyright © 2006 Hindawi Publishing Corporation. All rights reserved.
+
+1. INTRODUCTION                                                   drawback of the equalization approach is the additional cost
+                                                                  and the computational load it entails for each terminal.
+The role of a satellite is to receive a signal from an earth
+station or another satellite (uplink) and, acting as a simple         On the other hand, predistortion techniques aim at pre-
+repeater, to transmit it to another earth station or satellite    canceling the nonlinear eﬀects via modeling the inverse of the
+(downlink) [1]. The need to maximally exploit on-board re-        ampliﬁer characteristic and predistorting the data prior to the
+sources in a satellite communication system often imposes         ampliﬁcation stage. The overall characteristic then becomes
+driving a high power ampliﬁer (HPA), such as the travel-          linear. The advantage of this approach lies in the fact that
+ing wave tube ampliﬁer (TWTA), at or near its saturation          only a single system is needed for canceling the HPA non-
+point, resulting in a nonlinear distortion of the signal, and     linearity at the satellite, compared to using an equalizer in
+rendering the overall link nonlinear. To overcome nonlinear       each terminal. On the other hand, its main drawback is that
+distortions, constant modulus constellation symbols (e.g., 4-     the predistorter must be on-board, so it cannot be applied to
+QAM) are commonly used [2]. However, large QAM sig-               the satellites already on orbit. Moreover, in case multipath is
+nal constellations have to be adopted whenever high band-         present, an equalizer at the terminal side is still needed.
+width eﬃciency is required [3], resulting in severe nonlinear
+distortions. Two approaches have been proposed for solving            In this paper, we will deal only with the ﬁrst approach,
+the problem of correct reception of the transmitted signal in     namely, equalization at the receiver end. Relevant works
+those cases: (a) equalization [4, 5] and (b) predistortion or     commonly resort to nonlinear equalizers based on neural
+power ampliﬁer linearization [6–8].                               network (NN) structures [5, 9] or on Volterra series [10–12].
+                                                                  NN-based equalizers include multilayer perceptrons (MLP)
+    Equalization refers to processing the signal at the receiver  [13, 14], radial basis functions (RBF) [15, 16], and self or-
+side in order to recover the transmitted data, thus post-         ganizing maps (SOM) [17–19]. A comparative study of the
+canceling the link’s nonlinear (ampliﬁer) and linear (mul-        performance of MLP, RBF, and SOM equalizers is given in
+tipath) distortions. Conventional linear equalizers combat        [20]. However, NN and Volterra techniques, in addition to
+only the intersymbol interference (ISI), introduced by the        their high computational and implementation complexity,
+propagation channel, while nonlinear equalizers aim also          have the disadvantage of invariably requiring a large (often
+at equalizing the nonlinear eﬀects of the HPA. The main           unrealistic) number of training samples to result in a satis-
+                                                                  fying solution [5, 11]. Moreover, for high-order modulation
+2                                                                             EURASIP Journal on Applied Signal Processing
+
+formats (e.g., M-QAM, M > 4), which are desirable for the                                          Satellite
+purposes of spectral eﬃciency, reasonable results have only
+been obtained for low IBOs1 [5] (i.e., near the linear region,                             Uplink             Downlink
+e.g., −6 dB IBO).
+                                                                              Transmitter                               Receiver
+    This work presents a novel method of equalizing satel-
+lite channels, which exhibits a very good performance for any                 Figure 1: Satellite communication system.
+rectangular2 QAM constellation, even at high IBOs (i.e., near
+saturation, 0 dB IBO). It is characterized by implementation                  schemes (M = 4, 16) in an additive white Gaussian noise
+simplicity, low computational cost, and the ability to provide                (AWGN) channel and a 2-tap stationary channel in down-
+a good solution with only a small number of training sam-                     link. The communication model is presented in Section 2.
+ples. This comes from an eﬃcient exploitation of the symme-                   Section 3 provides a short review of the CBSE for the lin-
+tries underlying the modulation schemes, along with the spe-                  ear case. The preservation of M-QAM symmetries by mem-
+cial character of the AM/AM and AM/PM [21] nonlinearities                     oryless nonlinear ampliﬁers is demonstrated in Section 4,
+in TWT ampliﬁers. The method is basically an adaptation to                    where the new equalization method is presented. Experimen-
+the satellite context of the so-called one-dimensional cluster-               tal results along with computational complexities and perfor-
+based sequence equalizer (1D CBSE), recently proposed for                     mance comparisons with Volterra equalizers and RBF equal-
+the linear channel case [22, 23]. The latter is a maximum                     izers are presented in Section 5. Results of an LMS-running
+likelihood sequence estimation (MLSE) equalizer that cir-                     linear transversal equalizer are also given as a reference. Con-
+cumvents the channel identiﬁcation stage, which is required                   clusions are drawn in Section 6.
+in standard MLSE equalizers. Instead, the points (centers)
+around which the noisy channel output samples are clustered                   2. DESCRIPTION OF THE COMMUNICATION SYSTEM
+are ﬁrst estimated and then employed to calculate the path                         AND CHANNEL MODEL
+metrics needed in the Viterbi algorithm (VA). Moreover, the
+symmetries in the source constellation are exploited to dra-                  Figure 1 illustrates a typical satellite communication sys-
+matically reduce the number of cluster centers that need to                   tem [1]. Communication satellites have traditionally em-
+be estimated directly from the training data, leading to sub-                 ployed simple bent-pipe4 transponder relay designs. As mo-
+stantial computational savings. The method has been shown                     bile global communication systems are becoming more com-
+to exhibit a very good (ML) performance, at a low computa-                    plex, new generation satellites have regenerative payloads
+tional complexity.                                                            [2, 28] with on-board processing. This means that the base-
+                                                                              band transmitted signal is available on-board, via demodu-
+    In this work, the extension of the 1D CBSE to memo-                       lation, and hence uplink and downlink can be treated sepa-
+ryless TWT nonlinearities is considered. The idea of using                    rately. The proposed equalizer is to be applied to the down-
+MLSE, adopting Forney’s approach with VA [24], in a band-                     link channel.
+limited satellite channel was ﬁrst presented in the mid-70’s
+(see [25, 26] and the references therein) and until today a                       Figure 2(a) shows the downlink communication model.
+major concern in such methods is the processing complex-                      The digital signal to be transmitted is the data stream u + jv,
+ity. The method to be presented here applies to regenerative                  assumed independent and identically distributed. The pulse
+payloads (used in new satellite generations, e.g., NASA’s Ad-                 shaping ﬁlter before the memoryless nonlinearity of the HPA
+vanced Communications Technology Satellite (ACTS) [27],                       is a square root raised cosine (SRRC) ﬁlter of suﬃcient band-
+or in the SkyPlex project [28]), where the transmitted sym-                   width compared to the signal bandwidth. Therefore, ISI is in-
+bols are made available on-board before the ampliﬁcation                      troduced only by ﬁlters following the nonlinearity [11, 31].
+[7, 8, 29, 30] via demodulation (therefore no account is taken                The adopted signaling scheme is the rectangular M-QAM.
+here of the uplink channel and noise).3 The method exploits                   Figure 2(b) illustrates the baseband discrete equivalent com-
+the nature of the TWT nonlinearity (dependence only on the                    munication system model for the downlink, where xk is the
+modulus of the input signal) and appeals to the methodol-                     kth transmitted symbol, which can take on one among M
+ogy of the 1D CBSE in order to provide a computationally                      distinct va√lues from a source alph√abet S (S = {a + jb | a, b =
+cheap estimate of the cluster centers. Furthermore, the re-                   (2m − 1 − M) · d, m = 1, 2, . . . , M} in M-QAM), zk is the
+quired training sequence is very short, compared to other
+previously used techniques (e.g., [31]).                                       4 The simile with a “bent pipe” is often used for a transmission via a non-
+                                                                                 regenerative satellite transponder because the satellite simply retransmits
+    In the following sections, we will describe in detail the                    the received signal back to the ground. That is, no symbol detection is
+proposed extended equalizer as well as experimental results                      involved.
+from applying it with two rectangular M-QAM constellation
+
+ 1 The ampliﬁer input backoﬀ (IBO) is deﬁned as the ratio of the ampliﬁer
+   input signal power (Pin) to the input saturation power (Psat): IBO (dB) =
+   10 log10(Pin/Psat).
+
+ 2 Cross QAM constellations (M = 8, 32, . . .) are not considered here.
+ 3 The earth HPA introduces only a mild nonlinearity, hence the uplink
+
+   channel can be considered as overall linear [26].
+Eleftherios Koﬁdis et al.                                                                                                                                  3
+
+u + jv                                                                                                                          nk
+
+        SRRC               Mod. AGC           HPA                                                              xk  HPA zk Channel yk + yk Equalizer xk
+
+u + jv  Equalizer          t = kT        Demod.        Channel
+                                                    +
+                                   SRRC
+
+                                                    n
+
+                                   (a)                                                                             (b)
+
+              Figure 2: (a) The downlink communication system model and (b) its discrete equivalent.
+
+0                                                                                                              45
+
+                                                                                                               40
+
+−1
+
+TWT output power (dB)                                                                                          35
+                                                                                       Output phase (degrees)
+−2                                                                                                             30
+                                   −6 dB IBO
+                                                                                                               25
+−3
+
+                                                                                                               20
+
+−4                                                                                                             15
+
+                                                                                                               10
+
+−5
+
+                                                                                                               5
+
+−6                                                                                                             0
+−10 −8 −6 −4 −2                                  0     2                                                       −10 −8 −6 −4 −2              0           2
+
+                           TWT input power (dB)                                                                    TWT input power (dB)
+
+                                   (a)                                                                             (b)
+
+                                         Figure 3: (a) AM/AM and (b) AM/PM conversions.
+
+same symbol at the output of the nonlinear ampliﬁer, nk is                       [21], an input
+additive white Gaussian noise, uncorrelated with the channel
+input, yk denotes the kth received observation, and xk is the                                                      x(t) = A cos 2π fct + θ                 (1)
+detected symbol.
+                                                                                 into a bandpass ampliﬁer produces an output of the form
+    There are two technologies for the high power ampli-                         [34, 35]:
+ﬁers (HPA) on board satellites: traveling wave tube ampliﬁers
+(TWTA) and solid state power ampliﬁers (SSPA).                                                                     z(t) = g(A) cos 2π fct + θ + Φ(A) ,     (2)
+
+   (i) TWTA can generally be considered as memoryless.                           where the nonlinear gain function g(A) is commonly re-
+       They are characterized by an AM/AM conversion and                         ferred to as the AM/AM characteristic and the nonlinear
+       an AM/PM conversion, as the ones illustrated in Figure                    phase function Φ(A) is called the AM/PM characteristic.
+       3. These are commonly modeled by a Saleh model                            These are expressed as
+       [21].
+                                                                                                                   g (A)  =  1  αaA     ,                  (3)
+  (ii) SSPA have intrinsic memory. It is common to model                                                                        + βaA2
+       an SSPA with memory by a memoryless nonlinearity
+       (see [32] for the type of the nonlinearity) followed by                                                     Φ(A)   =  1  α p A2                     (4)
+       a linear IIR ﬁlter [6].                                                                                                  + βpA2
+
+Here we will deal only with TWT ampliﬁers,5 due to their                         and plotted in Figure 3, with parameters αa, βa, αp, and βp as-
+common use in satellites [33]. According to Saleh’s model                        suming typical values from [21]. The common case of −6 dB
+
+ 5 Nevertheless, it can be readily seen that the technique to be discussed here  IBO is also shown. It is common practice to work with power
+   can also be applied in SSPA if the common approach of approximating           back-oﬀ when nonconstant envelope modulation formats
+   the IIR ﬁlter following the memoryless nonlinearity with an FIR ﬁlter [6]
+   is adopted. However the method can become prohibitively complex if the        are used for transmission, although this implies less power
+   FIR ﬁlter has a large number of coeﬃcients (60 in [6]).                       eﬃciency. It will be shown that one of the advantages of our
+4                                                                  EURASIP Journal on Applied Signal Processing
+
+method is its ability to work with M-QAM (M > 4) constel-          is that, by exploiting the constellation symmetry, direct (from
+lation schemes, even at 0 dB IBO, where other methods fail.
+                                                                   the data) estimates for only L appropriately chosen cluster cen-
+    The downlink communication channel after the TWT               ters suﬃce to yield the estimates for all ML of them.
+can be modeled as a ﬁnite impulse response (FIR) ﬁlter span-
+ning over L consecutive transmitted symbols, with transfer             To describe the estimation procedure, some deﬁnitions
+function H(z). Thus, the received signal, sampled at the sym-      are ﬁrst in order. The tap contribution, cxm, of the mth tap, hm,
+bol transmission period, is given by                               to the generation of a cluster center is the quantity
+
+                                                                                      cxm = xhm,                      (6)
+
+   L−1                                                             with x taking values from the symbol alphabet S. We can ob-
+                                                                   serve that cxm can take one out of M diﬀerent values, depend-
+   yk = hizk−i + nk = hT zk + nk ≡ yk + nk,  (5)                   ing on the value of the symbol x. For example, for M = 4, we
+                                                                   have the values c1m+j , c−m1+j , c−m1−j , and c1m−j . Using this nota-
+   i=0                                                             tion, equation (5), for the received signal down to earth, can
+
+where6 h = [h0, h1, . . . , hL−1]T is the vector of the (gener-    be rewritten as
+ally complex) L taps of the channel impulse response (CIR),
+zk = [zk, zk−1, . . . , zk−L+1]T is the vector of the transmitted                                     L−1
+symbols xk = [xk, xk−1, . . . , xk−L+1]T distorted by the memo-
+ryless nonlinearity, yk denotes the noiseless observation as-               y[xk ,xk−1,...,xk−L+1] =       cm     ,   (7)
+sociated with the above transmitted sequence of symbols,
+                                                                                                            xk−m
+and nk is the additive white Gaussian noise, whose real and
+                                                                                                      m=0
+imaginary components are independent white sequences
+with equal variances, σ2/2, determined by the signal-to-noise      where y[xk,xk−1,...,xk−L+1] denotes the cluster center associated
+                                                                   with the transmitted L-tuple [xk, xk−1, . . . , xk−L+1]. Further-
+ratio (SNR).                                                       more, it is easy to realize that, for each hm, only one of the
+                                                                   M possible values, say cxm, needs to be estimated; all the rest
+3. THE 1D CLUSTER-BASED SEQUENCE EQUALIZER                         can be obtained via multiplications as in cxm = (x /x) · cxm.
+                                                                   In the 4-QAM case, this reduces to simple π/2 rotations, for
+In this section, we will brieﬂy review the 1D CBSE presented       example, c1m− j = − jc1m+ j , c−m1− j = −c1m+ j , c−m1+ j = jc1m+ j .
+in [22], for linear channels, considering a channel model
+where the HPA part of our system (Figure 2) is omitted (lin-           The L centers that have to be estimated directly from
+ear case). The method proposed in [22] is an MLSE equal-
+izer that circumvents the channel identiﬁcation stage and ex-      the observations can be chosen as follows. First, choose any
+ploits the symmetries in the source constellation along with       of the ML centers, say Cbasic = y[x0,x1,...,xL−1], and call it ba-
+the channel linearity to obtain ML performance at a reduced        sic center, and the associated L-tuple basic sequence, xbasic =
+computational complexity.
+                                                                   [x0, x1, . . . , xL−1]. Then the L centers to be directly estimated
+    Recall that the MLSE equalizer has ﬁrst to compute an
+                                                                   from the data are those that correspond to the basic sequence
+estimate, h, of the CIR, and then apply the VA (or one of its
+variants) to estimate the ML input sequence based on dis-          with a sign change in one of its entries: C0 = y¯[−x0,x1,...,xL−1],
+tances of the form7 Dx = |y − hT x|2. This entails a signif-       C1 = y¯[x0,−x1,...,xL−1], . . . , CL−1 = y¯[x0,x1,...,−xL−1].
+icant computational cost, since ML convolution sums hT x
+have to be computed per received sample, one for each of               A center Cm can be estimated, for example, by averaging
+the ML combinations x of L symbols from the alphabet S.
+The main idea in the 1D CBSE algorithm stems from the fact         the associated observations, that is,
+that it is the set of quantities y¯ = hT x that is needed in the
+VA and not the CIR itself; indeed, Dx = |y − y¯|2. Moreover,       Cm    =    1    N (m)  yk(m),      0 ≤ m ≤ L − 1,  (8)
+these quantities are the noiseless channel outputs that coin-               N (m)  k=1
+cide with the points (centers) around which the noisy obser-
+vations are clustered due to the noise. Thus, they can be di-      where yk(m) is the kth observation associated with Cm and
+rectly estimated via supervised clustering. The spread of the      N(m) the number of these observations. The basic center
+clusters depends on the power of the noise. The number of          Cbasic can be computed based on the estimates of the L cen-
+clusters as well as their position on the complex plane depend     ters Cm as follows [22]:
+on the number and the values of the CIR taps.
+                                                                            Cbasic =      L−1  Cm     ,    L > 2.     (9)
+    Thus, the problem of explicit CIR estimation, as it is                                m=0  2
+required by MLSE equalizers, can be circumvented and all
+that is needed is to estimate the ML centers y of the clusters                            L−
+formed on the complex plane. What is even more important
+                                                                   Obviously, the above formula cannot be applied when L ≤
+                                                                   2. In such a case, Cbasic can be computed directly from the
+                                                                   received observations as in (8).
+
+                                                                       The computation of the tap contributions for the sym-
+                                                                   bols of the basic sequence is then straightforward:
+
+                                                                   cxmm  =  Cbasic − Cm ,         0 ≤ m ≤ L − 1.      (10)
+                                                                                  2
+
+6 Superscript T denotes transposition.                             From these L estimated contributions (one for each tap) one
+7 Forney’s scheme [24] is adopted here.                            can then easily compute the rest, (M − 1)L, exploiting the
+Eleftherios Koﬁdis et al.                                                                                                                                     5
+
+                                Before TWT                                                                                          After TWT
+1.5                                                                                                   1
+
+  1
+
+                                                                                           0.5
+0.5
+
+                                                                      3
+
+Imaginary
+                                                                                           Imaginary
+0                                           1    2
+                                                                              0
+
+−0.5
+                                                                                           −0.5
+
+−1
+
+                                                                                                      −1
+
+−1.5  −1 −0.5                               0.5     1.5
+−1.5                            0                1
+                                                                                                          −1  −0.5           0                 0.5         1
+
+                                Real                                                                                         Real
+
+                           (a)                                                                                      (b)
+
+Figure 4: 16-QAM constellation at the (a) input and (b) output of the TWTA. The 3 energy levels and the 4 squares formed by the 16
+constellation points are illustrated.
+
+structure of the input constellation. Once all the tap contri-                   4.1. Constellation symmetries
+butions have been estimated, the remaining cluster centers
+are then computed as in (7).                                                     The adopted signaling scheme, namely, rectangular M-ary
+                                                                                 QAM, may be viewed as a form of combined digital ampli-
+    If the training sequence that is employed to estimate the                    tude and digital phase modulation. In view of (1)–(4), the
+L cluster centers Cm, m = 0, 1, . . . , L − 1, is to be as short and             baseband complex envelope of the TWTA output is given by
+eﬀective as possible, it has to “visit” these clusters as many
+times as possible and equally often. It turns out that, if only                                           z(t) = g A(t) e j{θ(t)+Φ[A(t)]}
+the input vectors corresponding to these L centers are to ap-
+pear in the training sequence, the symbols in the basic se-                                                   = A(t)e jθ(t)  g A(t)            e jΦ[A(t)]     (12)
+quence should coincide, that is,                                                                                              A(t)
+
+      x0 = x1 = · · · = xL−1 = x.                   (11)                                                      x(t)G x(t) ,
+
+Such a training sequence can be constructed by periodically                      where ∼ denotes complex envelope. In words, the output of
+repeating the sequence [x, x, . . . , x, −x]. For the case of L =                the TWTA is the product of the input signal with a factor that
+                                                                                 depends only on the input amplitude. The result is an ampli-
+                                            L−1 times                            tude change and a phase rotation of the input signal con-
+                                                                                 stellation points. Equation (12) implies that the change is
+2, this has to be modiﬁed to [x, x, −x], to include the basic                    the same for all constellation points that share the same en-
+sequence as well.8                                                               ergy level. The M symbols in the input constellation can be
+                                                                                 grouped in two possible ways (see Figure 4(a) for the exam-
+4. EXPLOITATION OF CONSTELLATION SYMMETRIES                                      ple of 16-QAM):
+     IN THE CASE OF MEMORYLESS NONLINEARITIES
+                                                                                   (1) in I circles on the complex plane, where I is the num-
+In this section, we will extend the above equalization method                           ber of the energy levels (for the 16-QAM case, I = 3),
+to the case where a TWTA (as in (3), (4)) is present. To this
+end, we will ﬁrst need to clarify the way the nonlinearity af-                     (2) in M/4 squares (four points in each square) that are
+fects the input constellation.                                                          centered on the origin.
+
+ 8 In fact, this sequence visits the cluster for [x, −x] twice as often as the   Observe that M/4 points lie in each quadrant of the signal
+   cluster for [x, x]. One can do a little better than that if the sequence      space. Since each of these M/4 points is located at the corner
+   [x, x, x, −x] is used instead, so that both clusters are represented equally  of one of the M/4 squares, all M points can result from such
+   often.                                                                        a group of M/4 points via simple n · π/2 rotations, 1 ≤ n ≤ 3.
+                                                                                 After the application of the (memoryless) nonlinearity, a new
+6                                                                                                         EURASIP Journal on Applied Signal Processing
+
+               1.5           Before TWT                                                                             After TWT
+                 1
+                                                                                                      1             z12
+               0.5
+                 0                      x12                                                                                                                         z02
+
+                                        θ12            Δθ12                                           0.5
+                                                                                                                                               ΔΘ
+
+                                                       x02
+Imaginary
+                                                                                           Imaginaryθ020
+
+−0.5
+                                                                                           −0.5
+
+−1
+
+                                                                                                      −1
+
+−1.5                −1 −0.5                  0.5                                                              −0.5             0.5
+−1.5                              0                    1     1.5                                          −1             0                                               1
+
+                                  Real                                                                                   Real
+
+                             (a)                                                                                    (b)
+
+Figure 5: 16-QAM constellation at the (a) input and (b) output of the TWTA. Angles between equal modulus symbols are shown: ΔΘ = Δθ12.
+
+constellation structure is formed. However, the number of          that one needs to estimate, using the training data, only as
+the resulting points in the signal space is the same as before
+(Figure 4(b)). In Figure 4, corresponding points and energy        many contribution values, for each channel tap, as the num-
+levels have been drawn with the same type of lines, at the         ber I of the diﬀerent energy levels in the constellation. The
+input, (a), and output, (b), of the TWTA. It is not diﬃcult        rest can be obtained via rotations with ﬁxed, a priori known
+to see that the above symmetries (1, 2) of the constellation are
+preserved by the ampliﬁer. This is a consequence of the fact       angles. Once all the contributions have been computed, the
+that the angles between the constellation points that lie on
+the same energy circle remain unaltered (see Figure 5 and the      estimates of all cluster centers become readily available via
+appendix for a proof). Thus, the resulting points continue to
+form squares centered on the origin, as it was the case prior      (7). These are then used in the VA.
+to the application of the nonlinearity. The length of the diag-        As we have already seen, the M points of the constel-
+onal of each square is now equal to 2 · g(A) and the angle of
+rotation, with respect to the corresponding square in the in-      lation are grouped in M/4 squares and it suﬃces to know
+put constellation, is Φ(A), where A is the amplitude of each       M/4 points lying in the same quadrant to compute the rest
+of the four symbols on the corners of the square. Moreover,        of them. Each of these groups of M/4 points of the same
+the number of energy levels is not aﬀected by the TWTA, due        quadrant can be further divided into I diﬀerent energy cir-
+to the nature of the nonlinearity. In the sequel, we will show     cles according to their moduli. Moreover, in rectangular M-
+how these symmetries can be eﬃciently exploited to reduce          QAM constellations, the number I of energies is, in general,9
+the total number of cluster centers to be estimated directly       smaller than the number of the points in a quadrant, M/4. In
+from the training sequence in the CBSE equalizer.                  other words, some energy circles have more than one point
+
+4.2. Center estimation technique                                   per quadrant.
+                                                                       Let Qi, 1 ≤ i ≤ I, be the number of constellation points
+Assuming, as in Section 3, that a general L-taps linear ﬁlter,
+with impulse response h = [h0, h1, . . . , hL−1]T , follows the    per quadrant that lie on the ith energy circle. Thus, for the
+nonlinearity, we may redeﬁne the tap contribution, cxm, of the     case of 16-QAM, we have Q1 = 1, Q2 = 2, and Q3 = 1
+mth tap hm (6) to the generation of a cluster center to be the     points per energy quarter-circle, where i = 1, 2, 3 refer, re-
+                                                                   spectively, to the innermost, the middle, and the outermost
+quantity                                                           circles (see Figure 4(a)). Furthermore, we denote by xqi and
+                                                                   θqi each point of a quarter-circle and its phase, respectively,
+                                                                   where 0 ≤ q ≤ Qi − 1 is the point’s index. Starting the num-
+                                                                   bering anticlockwise from the positive real axis, we may de-
+                                                                   ﬁne the (relative) angle of the qth point on the ith energy
+                                                                   level as
+
+                    cxm = z(x)hm,                            (13)                                     Δθqi = θqi − θ0i , 0 ≤ q ≤ Qi − 1, 1 ≤ i ≤ I,                         (14)
+
+where z(x) is the response of the TWTA to the input sym-           9 Only for 4-QAM, I = M/4.
+bol x. We can observe that cxm can take as many diﬀerent val-
+ues as the number of values of the symbol x. We show here
+Eleftherios Koﬁdis et al.                                                                                                                                            7
+
+where θ0i is the phase of the ﬁrst point to meet, moving anti-           (x03) at the outermost level (i = 3). The angle Δθ12 between
+clockwise, on the ith energy circle.                                     the two points of the middle energy level is deﬁned by (14).
+
+    As already noted, the relative angles Δθqi are not aﬀected           At the output of the ampliﬁer we still have three distinct en-
+by the nonlinearity and can therefore be assumed to be a pri-
+ori known. Thus, once the value for the contribution cxm0i of a          ergy levels (Figure 4(b)). It is easy to see that the original four
+channel tap corresponding to the symbol x0i on the ith level
+has been estimated, the remaining contribution values of that            squares retain also their structure after the action of the non-
+
+tap for symbols in the same quadrant and on the same en-                 linearity.
+
+ergy level may be computed via rotations with predetermined                  In this extreme case of a single-tap channel, the received
+                                                                         observations form 16 diﬀerent clusters on the complex plane,
+constant angles as                                                       located at the corners of 4 diﬀerent squares, whose size and
+                                                                         angle depend on the single channel tap h0 (see Figure 6(a)).
+cxmqi = cxm0i · e jΔθqi , 1 ≤ q ≤ Qi − 1, 1 ≤ i ≤ I, 0 ≤ m ≤ L − 1.      Each one of the centers corresponds to one, among 16 possi-
+                                                                   (15)  ble transmitted symbols, x, as shown in Figure 6(b).
+
+Once we have computed the subset of contribution values                      The 16 contributions, cx0, deﬁned for the tap h0, coincide,
+cxmqi , 1 ≤ i ≤ I, which correspond to the points of the ﬁrst            in this case, with the centers y. Having estimated only the 3
+quadrant of the input constellation, estimates for the whole             contributions cx001 , cx002 , and cx003 , we may compute the contribu-
+set of cxm’s can be obtained by simple π/2 rotations on the              tion cx012 with the aid of (15):
+complex plane. This exploits the fact that the symbols in a
+                                                                                                cx012 = cx002 · e jΔθ12                                      (18)
+quadrant are positioned at the corners of squares centered
+                                                                         and then, via simple π/2 rotations, all the remaining 12 tap
+on the origin.                                                           contributions, cx0.
+
+    We can conclude that the estimation of only one contri-              Example 2 (H(z) = (9 − 9 j) + (1 − 0.1 j)z−1 (L = 2)). In
+bution value per energy level and per channel tap is suﬃcient.           this example, a second tap, 1 − 0.1 j, has been added to the
+With L taps and I energy levels, the number of contributions
+to be estimated directly from the training data amounts then             1-tap channel of the previous example. Now each one of
+to only I · L, instead of M · L. These contributions are com-
+puted with the aid of the estimates of the centers of I ·L prop-         the centers corresponds to one of the possible transmitted
+erly selected clusters in a manner analogous to that followed
+                                                                         2-symbol combinations [xk, xk−1] and we obtain the struc-
+in the CBSE for the linear case.                                         ture of Figure 7. Due to the contributions of the second tap,
+                                                                         cx1, the observed centers are now positioned in 16 groups of
+Example 1 (H(z) = 9 − 9 j (L = 1)). Consider the example                 16 points each. The points around which these 16 groups are
+of a single-tap channel with 16-QAM input. The parameters
+of the nonlinearity model in (3), (4) are set to their typical           centered on are determined by the contributions of the ﬁrst
+values [21]. The input alphabet is                                       tap, cx0, which are associated with the transmitted symbol xk.
+                                                                         In Figure 7 we illustrate the contribution c10+j and the 16 pos-
+                                                                         sible contributions cx1 associated with the transmitted symbol
+                                                                         xk−1.
+
+S = {1 + j, −1 + j, −1 − j, 1 − j,                                           As in the previous example, we have x01 = 1+ j, x02 = 3+ j,
+      3 + j, −1 + 3 j, −3 − j, 1 − 3 j,                                  and x03 = 3 + 3 j. In addition to the three contributions cx001 ,
+                                                      (16)               cx002 , and cx003 , three more contributions cx101 , cx102 , and cx103 are now
+      1 + 3 j, −3 + j, −1 − 3 j, 3 − j,                                  required in order to compute the contributions cx012 and cx112
+      3 + 3 j, −3 + 3 j, −3 − 3 j, 3 − 3 j}.                             with the aid of (15) and then, via simple π/2 rotations, all
+                                                                         the 32 tap contributions, cxm.
+Using the above notation, we will have x01 = 1 + j, x02 = 3 + j,
+x12 = 1 + 3 j, x03 = 3 + 3 j. Hence the above set can be written         4.3. Construction of the training sequence
+as
+
+S = x01, j · x01, −x01, − j · x01,                                       In order to construct a suitable training sequence, we follow
+
+x02, j · x02, −x02, − j · x02,      (17)                                 a procedure similar to the one presented in Section 3.
+x12, j · x12, −x12, − j · x12,
+                                                                         (1)  I  sequences  of  L  symbols,   xbi asic   =  [xqi 0  ,  xqi 1  ,  .  .  .  ,  xi      ],
+
+                                                                                                                                                               qL−1
+
+x03, j · x03, −x03, − j · x03 ,                                          1 ≤ i ≤ I, one for each energy level, are deﬁned. We call them
+
+                                                                         basic subsequences. Not any L QAM symbols are appropriate
+
+where all constellation points on the complex plane are de-              for such a sequence. We have to conform to the following
+picted in Figure 4(a).
+                                                                         constraints.
+
+    One can see that, before the application of the TWTA, we             (a) The symbols must be located in the ﬁrst quadrant of
+                                                                              the signal space.
+have 16 points grouped in 4 squares and M/4 = 4 of these are
+                                                                         (b) They must lie on the same energy circle, i.
+located in the ﬁrst quadrant of the signal space, distributed
+on I = 3 energy levels. One point (x01) at the innermost level           Thus, and in accordance with our choice for xbasic in the lin-
+(i = 1), two (x02, x12) at the middle level (i = 2), and one                                                                                                    x0i .
+                                                                         ear channel case,  we  choose xqi 0  =  xqi 1   =  ···        =      xi             =
+
+                                                                                                                                                qL−1
+8                                                                                                            EURASIP Journal on Applied Signal Processing
+
+   15                                                                                                    15                                          y[−1+3 j]
+                                                                                                         10
+   10                                                                                                                   y[−3+ j]       y[−3+3 j]                        y[1+3 j]
+                                                                                                          5                                y[−1+ j]
+                                                                                                          0
+   5                                                                                                    −5                                                                 y[3+3 j]
+                                                                                                       −10                                                               y[1+ j]
+   Imaginary0                                                                                          −15   y[−3− j]
+                                                                                            Imaginary                                                                           y[3+ j]
+                                                                                                                    y[−1− j]
+   −5                                                                                                            y[−3−3 j]
+
+   −10                                                                                                                  y[−1−3 j]                         y[1− j]        y[3− j]
+                                                                                                                                                              y[3−3 j]
+   −15
+                                                                                                                                                 y[1−3 j]
+
+        −10       0                                   10                                                     −10                                 0              10
+
+                  Real                                                                                                                      Real
+
+             (a)                                                                                                                       (b)
+
+Figure 6: Plot of the clusters formed by a single-tap channel with 16-QAM input. (a) The formed squares and (b) the cluster centers
+associated with the corresponding transmitted symbols are shown. The crosses denote the cluster centers and the dots are the noise-corrupted
+observations for 20 dB SNR.
+
+     15                                                                                                4.5
+
+     10                                                                                                4                                            c−1 1+3 j
+
+      5                                                                                                                                     c31− j              c31+3 j
+                                              c10+ j
+                                                                                                       3.5              c−1 3+3 j c−1 1+ j                      c11+ j
+      0                                                                                                                                                                c11−3 j
+
+    −5
+
+   −10
+   Imaginary                                                                                           3                c−1 3+ j                                         c11+3 j
+                                                                                            Imaginary
+                                                                                                             c10+ j                                                     c31−3 j
+                                                                                                                                                                  c11− j
+                                                                                                       2.5              c−1 3− j       c−1 1− j
+                                                                                                                                                                c−1 1−3 j
+                                                                                                                                       c−1 3−3 j c31+ j
+                                                                                                       2
+
+   −15                                                                                                 1.5
+
+        −10       0                                   10                                               8.5           9            9.5            10 10.5 11 11.5
+
+                  Real                                                                                                                 Real
+
+             (a)                                                                                                                       (b)
+
+Figure 7: (a) Plot of the clusters formed when a 2-tap channel is used. The tap contribution c10+j as well as all tap contributions cx1 are shown
+in detail in (b).
+
+The point x0i is selected from each energy level i of the in-                                          (2) Deﬁne the subsequence, subtri, as
+
+put constellation so as to have minimum phase θ0i (following                                                            subtri x0i , x0i , . . . , x0i , −x0i ,                          (19)
+the notation in Section 4.2). The associated observed center
+
+is called the basic center, Cbi asic = y[x0i ,x0i ,...,x0i ], of the ith en-                                                   L−1 times
+ergy level. Each basic subsequence generates the L centers Cmi ,
+0 ≤ m ≤ L − 1, required for the computation of the channel                    and let tri denote the periodic repetition of subtri,
+
+tap contributions, cxm0i , as shown in Table 1.                                                                      tri subtri, subtri, . . . , subtri .                                (20)
+Eleftherios Koﬁdis et al.                                                                                                                             9
+
+Table 1: The L cluster centers required for the estimation of the tap                  Step 3. The M/4 contributions for each channel tap that cor-
+contributions for the ith energy level.                                                respond to the points of the ﬁrst quadrant are obtained with
+                                                                                       the aid of (15):
+                           C0i      y[−x0i ,x0i ,...,x0i ,...,x0i ]
+                           C1i      y[x0i ,−x0i ,...,x0i ,...,x0i ]                    cxmqi = cxm0i · e jΔθqi , 1 ≤ q ≤ Qi − 1, 1 ≤ i ≤ I, 0 ≤ m ≤ L − 1,
+                            ...                                                                                                                           (25)
+                          Cmi               ...
+                            ...     y[x0i ,x0i ,...,−x0i ,...,x0i ]                    where the angles Δθqi have been precalculated, and stored for
+                          CLi −1                                                       each energy level, based on the knowledge of the signaling
+                                            ...                                        scheme, from (14).
+                                    y[x0i ,x0i ,...,x0i ,...,−x0i ]
+                                                                                       Step 4. Via simple n · π/2 rotations, 1 ≤ n ≤ 3, we obtain the
+We may then choose as the training sequence, tr, the follow-                           rest of the M contributions for each channel tap.
+ing:
+                                                                                       Step 5. All the remaining cluster centers y[xk,xk−1,...,xk−L+1] are
+                 tr = tr1, tr2, . . . , tri, . . . , trI ,           (21)              computed from (7).
+
+which generates observations10 for all the centers of Table 1.                         Step 6. Finally, these centers are employed in the VA for the
+For L = 2, subtri [x0i , x0i , −x0i ].11                                               estimation of the transmitted symbol sequence.
+
+4.4. Summary of the proposed algorithm                                                     Note that, for a single-tap channel (L = 1), the VA in
+                                                                                       Step 6 is reduced to a simple (nearest neighbor) decision step.
+Once a training sequence has been constructed, the complete
+algorithm for the estimation of the transmitted symbols pro-                           Application of the algorithm to Example 2
+ceeds as follows.                                                                         (i) We choose x01 = 1 + j, x02 = 3 + j, and x03 = 3 + 3 j.
+                                                                                         (ii) We compute Δθ12 for x12 = 1 + 3 j and x02 = 3 + j.
+Step 1. We estimate each of the L · I selected cluster centers
+by averaging the corresponding observations:                                            (iii) We choose the subsequences, subtri, as
+
+                 N (m,i)                                                               subtr1 [1 + j, 1 + j, −1 − j],
+                 k=1
+Cmi  =    1               yk(m,i),     0 ≤ m ≤ L − 1, 1 ≤ i ≤ I,                       subtr2 [3 + j, 3 + j, −3 − j],       (26)
+        N (m,i)                                                        (22)
+                                                                                       subtr3 [3 + 3 j, 3 + 3 j, −3 − 3 j]
+
+where yk(m,i) is the kth observation for Cmi and N(m,i) is the                         and periodically repeat them so as to have 10 training
+number of observations associated with Cmi . The basic center                          symbols per energy level:
+for the ith level, Cbi asic, can then be computed based on the
+obtained estimates of the L centers Cmi as follows:                                    tr1 [1 + j, 1 + j, −1 − j, 1 + j, 1 + j,
+                                                                                               − 1 − j, 1 + j, 1 + j, −1 − j, 1 + j],
+          Cbi asic =      L−1     Cmi  ,  L > 2, 1 ≤ i ≤ I.          (23)
+                          m=0     2                                                    tr2 [3 + j, 3 + j, −3 − j, 3 + j, 3 + j,
+                                                                                                                                                     (27)
+                          L−
+                                                                                               − 3 − j, 3 + j, 3 + j, −3 − j, 3 + j],
+For L ≤ 2, it turns out that we also have to estimate Cbi asic                         tr3 [3 + 3 j, 3 + 3 j, −3 − 3 j, 3 + 3 j, 3 + 3 j,
+directly from the training observations as in (22).
+                                                                                               − 3 − 3 j, 3 + 3 j, 3 + 3 j, −3 − 3 j, 3 + 3 j].
+
+Step 2. The I contributions, cxm0i , for each channel tap are                          The employed training sequence is
+computed as
+
+          Cbi asic − Cmi ,                                                             tr = tr1, tr2, tr3 .                 (28)
+               2
+cxm0i  =                          0 ≤ m ≤ L − 1, 1 ≤ i ≤ I.          (24)
+
+10 Note that the above training sequence gives rise to L-tuples containing                  The resulting observations are used to estimate the
+
+   mixed energy symbols as well. These are to be discarded in the training                  L · I = 6 selected centers as in (22). These centers are
+
+   process.                                                                                 depicted in Figure 8.
+11 Again, as explained in Section 3, slightly better performance could be ob-          (iv) From (24) we obtain cx001 , cx002 , cx003 , cx101 , cx102 , and cx103 .
+                                                                                       (v) From the above and (15) we obtain cx012 and cx112 .
+   tained in the case of a two-path channel if the sequence [x0i , x0i , x0i , −x0i ]  (vi) We estimate, via simple π/2 rotations, all the rest of the
+   was used instead.
+                                                                                            tap contributions, cxm.
+10                                                                               EURASIP Journal on Applied Signal Processing
+
+        15                                                             Table 2: Experiment parameters for the LTE and Volterra equalizers
+        10                                                             (zero equalization delay).
+
+          5                                                                      IBO   L     LTE                Volterra
+          0
+        −5                                           Cb3asic                     (dB)        μ    μ1                      ν
+      −10                                            C13
+                                                  Cb1asic              4-QAM     0     1     0.1  0.6                   2048
+                                            C11
+                                                                                       2     0.1  1.0                   512
+                                                           Cb2asic
+           Imaginary       C02                                                   0     1     0.1  0.7                     64
+                                                     C12
+                                 C01                                                   2     0.1  1.0                   256
+                               C03
+                                                                       16-QAM −3       1     0.1  0.7                     32
+
+                                                                                       2     0.2  1.2                   256
+
+                                                                                 −6    1     0.1  0.6                     32
+
+                                                                                       2     0.2  1.2                   256
+
+                      −15
+
+                           −10        0     10                         each particular case. The corresponding values are given in
+                                                                       Table 2.
+                                      Real
+                                                                       5.2. Volterra equalizer
+Figure 8: Cluster center constellation at the output of the TWTA
+for the channel of Example 2. The centers that are estimated directly  The output of the Volterra equalizer used in the experiments
+from training data are denoted with circles.                           is given by [37]
+
+ (vii) We compute all cluster centers y[xk,xk−1] from (7).             xn = qi yn−i +        qi, j,k yn−i yn− j yn∗−k.       (29)
+(viii) Finally, we use these centers in the VA to estimate the
+                                                                              i        i jk
+       transmitted symbol sequence.
+                                                                       Thus, the output of the equalizer consists of a weighted linear
+5. A COMPARISON WITH OTHER EQUALIZERS                                  and nonlinear combination of channel outputs, with com-
+                                                                       plex weights. Weights qi multiply the channel outputs yn di-
+In this section, the performance of the proposed equalizer             rectly, and the weights qi,j,k multiply third-order products
+is compared with a conventional linear transversal equal-              of the channel outputs. Only odd-order terms are consid-
+izer (LTE) and with two of the most widely used nonlinear              ered, since even-order terms fall out of the frequency band
+equalizers: a Volterra series equalizer [26, 36, 37] and an RBF        of interest [26]. The order of the equalizer is restricted to
+equalizer [38, 39]. The algorithms are compared in terms of            three, because of the prohibitive increase in computational
+the resulting bit error rates (BER) and their computational            complexity as well as convergence time that higher-order
+requirements.                                                          terms would imply. The NLMS algorithm, with diﬀerent
+                                                                       step-sizes for the linear and the nonlinear parts [11], was
+    Both 4-QAM and 16-QAM signaling schemes are con-                   used to adapt the Volterra weights. The parameters of the
+sidered. Two channel types are examined: an AWGN channel               algorithm (ﬁrst-order step-size μ1, third-order step-size μ3)
+(L = 1) and a 2-tap (L = 2) stationary channel. The lat-               have been chosen so as to optimize the MSE for each case
+ter was chosen so that to simulate realistic conditions [5]. Its       and are given in Table 2. The third-order step-size is related
+transfer function is H(z) = (1 − 0.5 j) + (0.3 + 0.2 j)z−1, hav-       to the ﬁrst-order step-size as μ3 = μ1/ν.
+ing a diﬀerence of 8 dB in magnitude between the ﬁrst and
+the second taps. The parameters for the nonlinearity model             5.3. RBF-DF equalizer
+in (3), (4) assume their typical values, namely, αa = 2.1587,
+βa = 1.1517, αp = 4.0033, and βp = 9.104 [21]. The input               The performance of the proposed method is also com-
+vectors for the LTE and Volterra equalizers are of length 3. In        pared with that of the symbol-by-symbol Bayesian decision
+these equalizers, the equalization delay was set to zero (since        feedback (DF) equalizer implemented via an RBF network
+minimum-phase channels were used). The comparative per-                [38, 39, 41]. A detailed description of the M-ary RBF-DF
+formance results reported here are typical for a number of             equalizer, considered here, can be found in [41]. Its structure
+other channels used.                                                   is speciﬁed by the decision delay τ, the feedforward order n f
+                                                                       and the feedback order nb. These parameters were chosen in
+5.1. Linear transversal equalizer                                      relation to the length of the channel, L, as follows [38, 39, 41]:
+
+For the LTE, a conventional adaptive linear ﬁlter, employing                     τ = L − 1, n f = τ + 1 = L,                 (30)
+the normalized LMS (NLMS) algorithm [40], was used. The
+step-size, μ, has been chosen so as to optimize the MSE for                      nb = L + n f − 2 − τ = L − 1.
+Eleftherios Koﬁdis et al.                                                                                             11
+
+     100                                                           Table 3: Real operations required for cluster center estimation.
+
+     10−1                                                          Relation         Mul/Div             Add/Sub
+                                                                   Equation (22)       2I L
+     10−2                                                          Equation (23)        2I             2I(N − L)
+                                                                   Equation (24)       2I L
+BER                                                                Equation (15)                       2I(L − 1)
+                                                                   Equation (7)   4L M − I
+     10−3                                                                              4                   2I L
+                                                                   Total                0            2L M − I
+     10−4
+                                                                                                           4
+                                                                                             2(L − 1) ML − 2(L + 1)I
+
+                                                                                                          2
+
+                                                                                             2 I N + 1 − 2L2
+
+     10−5                                                                         ML + 2I             ML      LM
+           0                                                                                        1)
+                      5    10        15     20                                               +(L −        +
+
+                           SNR (dB)                                                                 24
+
+              CBSE                   100                           symbols. For each equalizer, the BER is estimated once at
+              LTE                    1000                          least 100 symbol errors have been committed and at least 50
+              RBF-DF                 50000                         packets have been processed.
+              60
+                                                                   5.4.1. 4-QAM
+Figure 9: BER performance of the Volterra equalizer as a function
+of training sequence length, for an AWGN channel with 16-QAM       The case of 4-QAM signaling with the TWT in saturation (at
+input at −6 dB IBO. 60, 100, 1000, and 50000 training symbols per  0 dB IBO) was examined ﬁrst. Due to the fact that the nonlin-
+packet have been employed. The performance of the LTE (using 100   earity depends only on the signal amplitude, we may view the
+training symbols) and the CBSE and RBF-DF equalizers (with 60      overall channel as linear in this case. The results are shown in
+training symbols) is also shown.                                   Figure 10. One can see that for the AWGN channel (L = 1)
+                                                                   all equalizers have roughly the same performance, whereas
+To make a fair comparison with the proposed CBSE algo-             in the case of the second channel (L = 2) the CBSE and
+rithm, the centers computed by the latter were used to yield       the Bayesian equalizers outperform the LTE and the Volterra
+the centers for the M sub-RBF networks of the RBF-DF               equalizers.
+equalizer. Moreover, the weights in the RBF networks were
+chosen in accordance with the assumption that all centers are      5.4.2. 16-QAM
+equally probable.
+                                                                   For the 16-QAM signaling scheme three diﬀerent cases for
+5.4. Simulation study                                              the nonlinearity were examined, where the IBO was set equal
+                                                                   to 0 dB, −3 dB, and −6 dB (Figures 11, 12, and 13). CBSE
+The transmitted symbols are organized in packets consist-          outperforms its competitors in every case. The Bayesian
+ing of two parts: the training symbols and 500 information         equalizer performs almost equally well, however, it is far
+symbols. The same training sequence is used for the CBSE           more expensive in terms of computational requirements. It
+and the RBF-DF equalizers. It consists of 20 specially selected    is of interest to note that even in the case of 0 dB IBO (full
+symbols per energy zone, according to Section 4.3. Thus, in        power eﬃciency [1]) with 16-QAM where other methods
+the case of 4-QAM (only one energy zone) the training se-          fail [5], the proposed equalizer still oﬀers some gain. Notice
+quence consists of 20 symbols whereas in the case of 16-QAM        also in Figure 9 the superior performance of CBSE over the
+(3 energy zones) 3 times 20 = 60 symbols are used for train-       Volterra equalizer trained with 50000 symbols.
+ing. The number of samples was selected to be close to what
+is used in real systems such as GSM [42].                          5.5. Computational requirements
+
+    To determine the appropriate length for the training se-       The overall computational load of the proposed equalizer
+quence of the Volterra equalizer, we have tried diﬀerent cases     consists of three parts, namely: (a) the computation of the
+but the tradeoﬀ between computational complexity and per-          tap contributions, (b) the computation of the cluster centers,
+formance gain led us to use only 100 randomly generated            and (c) the VA.
+symbols in the comparison experiments. In Figure 9 a de-
+tailed performance comparison for the case of an AWGN                  The cost of the ﬁrst two parts, in terms of real multi-
+channel and 16-QAM signaling at −6 dB IBO with 60, 100,            plications and additions, is given analytically in Table 3 for
+1000, and 50000 training symbols for the Volterra equalizer        L > 2, where N is the number of training samples per energy
+is given. For the LTE we also used 100 randomly generated
+12                                                                                    EURASIP Journal on Applied Signal Processing
+
+Table 4: Real operations required by each equalizer in the training part. LLTE is the input vector length for the LTE. LV and MV are given by
+(31) and (32), respectively.
+
+Method                          Mul/Div                                                         Add/Sub                        (·)2
+CBSE                                                                          2 I N + 1 − 2L2 + (L − 1) ML + L M                —
+RBF-DF                          ML + 2I                                                                                      2N ILLTE
+LTE                                                                                                             24           2N I LV
+Volterra               N I 8LLTE + 3                                                            10N ILLTE
+                                                                                           NI 2MV + 10LV
+                   NI  4MV  +   8LV     +  3  (  p  +  1)
+                                           2
+
+level. It is important to note that the number of multiplica-                 Table 5: Real operations required per detected symbol in the tested
+tions/divisions required by the proposed method is independent                equalizers. LLTE is the input vector length for the LTE. LV and MV
+of the amount of training data [22]. Divisions are performed                  are given by (31) and (32), respectively.
+once per training block. The operations counts given in this
+table hold for L > 2. For L = 2, these ﬁgures become 2M                       Method Mul/Div           Add/Sub         (·)2  exp(·)
+multiplications/divisions and 2I(N − 6) + M(M + 1) addi-                                                 4ML          2ML
+tions/subtractions. For L = 1, we have M − 2I multiplica-                     CBSE (VA) 0                             2LML     —
+tions/divisions and 2I(N − 2) + M/2 additions/subtractions.                                          4LML − M           —     ML
+                                                                              RBF-DF  ML              4LLTE − 2         —      —
+    Table 4 presents the computational cost for the training                                      2 2LV + MV − 1               —
+part in each equalizer. LLTE is the length of the weight vector               LTE     4LLTE
+of the LTE equalizer. Assuming LLTE − 1 delay elements for
+the pth-order Volterra equalizer as well, it turns out that its               Volterra 4 MV + LV
+corresponding weight vector is of length (recall that even-
+order terms are not included):                                                we have LLTE = 3 and LV = 21, respectively. Observe that
+                                                                              the superior performance of the CBSE equalizer is attained
+                   ⎛        ⎞⎛                             ⎞                  at a substantially lower complexity, especially in terms of real
+                 (p−1)/2 ⎝n + LLTE⎠ ⎝n                                        multiplications/divisions.
+          LV  =   n=0 LLTE − 1          + LLTE −       1⎠ .   (31)
+                                        LLTE − 1
+
+In addition to the operations in the NLMS recursion, another                  6. CONCLUSIONS
+
+                   ⎛            ⎞⎛                         ⎞                  A cluster-based sequence equalizer for satellite channels has
+              (p−1)/2 2n ⎝n + LLTE⎠ ⎝n                                        been proposed for the case of rectangular QAM signaling.
+    MV    =                             + LLTE −       1⎠     (32)            The method exploits the fact that TWT memoryless non-
+                                        LLTE − 1                              linearities respect the symmetries underlying the signaling
+              n=0     LLTE − 1                                                scheme, thus leading to a signiﬁcant gain in performance,
+                                                                              compared to Volterra and NN-based techniques, and at a sig-
+complex multiplications are required in the Volterra equal-                   niﬁcantly lower computational cost.
+izer to form the regressor vector.12
+                                                                              APPENDIX
+    The computational complexity per detected symbol of
+the VA part in the proposed method (part (c)), along with                     Consider two points, x0i , x1i , of the input M-QAM constella-
+the corresponding complexities of the LTE, the Volterra, and                  tion (located in the same quadrant—see Figure 5 for an ex-
+the RBF-DF equalizers considered here are shown in Table 5.                   ample). The superscript i indicates that they belong to the
+                                                                              same (ith) energy level, Ai, of the constellation. Thus,
+    Finally, Table 6 shows the total number of real opera-
+tions required for the processing of a received block con-                            x0i = ui0 + jv0i ,  x1i = ui1 + jv1i   (A.1)
+sisting of 20 training samples (per energy zone) and 500
+data symbols, for a two-tap channel (L = 2) with the                          with their magnitudes and phases being given by Ai =
+16-QAM signaling scheme. For the purposes of this compar-
+ison, 3 times 20 = 60 training samples are also assumed for                    (ui0)2 + (v0i )2 = (ui1)2 + (v1i )2 and θ0i = tan−1(v0i /ui0), θ1i =
+the LTE and the Volterra equalizers, although, as we have al-                 tan−1(v1i /ui1), respectively. Then the angle between them is
+ready seen, this is not realistic and in practice a much longer
+data set is needed for these methods. For these equalizers,
+
+12 In fact, this ﬁgure corresponds to a straightforward computation, where                        Δθ1i = θ1i − θ0i .         (A.2)
+   care is not taken to compute only once partial products that appear in
+   several entries of the regressor vector. Nevertheless, such savings would  Assume now that these two points do not belong to the same
+   not be signiﬁcant with respect to the overall computational cost of the    square (one cannot result from the other by simple n · π/2
+   Volterra equalizer.
+Eleftherios Koﬁdis et al.                                                                                                              13
+
+Table 6: The total number of real operations for each equalizer, for a 2-tap channel (L = 2) with 16-QAM input, needed to process a packet
+of 60 training and 500 information samples; LLTE = 3, p = 3, LV = 21, MV = 36.
+
+Method                       Mul/Div                                    Add/Sub                              (·)2                   exp(·)
+                                                                                                                Decision           Decision
+CBSE               Training     Decision                     Training   Decision                   Training      256000
+RBF-DF                                                                                                —          512000               —
+LTE                32                 0                      356        512000                                      —              128000
+Volterra                                                                                             360            —
+                                128000                                  1016000                      2520                             —
+                                                                                                                                      —
+                   1620            6000                      1800       5000
+
+                   19080        114000                       16920      77000
+
+          100                                                                    100
+
+          10−1                                                                   10−1
+
+          10−2                                                                   10−2
+
+BER                                                                     BER
+
+          10−3                                                                   10−3
+
+          10−4                                                                   10−4
+
+          10−5                                                                   10−5
+
+                0        2      4            6            8         10                 0        2     4         6               8  10
+
+                                   SNR (dB)                                                           SNR (dB)
+
+                   CBSE                         RBF-DF                                    CBSE                        RBF-DF
+                   LTE                          Volterra                                  LTE                         Volterra
+
+                                (a)                                                                   (b)
+
+                         Figure 10: BER performance for 4-QAM at 0 dB IBO. (a) AWGN and (b) 2-tap channel.
+
+          100                                                                    100
+
+BER       10−1                                                          BER      10−1
+
+          10−2                                                                   10−2
+                0
+                             5                  10                  15                 0           5               10              15
+
+                                   SNR (dB)                                                           SNR (dB)
+
+                   CBSE                         RBF-DF                                    CBSE                        RBF-DF
+                   LTE                          Volterra                                  LTE                         Volterra
+
+                                (a)                                                                   (b)
+
+                         Figure 11: BER performance for 16-QAM at 0 dB IBO. (a) AWGN and (b) 2-tap channel.
+14                                                                             EURASIP Journal on Applied Signal Processing
+
+                100                                                   100
+
+     10−1                                                             10−1
+
+BER  10−2                                                        BER  10−2
+
+     10−3                                                             10−3
+
+     10−4                                                             10−4
+           0
+                           5            10        15                        0        5            10        15
+
+                              SNR (dB)                                                  SNR (dB)
+
+                     CBSE               RBF-DF                                 CBSE               RBF-DF
+                     LTE                Volterra                               LTE                Volterra
+
+                              (a)                                                       (b)
+
+                     Figure 12: BER performance for 16-QAM at −3 dB IBO. (a) AWGN and (b) 2-tap channel.
+
+     100                                                              100
+
+     10−1                                                             10−1
+
+     10−2                                                             10−2
+
+BER                                                              BER
+
+     10−3                                                             10−3
+
+     10−4                                                             10−4
+
+     10−5                                                             10−5
+           0
+                           5            10        15                        0        5            10        15
+
+                              SNR (dB)                                                  SNR (dB)
+
+                     CBSE               RBF-DF                                 CBSE               RBF-DF
+                     LTE                Volterra                               LTE                Volterra
+
+                              (a)                                                       (b)
+
+                     Figure 13: BER performance for 16-QAM at −6 dB IBO. (a) AWGN and (b) 2-tap channel.
+
+rotations, where 1 ≤ n ≤ 3). Let z0i , z1i be the corresponding  and the angle between them is given by
+outputs of the ampliﬁer. Then
+                                                                    ΔΘ = θ1i + Φ Ai − θ0i + Φ Ai = θ1i − θ0i = Δθ1i
+     z0i = x0i · G x0i = g Ai e j[θ0i +Φ(Ai)],    (A.3)                                                                            (A.4)
+     z1i = x1i · G x1i = g Ai e j[θ1i +Φ(Ai)]
+                                                                 that is, it is not aﬀected by the nonlinearity.
+Eleftherios Koﬁdis et al.                                                15
+
+ACKNOWLEDGMENT                                                           [16] S. Chen, S. McLaughlin, and B. Mulgrew, “Complex-valued
+                                                                               radial basis function network, part 1: network architecture and
+Fruitful discussions with Dr. Daniel Roviras, TeSA/IRIT,                       learning algorithms,” Signal Processing, vol. 35, no. 1, pp. 19–
+Toulouse, France, are gratefully acknowledged.                                 31, 1994.
+
+REFERENCES                                                               [17] S. Bouchired, M. Ibnkahla, and W. Paquier, “A combined
+                                                                               LMS-SOM algorithm for time varying non-linear channel
+ [1] G. Maral and M. Bousquet, Satellite Communication Systems,                equalization,” in Proceedings of the European Signal Processing
+      John Wiley & Sons, New York, NY, USA, 1996.                              Conference (EUSIPCO ’98), Rhodes, Greece, September 1998.
+
+ [2] M. Ibnkahla, Q. M. Rahman, A. I. Sulyman, H. A. Al-Asady, J.        [18] S. Bouchired, M. Ibnkahla, D. Roviras, and F. Castanie´,
+      Yuan, and A. Safwat, “High-speed satellite mobile communi-               “Equalization of satellite mobile communication channels
+      cations: technologies and challenges,” Proceedings of the IEEE,          using combined self-organizing maps and RBF networks,”
+      vol. 92, no. 2, pp. 312–338, 2004.                                       in Proceedings of the International Conference on Acoustics,
+                                                                               Speech, and Signal Processing (ICASSP ’98), vol. 6, pp. 3377–
+ [3] F. Xiong, “Modem techniques in satellite communications,”                 3379, Seattle, Wash, USA, May 1998.
+      IEEE Communications Magazine, vol. 32, no. 8, pp. 84–98,
+      1994.                                                              [19] T. Kohonen, Self-Organizing Maps, Springer, Berlin, Germany,
+                                                                               1995.
+ [4] E. Biglieri, A. Gersho, R. D. Gitlin, and T. L. Lim, “Adaptive
+      cancellation of nonlinear intersymbol interference for voice-      [20] S. Bouchired, M. Ibnkahla, D. Roviras, and F. Castanie´,
+      band data transmission,” IEEE Journal on Selected Areas in               “Equalization of satellite UMTS channels using neural net-
+      Communications, vol. 2, no. 5, pp. 765–777, 1984.                        work devices,” in Proceedings of the IEEE International Confer-
+                                                                               ence on Acoustics, Speech and Signal Processing (ICASSP ’99),
+ [5] S. Bouchired, D. Roviras, and F. Castanie´, “Equalization of              Phoenix, Ariz, USA, March 1999.
+      satellite mobile channels with neural network techniques,”
+      Space Communications, vol. 15, no. 4, pp. 209–220, 1999.           [21] A. A. M. Saleh, “Frequency-independent and frequency de-
+                                                                               pendent nonlinear models of TWT ampliﬁers,” IEEE Transac-
+ [6] F. Langlet, H. Abdulkader, D. Roviras, A. Mallet, and F. Cas-             tions on Communications, vol. 29, no. 11, pp. 1715–1720, 1981.
+      tanie´, “Comparison of neural network adaptive predistortion
+      techniques for satellite down links,” in Proceedings of the In-    [22] Y. Kopsinis and S. Theodoridis, “An eﬃcient low-complexity
+      ternational Joint Conference on Neural Networks (IJCNN ’01),             technique for MLSE equalizers for linear and nonlinear chan-
+      vol. 1, pp. 709–714, Washington, DC, USA, July 2001.                     nels,” IEEE Transactions on Signal Processing, vol. 51, no. 12,
+                                                                               pp. 3236–3248, 2003.
+ [7] F. Langlet, D. Roviras, A. Mallet, and F. Castanie´, “Mixed ana-
+      log/digital implementation of MLP NN for predistortion,” in        [23] Y. Kopsinis and S. Theodoridis, “A novel cluster based MLSE
+      Proceedings of the International Joint Conference on Neural Net-         equalizer for M-PAM signaling schemes,” Signal Processing,
+      works (IJCNN ’02), vol. 3, pp. 2825–2830, Honolulu, Hawaii,              vol. 83, no. 9, pp. 1905–1918, 2003.
+      USA, May 2002.
+                                                                         [24] G. D. Forney Jr, “Maximum-likelihood sequence estimation of
+ [8] F. Langlet, H. Abdulkader, and D. Roviras, “Predistortion of              digital sequences in the presence of intersymbol interference,”
+      non-linear satellite channels using neural networks: architec-           IEEE Transactions on Information Theory, vol. 18, no. 3, pp.
+      ture, algorithm and implementation,” in Proceedings of the               363–378, 1972.
+      11th European Signal Processing Conference (EUSIPCO ’02),
+      Toulouse, France, September 2002.                                  [25] D. Chakraborty, “Maximum likelihood sequence detection in
+                                                                               nonlinear satellite channels,” IEEE Communications Magazine,
+ [9] S. Haykin, Neural Networks: A Comprehensive Foundation,                   vol. 19, no. 6, pp. 47–53, 1981.
+      Prentice-Hall, Upper Saddle River, NJ, USA, 2nd edition, 1999.
+                                                                         [26] S. Benedetto, E. Biglieri, and V. Castellani, Digital Transmission
+[10] A. Gutierrez and W. E. Ryan, “Performance of adaptive                     Theory, Prentice-Hall, Englewood Cliﬀs, NJ, USA, 1987.
+      Volterra equalizers on nonlinear satellite channels,” in IEEE
+      International Conference on Communications (ICC ’95), vol. 1,      [27] P. Lowry, “System handbook, advanced communications tech-
+      pp. 488–492, Seattle, Wash, USA, June 1995.                              nology satellite,” Tech. Rep. TM-101490, NASA, Lewis Re-
+                                                                               search Center, Cleveland, Ohio, USA, 1993, http://acts.grc.
+[11] A. Gutierrez and W. E. Ryan, “Performance of Volterra and                 nasa.gov/docs/ACTSSysHB.PDF.
+      MLSD receivers for nonlinear band-limited satellite systems,”
+      IEEE Transactions on Communications, vol. 48, no. 7, pp. 1171–     [28] ESA SkyPlex, http://telecom.esa.int/telecom/www/object/in-
+      1177, 2000.                                                              dex.cfm? fobjectid=12143.
+
+[12] S. Benedetto, E. Biglieri, and R. Daﬀara, “Modeling and per-        [29] M. Wittig, “Satellite onboard processing for multimedia appli-
+      formance evaluation of nonlinear satellite links—a Volterra              cations,” IEEE Communications Magazine, vol. 38, no. 6, pp.
+      series approach,” IEEE Transactions on Aerospace and Elec-               134–140, 2000.
+      tronic Systems, vol. 15, no. 4, pp. 494–507, 1979.
+                                                                         [30] B. Evans, M. Werner, E. Lutz, et al., “Integration of satel-
+[13] P.-R. Chang and B.-C. Wang, “Adaptive decision feedback                   lite and terrestrial systems in future multimedia communica-
+      equalization for digital satellite channels using multilayer neu-        tions,” IEEE Wireless Communications, vol. 12, no. 5, pp. 72–
+      ral networks,” IEEE Journal on Selected Areas in Communica-              80, 2005.
+      tions, vol. 13, no. 2, pp. 316–324, 1995.
+                                                                         [31] M. Ibnkahla and J. Yuan, “A neural network MLSE receiver
+[14] S. Chen, G. J. Gibson, C. F. N. Cowan, and P. M. Grant, “Adap-            based on natural gradient descent: application to satellite com-
+      tive equalization of ﬁnite non-linear channels using multilayer          munications,” EURASIP Journal on Applied Signal Processing,
+      perceptrons,” Signal Processing, vol. 20, no. 2, pp. 107–119,            vol. 2004, no. 16, pp. 2580–2591, 2004.
+      1990.
+                                                                         [32] C. Rapp, “Eﬀects of HPA-nonlinearity on a 4-DPSK/OFDM-
+[15] I. Cha and S. A. Kassam, “Channel equalization using adap-                signal for a digital sound broadcasting system,” in Proceedings
+      tive complex radial basis function networks,” IEEE Journal on            of the 2nd European Conference on Satellite Communications
+      Selected Areas in Communications, vol. 13, no. 1, pp. 122–131,           (ECSC ’91), Liege, Belgium, October 1991.
+      1995.
+                                                                         [33] J. M. Weekley and B. J. Mangus, “TWTA versus SSPA: A com-
+                                                                               parison of on-orbit reliability data,” IEEE Transactions on Elec-
+                                                                               tron Devices, vol. 52, no. 5, pp. 650–652, May 2005.
+16                                                                     EURASIP Journal on Applied Signal Processing
+
+[34] A. L. Berman and C. E. Mahle, “Nonlinear phase shift in           Yannis Kopsinis was born in Patra, Greece,
+      travelling wave as applied to multiple access communication      on May 1, 1973. He received the B.S. de-
+      satellites,” IEEE Transactions on Communications Technology,     gree in informatics from the Department of
+      vol. 198, no. 1, pp. 37–48, 1970.                                Informatics and Telecommunications, Uni-
+                                                                       versity of Athens, Greece, in 1998 and his
+[35] J. B. Minkoﬀ, “Wideband operation of nonlinear solid state        Ph.D. degree in 2003 from the same de-
+      power ampliﬁers—comparison of calculations and measure-          partment. Since January 2004 he has been
+      ments,” AT&T Bell Laboratories Technical Journal, vol. 63,       a research fellow with the Institute for Dig-
+      no. 2, pp. 231–248, 1984.                                        ital Communications, School of Engineer-
+                                                                       ing and Electronics, the University of Ed-
+[36] V. J. Mathews, “Adaptive polynomial ﬁlters,” IEEE Signal Pro-     inburgh, UK. His research interests include channel equalization,
+      cessing Magazine, vol. 8, no. 3, pp. 10–26, 1991.                adaptive ﬁlters, and electronic signal processing and performance
+                                                                       evaluation for optical communication systems.
+[37] S. Benedetto and E. Biglieri, “Nonlinear equalization of digital
+      satellite channels,” IEEE Journal on Selected Areas in Commu-    Sergios Theodoridis received an Honors
+      nications, vol. 1, no. 1, pp. 57–62, 1983.                       degree in physics from the University of
+                                                                       Athens and his M.S. and Ph.D. degrees from
+[38] S. Chen, B. Mulgrew, and S. McLaughlin, “Adaptive Bayesian        the Department of Electronics and Electri-
+      equalizer with decision feedback,” IEEE Transactions on Signal   cal Engineering of Birmingham University,
+      Processing, vol. 41, no. 9, pp. 2918–2926, 1993.                 UK. He is currently Professor of signal pro-
+                                                                       cessing and communications in the Depart-
+[39] S. Chen, S. McLaughlin, and B. Mulgrew, “Complex-valued           ment of Informatics and Telecommunica-
+      radial basis function network, part II: application to digi-     tions of the University of Athens. His re-
+      tal communications channel equalisation,” Signal Processing,     search interests lie in the areas of adaptive
+      vol. 36, no. 2, pp. 175–188, 1994.                               algorithms, channel equalization, pattern recognition, and signal
+                                                                       processing for music. He is the Coeditor of the book Adaptive Sys-
+[40] S. Haykin, Adaptive Filter Theory, Prentice-Hall, Upper Saddle    tem Identiﬁcation and Signal Processing Algorithms, Prentice Hall
+      River, NJ, USA, 3rd edition, 1996.                               1993, the Coauthor of the book Pattern Recognition, Academic
+                                                                       Press, 3rd edition 2005, and the Coauthor of three books in Greek,
+[41] L. Hanzo, C. H. Wong, and M. S. Yee, Adaptive Wireless            two of them for the Greek Open University. He is currently an As-
+      Transceivers, John Wiley & Sons, Chichester, UK, 2002.           sociate Editor for the IEEE Signal Processing Magazine and he is a
+                                                                       member of the editorial boards of the EURASIP Signal Processing
+[42] R. Steele and L. Hanzo, Mobile Radio Communications, John         Journal and EURASIP Journal on Wireless Communications and
+      Wiley & Sons, Chichester, UK, 2nd edition, 2000.                 Networking. He was the general Chairman of EUSIPCO-98 and he
+                                                                       is the Technical Program Cochair for ISCAS-2006. He is currently
+Eleftherios Koﬁdis was born on Septem-                                 the President of EURASIP.
+ber 6, 1967, in Trikala, Greece. He re-
+ceived the diploma (with honors) and the
+Ph.D. degrees, in 1990 and 1996, respec-
+tively, both from the Department of Com-
+puter Engineering and Informatics, Univer-
+sity of Patras, Patras, Greece. From 1996 to
+1998 he was with the Greek Army. From
+1998 to 2000 he was a postdoctoral research
+fellow with the Communications, Image
+and Information Processing Department, Institut National des
+Te´le´communications, Evry, France. From 2001 to 2004 he held ad-
+junct professor positions with the universities of Piraeus and Pelo-
+ponnese, Greece. He is currently a Lecturer of informatics in the
+Department of Statistics and Insurance Science, University of Pi-
+raeus, Piraeus, Greece. His current research interests are in signal
+processing for communications. He is a member of the Technical
+Chamber of Greece.
+
+Vassilis Dalakas was born in 1973, in
+Athens, Greece. He received his B.S. degree
+in Physics, in 1998, from the Department of
+Physics, University of Athens, Greece. From
+1998 to 2000 he was with the Greek Army.
+He received the M.S. degree (honors.) in
+digital signal processing from the Depart-
+ment of Informatics and Telecommunica-
+tions, University of Athens, in 2002. He is
+currently working towards a Ph.D. in signal
+processing at the same institution, in cooperation with the Institute
+for Space Applications and Remote Sensing of the National Ob-
+servatory of Athens. Since October 2001, he has been a Research
+Fellow with the Department of Geography, Harokopio University
+of Athens. His research interests include signal processing for com-
+munications systems and modeling and simulation standardization
+methods.

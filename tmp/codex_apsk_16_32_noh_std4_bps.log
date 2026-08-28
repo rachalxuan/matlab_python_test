@@ -1,0 +1,1503 @@
+
+[h_channel_short 001/004] NoH_baseline | 16APSK | none | none
+  ccsdsTMWaveformGenerator - 属性:
+
+             WaveformSource: "synchronization and channel coding"
+    NumBytesInTransferFrame: 1115
+          RandomizerEnabled: false
+      RandomizerFECPosition: 'afterEncoding'
+               DataPathMode: 'single'
+             SplitPathDebug: 0
+                     HasASM: true
+                  ASMLength: []
+                     ASMHex: ''
+
+   Channel coding
+              ChannelCoding: "none"
+
+   Digital modulation and filter
+                 Modulation: "16APSK"
+         PulseShapingFilter: "root raised cosine"
+              RolloffFactor: 0.3500
+        FilterSpanInSymbols: 10
+           SamplesPerSymbol: 8
+
+  使用 get 显示所有属性
+
+         ActualCodeRate: 1
+       NumBitsPerSymbol: 4
+    SubcarrierFrequency: []
+
+[TX none] NumInputBits=8920, ActualCodeRate=1.000000
+[Actual TF] NumInputBits=8920, NumInputBytes=1115.000
+[Coded DEBUG] stored tx encodedBits for boundary check: 340176 bits
+
+[TM feed-forward blind phase search]
+  phases/window/hop: 61 / 33 / 4
+  reliable blocks  : 21134/21262 = 99.40%
+  metric/confidence: median 0.0015599 / 0.7575
+  reacquisitions    : 4
+  anchor/final     : -34.737 / -88.607 deg, preserved=0
+
+
+[TM APSK pilotless carrier recovery]
+  modulation      : 16APSK
+  NDA qualified   : 1
+  x^M FFT CFO     : M=12, -0.045 Hz, confidence=57.11 dB, qualified=1
+  NDA residual CFO: -0.454 Hz
+  residual applied : 1
+  NDA CFO         : -0.500 Hz
+  NDA phase       : +0.249 deg (mod 90 deg)
+  global NDA phase: +0.249 deg, metric=0.00020132
+  NDA metric      : 0.0012242 / 0.052653
+  blind phase BPS  : applied=1 reliable=99.40% metric=0.0015599 final=-88.61 deg
+  DD gate         : 0.20397 (dmin 0.50992), margin>=0.120
+  DD phase loop   : enabled=0
+  DD accept       : 84510 / 84510 = 99.37%
+  HOLD/fade       : 0 / 0 symbols, events=0 recoveries=0
+  phase error RMS : 1.230 deg
+  final DD freq   : +0.000 Hz
+  ambiguity       : unresolved modulo 90 deg; use ASM later
+
+
+[TM one-tap complex gain tracker]
+  magnitude mode  : power, update reference=0
+  applied/update  : 1, 84898 updates
+  DD accept       : 84898/85044 = 99.83%, gate=0.35 margin>=0.000
+  HOLD/fade       : 0/0 symbols (0.00/0.00%), events=0 recoveries=0
+  h final         : +0.544 dB, +0.000 deg; range=[-3.065,+0.804] dB
+  inverse max     : +3.047 dB (configured cap +24.000 dB)
+  power in/out    : 1 / 0.99415
+
+
+[TM pilotless APSK front-end adapter]
+  mode             : pilotless-xM-nda-dd-one-tap
+  symbols in/out   : 85044 / 85044
+  x^M CFO/conf     : M=12, -0.045 Hz / 57.11 dB
+  carrier accept   : 99.37%, HOLD=0.00%, fade=0.00%
+  pre-DD gain      : applied=0 accept=NaN% HOLD=NaN% fade=NaN%
+  blind phase BPS  : applied=1 reliable=99.40% metric=0.0015599 final=-88.61 deg
+  gain enabled     : 1, accept=99.83%, HOLD=0.00%, fade=0.00%
+  main boundary    : symbols still contain ASM; demap/FEC not performed here
+
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [ASM phase] selected 1 rotation by periodic ASM: rot=-90.0 deg, err=0, mean=0.00, frames=8, pos=8997, gap=8.3
+   [ASM DEBUG] rotation score table:
+      rot=   +0.0 deg score=   28.950 err=   8.0 mean=   8.25 frames=   8 pos=   98516
+      rot=  +90.0 deg score=   29.700 err=   8.0 mean=   7.50 frames=   8 pos=   71689
+      rot= +180.0 deg score=   29.200 err=   8.0 mean=   8.00 frames=   8 pos=    8998
+      rot=  -90.0 deg score=   38.000 err=   0.0 mean=   0.00 frames=   8 pos=    8997
+   [ASM phase timeline] frame bitPos bestRot err runner gap invErr jump
+         1      45    +0.0   11     17    6     13 0
+         2    8997   -90.0    0     16   16     16 1
+         3   17949   -90.0    0     16   16     16 0
+         4   26901   -90.0    0     16   16     16 0
+         5   35853   -90.0    0     16   16     16 0
+         6   44805   -90.0    0     16   16     16 0
+         7   53757   -90.0    0     16   16     16 0
+         8   62709   -90.0    0     16   16     16 0
+         9   71661   -90.0    0     16   16     16 0
+        10   80613   -90.0    0     16   16     16 0
+        11   89565   -90.0    0     16   16     16 0
+        12   98517   -90.0    0     16   16     16 0
+        13  107469   -90.0    0     16   16     16 0
+        14  116421   -90.0    0     16   16     16 0
+        15  125373   -90.0    0     16   16     16 0
+        16  134325   -90.0    0     16   16     16 0
+        17  143277   -90.0    0     16   16     16 0
+        18  152229   -90.0    0     16   16     16 0
+        19  161181   -90.0    0     16   16     16 0
+        20  170133   -90.0    0     16   16     16 0
+        21  179085   -90.0    0     16   16     16 0
+        22  188037   -90.0    0     16   16     16 0
+        23  196989   -90.0    0     16   16     16 0
+        24  205941   -90.0    0     16   16     16 0
+        25  214893   -90.0    0     16   16     16 0
+        26  223845   -90.0    0     16   16     16 0
+        27  232797   -90.0    0     16   16     16 0
+        28  241749   -90.0    0     16   16     16 0
+        29  250701   -90.0    0     16   16     16 0
+        30  259653   -90.0    0     16   16     16 0
+        31  268605   -90.0    0     16   16     16 0
+        32  277557   -90.0    0     16   16     16 0
+        33  286509   -90.0    0     16   16     16 0
+        34  295461   -90.0    0     16   16     16 0
+        35  304413   -90.0    0     16   16     16 0
+        36  313365   -90.0    0     16   16     16 0
+        37  322317   -90.0    0     16   16     16 0
+        38  331269   -90.0    0     16   16     16 0
+   [ASM phase timeline summary] usable=38 slips=1 ambiguous=0
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [ASM frame phase correction] applied=1 reliable=37/38 slips=1 rotations=[-90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90]
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>tryOneRotation (第 7671 行)
+位置: run_ccsds_tm_evaluation>tryOneRotationCandidate (第 7258 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5403 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [Coded DEBUG] demod-vs-encoded (16APSK): ASMAligned=1, rx/txOffset=+0 bits, txFrameOffset=0, polarity=+1, hardBER=0.00353098 (1201/340132)
+   [Coded DEBUG] steady hardBER=0 (0/259608), frames=29, frameBER p95/max=0/0
+   [TPC DEBUG] bit-plane hardBER/soft | b1:BER=0.003305,|s|=1.35e+03,1=49.6%; b2:BER=0.003269,|s|=1.34e+03,1=49.7%; b3:BER=0.003669,|s|=720,1=50.1%; b4:BER=0.003881,|s|=720,1=50.2%; 
+   [Coded DEBUG] demod soft (16APSK/none): len=340176, bitsPerFrame=8920, mean=-24.87, std=1283, min=-6140, max=+6336, hard1=49.9%
+   [ASM bit-align] 16APSK/none trimmed 44 demod bits before decoder
+   [ASM bit-align] decoder frame synchronization disabled after periodic ASM alignment
+[TM uncoded ASM sync] pos=1 err=17 mean=2.12 frames=8 polarity=+1 accepted=1 outFrames=37
+   [FrameID DEBUG] 16APSK none post-decoder: decodedBits=330040, bitsPerFrame=8920, numRx=37, show=20
+      j=001 rxId=162 match=0
+      j=002 rxId=  1 match=1 err=    0 ber=0.0000
+      j=003 rxId=  2 match=1 err=    0 ber=0.0000
+      j=004 rxId=  3 match=1 err=    0 ber=0.0000
+      j=005 rxId=  4 match=1 err=    0 ber=0.0000
+      j=006 rxId=  5 match=1 err=    0 ber=0.0000
+      j=007 rxId=  6 match=1 err=    0 ber=0.0000
+      j=008 rxId=  7 match=1 err=    0 ber=0.0000
+      j=009 rxId=  8 match=1 err=    0 ber=0.0000
+      j=010 rxId=  9 match=1 err=    0 ber=0.0000
+      j=011 rxId= 10 match=1 err=    0 ber=0.0000
+      j=012 rxId= 11 match=1 err=    0 ber=0.0000
+      j=013 rxId= 12 match=1 err=    0 ber=0.0000
+      j=014 rxId= 13 match=1 err=    0 ber=0.0000
+      j=015 rxId= 14 match=1 err=    0 ber=0.0000
+      j=016 rxId= 15 match=1 err=    0 ber=0.0000
+      j=017 rxId= 16 match=1 err=    0 ber=0.0000
+      j=018 rxId= 17 match=1 err=    0 ber=0.0000
+      j=019 rxId= 18 match=1 err=    0 ber=0.0000
+      j=020 rxId= 19 match=1 err=    0 ber=0.0000
+   [FrameCheck] j=001 rxId=162 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=002 rxId=  1 match=1 err=    0 ber=0.0000 good=1 consec=1 acq=0 counted=0
+   [FrameCheck] j=003 rxId=  2 match=1 err=    0 ber=0.0000 good=1 consec=2 acq=0 counted=0
+   [FrameCheck] j=004 rxId=  3 match=1 err=    0 ber=0.0000 good=1 consec=3 acq=1 counted=0
+   [FrameCheck] j=005 rxId=  4 match=1 err=    0 ber=0.0000 good=1 consec=4 acq=1 counted=0
+   [FrameCheck] j=006 rxId=  5 match=1 err=    0 ber=0.0000 good=1 consec=5 acq=1 counted=0
+   [FrameCheck] j=007 rxId=  6 match=1 err=    0 ber=0.0000 good=1 consec=6 acq=1 counted=0
+   [FrameCheck] j=008 rxId=  7 match=1 err=    0 ber=0.0000 good=1 consec=7 acq=1 counted=0
+   [FrameCheck] j=009 rxId=  8 match=1 err=    0 ber=0.0000 good=1 consec=8 acq=1 counted=1
+   [FrameCheck] j=010 rxId=  9 match=1 err=    0 ber=0.0000 good=1 consec=9 acq=1 counted=1
+   [FrameCheck] j=011 rxId= 10 match=1 err=    0 ber=0.0000 good=1 consec=10 acq=1 counted=1
+   [FrameCheck] j=012 rxId= 11 match=1 err=    0 ber=0.0000 good=1 consec=11 acq=1 counted=1
+   [FrameCheck] j=013 rxId= 12 match=1 err=    0 ber=0.0000 good=1 consec=12 acq=1 counted=1
+   [FrameCheck] j=014 rxId= 13 match=1 err=    0 ber=0.0000 good=1 consec=13 acq=1 counted=1
+   [FrameCheck] j=015 rxId= 14 match=1 err=    0 ber=0.0000 good=1 consec=14 acq=1 counted=1
+   [FrameCheck] j=016 rxId= 15 match=1 err=    0 ber=0.0000 good=1 consec=15 acq=1 counted=1
+   [FrameCheck] j=017 rxId= 16 match=1 err=    0 ber=0.0000 good=1 consec=16 acq=1 counted=1
+   [FrameCheck] j=018 rxId= 17 match=1 err=    0 ber=0.0000 good=1 consec=17 acq=1 counted=1
+   [FrameCheck] j=019 rxId= 18 match=1 err=    0 ber=0.0000 good=1 consec=18 acq=1 counted=1
+   [FrameCheck] j=020 rxId= 19 match=1 err=    0 ber=0.0000 good=1 consec=19 acq=1 counted=1
+   [Per-frame BER]   -   0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 ... (25/37 shown)
+   [Per-frame BER summary] nonzero=0/37
+   [候选角度] rot=  +0.0 deg, BER=0, Lock=97.3%, Err=0, Bits=258680[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>tryOneRotation (第 7671 行)
+位置: run_ccsds_tm_evaluation>tryOneRotationCandidate (第 7258 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5403 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [Coded DEBUG] demod-vs-encoded (16APSK): ASMAligned=0, rx/txOffset=-8 bits, txFrameOffset=0, polarity=-1, hardBER=0.498862 (169697/340168)
+   [Coded DEBUG] steady hardBER=0.499403 (129649/259608), frames=29, frameBER p95/max=0.506591/0.506814
+   [TPC DEBUG] bit-plane hardBER/soft | b1:BER=0.5,|s|=1.34e+03,1=50.3%; b2:BER=0.498,|s|=1.35e+03,1=49.6%; b3:BER=0.4983,|s|=720,1=49.8%; b4:BER=0.4993,|s|=720,1=49.9%; 
+   [Coded DEBUG] demod soft (16APSK/none): len=340176, bitsPerFrame=8920, mean=-18.57, std=1283, min=-6336, max=+5027, hard1=50.1%
+[TM uncoded ASM sync] pos=44 err=12 mean=8.88 frames=8 polarity=+1 accepted=1 outFrames=37
+   [FrameID DEBUG] 16APSK none post-decoder: decodedBits=330040, bitsPerFrame=8920, numRx=37, show=20
+      j=001 rxId=138 match=0
+      j=002 rxId= 35 match=1 err= 4455 ber=0.4994
+      j=003 rxId=162 match=0
+      j=004 rxId=163 match=0
+      j=005 rxId= 38 match=0
+      j=006 rxId= 39 match=0
+      j=007 rxId=166 match=0
+      j=008 rxId=167 match=0
+      j=009 rxId= 32 match=1 err= 4457 ber=0.4997
+      j=010 rxId= 33 match=1 err= 4433 ber=0.4970
+      j=011 rxId=160 match=0
+      j=012 rxId=161 match=0
+      j=013 rxId= 36 match=1 err= 4433 ber=0.4970
+      j=014 rxId= 37 match=1 err= 4472 ber=0.5013
+      j=015 rxId=164 match=0
+      j=016 rxId=165 match=0
+      j=017 rxId= 50 match=0
+      j=018 rxId= 51 match=0
+      j=019 rxId=178 match=0
+      j=020 rxId=179 match=0
+   [FrameCheck] j=001 rxId=138 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=002 rxId= 35 match=1 err= 4455 ber=0.4994 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=003 rxId=162 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=004 rxId=163 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=005 rxId= 38 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=006 rxId= 39 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=007 rxId=166 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=008 rxId=167 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=009 rxId= 32 match=1 err= 4457 ber=0.4997 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=010 rxId= 33 match=1 err= 4433 ber=0.4970 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=011 rxId=160 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=012 rxId=161 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=013 rxId= 36 match=1 err= 4433 ber=0.4970 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=014 rxId= 37 match=1 err= 4472 ber=0.5013 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=015 rxId=164 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=016 rxId=165 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=017 rxId= 50 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=018 rxId= 51 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=019 rxId=178 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=020 rxId=179 match=0 consec=0 acq=0 counted=0
+   [候选角度] rot= +90.0 deg, BER=0.5, Lock=0.0%, Err=0, Bits=0   [Phase ambiguity] best rotation =  +0.0 deg, lockRate=97.3%
+
+========= CCSDS 评估结果 =========
+ 调制方式 : 16APSK
+ 输入 SNR : 30.0 dB,  CFO=0.0 Hz,  Phase=0.0 deg,  Delay=0.000
+ Noise mode   : fixed PSD; the legacy snr field above is inactive
+ Noise order  : afterChannel
+ Noise PSD    : -115.30 dBm/Hz over 1.35e+07 Hz -> -44.00 dBm, EqSNR=34.00 dB
+ Signal ref   : -10.00 dBm before H/channel damage
+ --------------------------------
+ BER          : 0.000000
+ EVM (sync前) :  13.68 %
+ EVM (sync后) :   3.45 %
+ MER (sync后) :  29.25 dB
+ SNR_est      :  29.18 dB  (输入是 30.0 dB)
+ Residual CFO :    0.117 Hz
+ PAPR (Tx)    :   4.84 dB
+ Frame Lock   :  97.30 %
+ FER          : 0.000000  (0/29 frames)
+ Acquisition  : 4 frames  (0.000892 s)
+==================================
+
+[PASS] BER=0 Lock=97.3% FER=0 time=6.0s
+
+[h_channel_short 002/004] NoH_baseline | 32APSK | none | none
+  ccsdsTMWaveformGenerator - 属性:
+
+             WaveformSource: "synchronization and channel coding"
+    NumBytesInTransferFrame: 1115
+          RandomizerEnabled: false
+      RandomizerFECPosition: 'afterEncoding'
+               DataPathMode: 'single'
+             SplitPathDebug: 0
+                     HasASM: true
+                  ASMLength: []
+                     ASMHex: ''
+
+   Channel coding
+              ChannelCoding: "none"
+
+   Digital modulation and filter
+                 Modulation: "32APSK"
+         PulseShapingFilter: "root raised cosine"
+              RolloffFactor: 0.3500
+        FilterSpanInSymbols: 10
+           SamplesPerSymbol: 8
+
+  使用 get 显示所有属性
+
+         ActualCodeRate: 1
+       NumBitsPerSymbol: 5
+    SubcarrierFrequency: []
+
+[TX none] NumInputBits=8920, ActualCodeRate=1.000000
+[Actual TF] NumInputBits=8920, NumInputBytes=1115.000
+[Coded DEBUG] stored tx encodedBits for boundary check: 340176 bits
+
+[TM feed-forward blind phase search]
+  phases/window/hop: 61 / 33 / 4
+  reliable blocks  : 16840/17006 = 99.02%
+  metric/confidence: median 0.0024069 / 0.6009
+  reacquisitions    : 4
+  anchor/final     : +8.342 / -89.947 deg, preserved=0
+
+
+[TM APSK pilotless carrier recovery]
+  modulation      : 32APSK
+  NDA qualified   : 1
+  x^M FFT CFO     : M=48, -0.021 Hz, confidence=44.60 dB, qualified=1
+  NDA residual CFO: -0.119 Hz
+  residual applied : 1
+  NDA CFO         : -0.141 Hz
+  NDA phase       : +0.249 deg (mod 90 deg)
+  global NDA phase: +0.249 deg, metric=0.00020007
+  NDA metric      : 0.001495 / 0.027201
+  blind phase BPS  : applied=1 reliable=99.02% metric=0.0024069 final=-89.95 deg
+  DD gate         : 0.1466 (dmin 0.36651), margin>=0.120
+  DD phase loop   : enabled=0
+  DD accept       : 67363 / 67363 = 99.03%
+  HOLD/fade       : 0 / 0 symbols, events=0 recoveries=0
+  phase error RMS : 1.185 deg
+  final DD freq   : +0.000 Hz
+  ambiguity       : unresolved modulo 90 deg; use ASM later
+
+
+[TM one-tap complex gain tracker]
+  magnitude mode  : power, update reference=0
+  applied/update  : 1, 67976 updates
+  DD accept       : 67976/68020 = 99.94%, gate=0.35 margin>=0.000
+  HOLD/fade       : 0/0 symbols (0.00/0.00%), events=0 recoveries=0
+  h final         : +0.373 dB, +0.000 deg; range=[-3.285,+1.112] dB
+  inverse max     : +3.267 dB (configured cap +24.000 dB)
+  power in/out    : 1 / 0.9922
+
+
+[TM pilotless APSK front-end adapter]
+  mode             : pilotless-xM-nda-dd-one-tap
+  symbols in/out   : 68020 / 68020
+  x^M CFO/conf     : M=48, -0.021 Hz / 44.60 dB
+  carrier accept   : 99.03%, HOLD=0.00%, fade=0.00%
+  pre-DD gain      : applied=0 accept=NaN% HOLD=NaN% fade=NaN%
+  blind phase BPS  : applied=1 reliable=99.02% metric=0.0024069 final=-89.95 deg
+  gain enabled     : 1, accept=99.94%, HOLD=0.00%, fade=0.00%
+  main boundary    : symbols still contain ASM; demap/FEC not performed here
+
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [ASM phase] selected 1 rotation by periodic ASM: rot=-90.0 deg, err=0, mean=0.00, frames=8, pos=9008, gap=10.8
+   [ASM DEBUG] rotation score table:
+      rot=   +0.0 deg score=   27.250 err=   5.0 mean=   5.00 frames=   1 pos=  241639
+      rot=  +90.0 deg score=   27.250 err=   5.0 mean=   5.00 frames=   1 pos=  249711
+      rot= +180.0 deg score=   27.250 err=   5.0 mean=   5.00 frames=   1 pos=  246091
+      rot=  -90.0 deg score=   38.000 err=   0.0 mean=   0.00 frames=   8 pos=    9008
+   [ASM phase timeline] frame bitPos bestRot err runner gap invErr jump
+         1      56  +180.0   12     13    1     13 0
+         2    9008   -90.0    0     13   13     16 0
+         3   17960   -90.0    0     12   12     13 0
+         4   26912   -90.0    0     14   14     16 0
+         5   35864   -90.0    0     12   12     19 0
+         6   44816   -90.0    0     13   13     13 0
+         7   53768   -90.0    0     13   13     16 0
+         8   62720   -90.0    0     12   12     13 0
+         9   71672   -90.0    0     14   14     15 0
+        10   80624   -90.0    0     12   12     20 0
+        11   89576   -90.0    0     13   13     13 0
+        12   98528   -90.0    0     13   13     15 0
+        13  107480   -90.0    0     12   12     12 0
+        14  116432   -90.0    0     14   14     15 0
+        15  125384   -90.0    0     12   12     20 0
+        16  134336   -90.0    0     13   13     13 0
+        17  143288   -90.0    0     13   13     15 0
+        18  152240   -90.0    0     12   12     13 0
+        19  161192   -90.0    0     14   14     16 0
+        20  170144   -90.0    0     12   12     20 0
+        21  179096   -90.0    0     13   13     13 0
+        22  188048   -90.0    0     13   13     15 0
+        23  197000   -90.0    0     12   12     12 0
+        24  205952   -90.0    0     14   14     16 0
+        25  214904   -90.0    0     12   12     19 0
+        26  223856   -90.0    0     13   13     13 0
+        27  232808   -90.0    0     13   13     16 0
+        28  241760   -90.0    0     12   12     13 0
+        29  250712   -90.0    0     14   14     16 0
+        30  259664   -90.0    0     12   12     19 0
+        31  268616   -90.0    0     13   13     13 0
+        32  277568   -90.0    0     13   13     15 0
+        33  286520   -90.0    0     12   12     12 0
+        34  295472   -90.0    0     14   14     16 0
+        35  304424   -90.0    0     12   12     20 0
+        36  313376   -90.0    0     13   13     13 0
+        37  322328   -90.0    0     13   13     15 0
+        38  331280   -90.0    0     12   12     13 0
+   [ASM phase timeline summary] usable=38 slips=0 ambiguous=1
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [ASM frame phase correction] applied=1 reliable=37/38 slips=0 rotations=[-90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90 -90]
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>tryOneRotation (第 7671 行)
+位置: run_ccsds_tm_evaluation>tryOneRotationCandidate (第 7258 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5403 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [Coded DEBUG] demod-vs-encoded (32APSK): ASMAligned=1, rx/txOffset=+0 bits, txFrameOffset=0, polarity=+1, hardBER=0.00512579 (1743/340045)
+   [Coded DEBUG] steady hardBER=0 (0/259608), frames=29, frameBER p95/max=0/0
+   [TPC DEBUG] bit-plane hardBER/soft | b1:BER=0.006587,|s|=340,1=49.8%; b2:BER=0.005029,|s|=751,1=49.8%; b3:BER=0.004852,|s|=750,1=50.2%; b4:BER=0.002603,|s|=399,1=49.5%; b5:BER=0.006558,|s|=206,1=49.6%; 
+   [Coded DEBUG] demod soft (32APSK/none): len=340100, bitsPerFrame=8920, mean=-25.57, std=690.5, min=-4627, max=+4231, hard1=49.8%
+   [ASM bit-align] 32APSK/none trimmed 55 demod bits before decoder
+   [ASM bit-align] decoder frame synchronization disabled after periodic ASM alignment
+[TM uncoded ASM sync] pos=1 err=16 mean=2.00 frames=8 polarity=+1 accepted=1 outFrames=37
+   [FrameID DEBUG] 32APSK none post-decoder: decodedBits=330040, bitsPerFrame=8920, numRx=37, show=20
+      j=001 rxId=177 match=0
+      j=002 rxId=  1 match=1 err=    0 ber=0.0000
+      j=003 rxId=  2 match=1 err=    0 ber=0.0000
+      j=004 rxId=  3 match=1 err=    0 ber=0.0000
+      j=005 rxId=  4 match=1 err=    0 ber=0.0000
+      j=006 rxId=  5 match=1 err=    0 ber=0.0000
+      j=007 rxId=  6 match=1 err=    0 ber=0.0000
+      j=008 rxId=  7 match=1 err=    0 ber=0.0000
+      j=009 rxId=  8 match=1 err=    0 ber=0.0000
+      j=010 rxId=  9 match=1 err=    0 ber=0.0000
+      j=011 rxId= 10 match=1 err=    0 ber=0.0000
+      j=012 rxId= 11 match=1 err=    0 ber=0.0000
+      j=013 rxId= 12 match=1 err=    0 ber=0.0000
+      j=014 rxId= 13 match=1 err=    0 ber=0.0000
+      j=015 rxId= 14 match=1 err=    0 ber=0.0000
+      j=016 rxId= 15 match=1 err=    0 ber=0.0000
+      j=017 rxId= 16 match=1 err=    0 ber=0.0000
+      j=018 rxId= 17 match=1 err=    0 ber=0.0000
+      j=019 rxId= 18 match=1 err=    0 ber=0.0000
+      j=020 rxId= 19 match=1 err=    0 ber=0.0000
+   [FrameCheck] j=001 rxId=177 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=002 rxId=  1 match=1 err=    0 ber=0.0000 good=1 consec=1 acq=0 counted=0
+   [FrameCheck] j=003 rxId=  2 match=1 err=    0 ber=0.0000 good=1 consec=2 acq=0 counted=0
+   [FrameCheck] j=004 rxId=  3 match=1 err=    0 ber=0.0000 good=1 consec=3 acq=1 counted=0
+   [FrameCheck] j=005 rxId=  4 match=1 err=    0 ber=0.0000 good=1 consec=4 acq=1 counted=0
+   [FrameCheck] j=006 rxId=  5 match=1 err=    0 ber=0.0000 good=1 consec=5 acq=1 counted=0
+   [FrameCheck] j=007 rxId=  6 match=1 err=    0 ber=0.0000 good=1 consec=6 acq=1 counted=0
+   [FrameCheck] j=008 rxId=  7 match=1 err=    0 ber=0.0000 good=1 consec=7 acq=1 counted=0
+   [FrameCheck] j=009 rxId=  8 match=1 err=    0 ber=0.0000 good=1 consec=8 acq=1 counted=1
+   [FrameCheck] j=010 rxId=  9 match=1 err=    0 ber=0.0000 good=1 consec=9 acq=1 counted=1
+   [FrameCheck] j=011 rxId= 10 match=1 err=    0 ber=0.0000 good=1 consec=10 acq=1 counted=1
+   [FrameCheck] j=012 rxId= 11 match=1 err=    0 ber=0.0000 good=1 consec=11 acq=1 counted=1
+   [FrameCheck] j=013 rxId= 12 match=1 err=    0 ber=0.0000 good=1 consec=12 acq=1 counted=1
+   [FrameCheck] j=014 rxId= 13 match=1 err=    0 ber=0.0000 good=1 consec=13 acq=1 counted=1
+   [FrameCheck] j=015 rxId= 14 match=1 err=    0 ber=0.0000 good=1 consec=14 acq=1 counted=1
+   [FrameCheck] j=016 rxId= 15 match=1 err=    0 ber=0.0000 good=1 consec=15 acq=1 counted=1
+   [FrameCheck] j=017 rxId= 16 match=1 err=    0 ber=0.0000 good=1 consec=16 acq=1 counted=1
+   [FrameCheck] j=018 rxId= 17 match=1 err=    0 ber=0.0000 good=1 consec=17 acq=1 counted=1
+   [FrameCheck] j=019 rxId= 18 match=1 err=    0 ber=0.0000 good=1 consec=18 acq=1 counted=1
+   [FrameCheck] j=020 rxId= 19 match=1 err=    0 ber=0.0000 good=1 consec=19 acq=1 counted=1
+   [Per-frame BER]   -   0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 ... (25/37 shown)
+   [Per-frame BER summary] nonzero=0/37
+   [候选角度] rot=  +0.0 deg, BER=0, Lock=97.3%, Err=0, Bits=258680[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>tryOneRotation (第 7671 行)
+位置: run_ccsds_tm_evaluation>tryOneRotationCandidate (第 7258 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5403 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [Coded DEBUG] demod-vs-encoded (32APSK): ASMAligned=0, rx/txOffset=+1 bits, txFrameOffset=0, polarity=+1, hardBER=0.499105 (169745/340099)
+   [Coded DEBUG] steady hardBER=0.499145 (129582/259608), frames=29, frameBER p95/max=0.507261/0.507819
+   [TPC DEBUG] bit-plane hardBER/soft | b1:BER=0.4954,|s|=751,1=50.2%; b2:BER=0.4974,|s|=749,1=49.8%; b3:BER=0.4982,|s|=399,1=49.5%; b4:BER=0.5031,|s|=206,1=49.6%; b5:BER=0.5014,|s|=340,1=49.8%; 
+   [Coded DEBUG] demod soft (32APSK/none): len=340100, bitsPerFrame=8920, mean=-26.43, std=690.4, min=-4231, max=+4627, hard1=49.8%
+[TM uncoded ASM sync] pos=6480 err=12 mean=12.25 frames=8 polarity=-1 accepted=1 outFrames=37
+   [FrameID DEBUG] 32APSK none post-decoder: decodedBits=330040, bitsPerFrame=8920, numRx=37, show=20
+      j=001 rxId= 95 match=0
+      j=002 rxId= 65 match=0
+      j=003 rxId=152 match=0
+      j=004 rxId= 65 match=0
+      j=005 rxId=240 match=0
+      j=006 rxId=  5 match=1 err= 4498 ber=0.5043
+      j=007 rxId= 19 match=1 err= 4444 ber=0.4982
+      j=008 rxId= 69 match=0
+      j=009 rxId= 35 match=1 err= 4501 ber=0.5046
+      j=010 rxId=158 match=0
+      j=011 rxId= 19 match=1 err= 4421 ber=0.4956
+      j=012 rxId= 65 match=0
+      j=013 rxId= 45 match=0
+      j=014 rxId=170 match=0
+      j=015 rxId= 68 match=0
+      j=016 rxId=207 match=0
+      j=017 rxId=253 match=0
+      j=018 rxId=208 match=0
+      j=019 rxId= 65 match=0
+      j=020 rxId=157 match=0
+   [FrameCheck] j=001 rxId= 95 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=002 rxId= 65 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=003 rxId=152 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=004 rxId= 65 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=005 rxId=240 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=006 rxId=  5 match=1 err= 4498 ber=0.5043 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=007 rxId= 19 match=1 err= 4444 ber=0.4982 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=008 rxId= 69 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=009 rxId= 35 match=1 err= 4501 ber=0.5046 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=010 rxId=158 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=011 rxId= 19 match=1 err= 4421 ber=0.4956 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=012 rxId= 65 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=013 rxId= 45 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=014 rxId=170 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=015 rxId= 68 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=016 rxId=207 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=017 rxId=253 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=018 rxId=208 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=019 rxId= 65 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=020 rxId=157 match=0 consec=0 acq=0 counted=0
+   [候选角度] rot=+180.0 deg, BER=0.5, Lock=0.0%, Err=0, Bits=0   [Phase ambiguity] best rotation =  +0.0 deg, lockRate=97.3%
+
+========= CCSDS 评估结果 =========
+ 调制方式 : 32APSK
+ 输入 SNR : 30.0 dB,  CFO=0.0 Hz,  Phase=0.0 deg,  Delay=0.000
+ Noise mode   : fixed PSD; the legacy snr field above is inactive
+ Noise order  : afterChannel
+ Noise PSD    : -115.30 dBm/Hz over 1.35e+07 Hz -> -44.00 dBm, EqSNR=34.00 dB
+ Signal ref   : -10.00 dBm before H/channel damage
+ --------------------------------
+ BER          : 0.000000
+ EVM (sync前) :  13.18 %
+ EVM (sync后) :   4.10 %
+ MER (sync后) :  27.74 dB
+ SNR_est      :  27.68 dB  (输入是 30.0 dB)
+ Residual CFO :   -0.074 Hz
+ PAPR (Tx)    :   5.68 dB
+ Frame Lock   :  97.30 %
+ FER          : 0.000000  (0/29 frames)
+ Acquisition  : 4 frames  (0.0007136 s)
+==================================
+
+[PASS] BER=0 Lock=97.3% FER=0 time=4.2s
+
+[h_channel_short 003/004] H_EQ_normH_std4_ITU_P681 | 16APSK | none | none
+  ccsdsTMWaveformGenerator - 属性:
+
+             WaveformSource: "synchronization and channel coding"
+    NumBytesInTransferFrame: 1115
+          RandomizerEnabled: false
+      RandomizerFECPosition: 'afterEncoding'
+               DataPathMode: 'single'
+             SplitPathDebug: 0
+                     HasASM: true
+                  ASMLength: []
+                     ASMHex: ''
+
+   Channel coding
+              ChannelCoding: "none"
+
+   Digital modulation and filter
+                 Modulation: "16APSK"
+         PulseShapingFilter: "root raised cosine"
+              RolloffFactor: 0.3500
+        FilterSpanInSymbols: 10
+           SamplesPerSymbol: 8
+
+  使用 get 显示所有属性
+
+         ActualCodeRate: 1
+       NumBitsPerSymbol: 4
+    SubcarrierFrequency: []
+
+[TX none] NumInputBits=8920, ActualCodeRate=1.000000
+[Actual TF] NumInputBits=8920, NumInputBytes=1115.000
+[Coded DEBUG] stored tx encodedBits for boundary check: 340176 bits
+
+[TM feed-forward blind phase search]
+  phases/window/hop: 61 / 33 / 4
+  reliable blocks  : 20763/21262 = 97.65%
+  metric/confidence: median 0.0016582 / 0.7448
+  reacquisitions    : 4
+  anchor/final     : -16.653 / -648.940 deg, preserved=0
+
+
+[TM APSK pilotless carrier recovery]
+  modulation      : 16APSK
+  NDA qualified   : 1
+  x^M FFT CFO     : M=12, -35471.469 Hz, confidence=51.74 dB, qualified=1
+  NDA residual CFO: -18.804 Hz
+  residual applied : 1
+  NDA CFO         : -35490.273 Hz
+  NDA phase       : -172.384 deg (mod 90 deg)
+  NDA metric      : 0.0013188 / 0.052653
+  blind phase BPS  : applied=1 reliable=97.65% metric=0.0016582 final=-648.94 deg
+  DD gate         : 0.20397 (dmin 0.50992), margin>=0.120
+  DD phase loop   : enabled=0
+  DD accept       : 43227 / 43227 = 50.83%
+  HOLD/fade       : 0 / 2022 symbols, events=0 recoveries=0
+  phase error RMS : 1.828 deg
+  final DD freq   : +0.000 Hz
+  ambiguity       : unresolved modulo 90 deg; use ASM later
+
+
+[TM one-tap complex gain tracker]
+  magnitude mode  : power, update reference=0
+  applied/update  : 1, 84402 updates
+  DD accept       : 84402/85044 = 99.25%, gate=0.35 margin>=0.000
+  HOLD/fade       : 0/0 symbols (0.00/0.00%), events=0 recoveries=0
+  h final         : +1.256 dB, +0.000 deg; range=[-14.063,+4.606] dB
+  inverse max     : +13.845 dB (configured cap +24.000 dB)
+  power in/out    : 1 / 0.99366
+
+
+[TM pilotless APSK front-end adapter]
+  mode             : pilotless-xM-nda-dd-one-tap
+  symbols in/out   : 85044 / 85044
+  x^M CFO/conf     : M=12, -35471.469 Hz / 51.74 dB
+  carrier accept   : 50.83%, HOLD=0.00%, fade=2.38%
+  pre-DD gain      : applied=0 accept=NaN% HOLD=NaN% fade=NaN%
+  blind phase BPS  : applied=1 reliable=97.65% metric=0.0016582 final=-648.94 deg
+  gain enabled     : 1, accept=99.25%, HOLD=0.00%, fade=0.00%
+  main boundary    : symbols still contain ASM; demap/FEC not performed here
+
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [ASM phase] selected 1 rotation by periodic ASM: rot=+180.0 deg, err=0, mean=0.00, frames=8, pos=17949, gap=8.3
+   [ASM DEBUG] rotation score table:
+      rot=   +0.0 deg score=   29.700 err=   8.0 mean=   7.50 frames=   8 pos=   71689
+      rot=  +90.0 deg score=   29.200 err=   8.0 mean=   8.00 frames=   8 pos=   17950
+      rot= +180.0 deg score=   38.000 err=   0.0 mean=   0.00 frames=   8 pos=   17949
+      rot=  -90.0 deg score=   28.950 err=   8.0 mean=   8.25 frames=   8 pos=   98516
+   [ASM phase timeline] frame bitPos bestRot err runner gap invErr jump
+         1      45  +180.0   12     16    4     14 0
+         2    8997   -90.0   12     16    4      8 1
+         3   17949  +180.0    0     16   16     16 1
+         4   26901  +180.0    0     16   16     16 0
+         5   35853  +180.0    0     16   16     16 0
+         6   44805  +180.0    0     16   16     16 0
+         7   53757  +180.0    0     16   16     16 0
+         8   62709  +180.0    0     16   16     16 0
+         9   71661  +180.0    0     16   16     16 0
+        10   80613  +180.0    0     16   16     16 0
+        11   89565  +180.0    0     16   16     16 0
+        12   98517  +180.0    0     16   16     16 0
+        13  107469  +180.0    0     16   16     16 0
+        14  116421  +180.0    0     16   16     16 0
+        15  125373  +180.0    0     16   16     16 0
+        16  134325  +180.0    0     16   16     16 0
+        17  143277  +180.0    0     16   16     16 0
+        18  152229  +180.0    0     16   16     16 0
+        19  161181  +180.0    0     16   16     16 0
+        20  170133  +180.0    0     16   16     16 0
+        21  179085  +180.0    0     16   16     16 0
+        22  188037  +180.0    0     16   16     16 0
+        23  196989  +180.0    0     16   16     16 0
+        24  205941  +180.0    0     16   16     16 0
+        25  214893  +180.0    0     16   16     16 0
+        26  223845  +180.0    0     16   16     16 0
+        27  232797  +180.0    0     16   16     16 0
+        28  241749  +180.0    0     16   16     16 0
+        29  250701  +180.0    0     16   16     16 0
+        30  259653  +180.0    0     16   16     16 0
+        31  268605  +180.0    0     16   16     16 0
+        32  277557  +180.0    0     16   16     16 0
+        33  286509  +180.0    0     16   16     16 0
+        34  295461  +180.0    0     16   16     16 0
+        35  304413  +180.0    0     16   16     16 0
+        36  313365  +180.0    0     16   16     16 0
+        37  322317  +180.0    0     16   16     16 0
+        38  331269  +180.0    0     16   16     16 0
+   [ASM phase timeline summary] usable=38 slips=2 ambiguous=0
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [ASM frame phase correction] applied=1 reliable=36/38 slips=2 rotations=[180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180 180]
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>tryOneRotation (第 7671 行)
+位置: run_ccsds_tm_evaluation>tryOneRotationCandidate (第 7258 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5403 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [Coded DEBUG] demod-vs-encoded (16APSK): ASMAligned=1, rx/txOffset=+0 bits, txFrameOffset=37, polarity=+1, hardBER=0.492181 (4406/8952)
+   [TPC DEBUG] bit-plane hardBER/soft | b1:BER=0.5013,|s|=1.07e+03,1=50.5%; b2:BER=0.4817,|s|=997,1=49.8%; b3:BER=0.4973,|s|=572,1=55.4%; b4:BER=0.4884,|s|=552,1=57.9%; 
+   [Coded DEBUG] demod soft (16APSK/none): len=340176, bitsPerFrame=8920, mean=-19.63, std=1078, min=-4848, max=+5723, hard1=50.0%
+   [ASM bit-align] 16APSK/none trimmed 44 demod bits before decoder
+   [ASM bit-align] decoder frame synchronization disabled after periodic ASM alignment
+[TM uncoded ASM sync] pos=1 err=12 mean=3.50 frames=8 polarity=+1 accepted=1 outFrames=37
+   [FrameID DEBUG] 16APSK none post-decoder: decodedBits=330040, bitsPerFrame=8920, numRx=37, show=20
+      j=001 rxId= 21 match=1 err= 4501 ber=0.5046
+      j=002 rxId=154 match=0
+      j=003 rxId=  2 match=1 err=    0 ber=0.0000
+      j=004 rxId=  3 match=1 err=    0 ber=0.0000
+      j=005 rxId=  4 match=1 err=    0 ber=0.0000
+      j=006 rxId=  5 match=1 err=    0 ber=0.0000
+      j=007 rxId=  6 match=1 err=    0 ber=0.0000
+      j=008 rxId=  7 match=1 err=    0 ber=0.0000
+      j=009 rxId=  8 match=1 err=    0 ber=0.0000
+      j=010 rxId=  9 match=1 err=    0 ber=0.0000
+      j=011 rxId= 10 match=1 err=    0 ber=0.0000
+      j=012 rxId= 11 match=1 err=    0 ber=0.0000
+      j=013 rxId= 12 match=1 err=    0 ber=0.0000
+      j=014 rxId= 13 match=1 err=    0 ber=0.0000
+      j=015 rxId= 14 match=1 err=    0 ber=0.0000
+      j=016 rxId= 15 match=1 err=    0 ber=0.0000
+      j=017 rxId= 16 match=1 err=    0 ber=0.0000
+      j=018 rxId= 17 match=1 err=    0 ber=0.0000
+      j=019 rxId= 18 match=1 err=    0 ber=0.0000
+      j=020 rxId= 19 match=1 err=    0 ber=0.0000
+   [FrameCheck] j=001 rxId= 21 match=1 err= 4501 ber=0.5046 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=002 rxId=154 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=003 rxId=  2 match=1 err=    0 ber=0.0000 good=1 consec=1 acq=0 counted=0
+   [FrameCheck] j=004 rxId=  3 match=1 err=    0 ber=0.0000 good=1 consec=2 acq=0 counted=0
+   [FrameCheck] j=005 rxId=  4 match=1 err=    0 ber=0.0000 good=1 consec=3 acq=1 counted=0
+   [FrameCheck] j=006 rxId=  5 match=1 err=    0 ber=0.0000 good=1 consec=4 acq=1 counted=0
+   [FrameCheck] j=007 rxId=  6 match=1 err=    0 ber=0.0000 good=1 consec=5 acq=1 counted=0
+   [FrameCheck] j=008 rxId=  7 match=1 err=    0 ber=0.0000 good=1 consec=6 acq=1 counted=0
+   [FrameCheck] j=009 rxId=  8 match=1 err=    0 ber=0.0000 good=1 consec=7 acq=1 counted=1
+   [FrameCheck] j=010 rxId=  9 match=1 err=    0 ber=0.0000 good=1 consec=8 acq=1 counted=1
+   [FrameCheck] j=011 rxId= 10 match=1 err=    0 ber=0.0000 good=1 consec=9 acq=1 counted=1
+   [FrameCheck] j=012 rxId= 11 match=1 err=    0 ber=0.0000 good=1 consec=10 acq=1 counted=1
+   [FrameCheck] j=013 rxId= 12 match=1 err=    0 ber=0.0000 good=1 consec=11 acq=1 counted=1
+   [FrameCheck] j=014 rxId= 13 match=1 err=    0 ber=0.0000 good=1 consec=12 acq=1 counted=1
+   [FrameCheck] j=015 rxId= 14 match=1 err=    0 ber=0.0000 good=1 consec=13 acq=1 counted=1
+   [FrameCheck] j=016 rxId= 15 match=1 err=    0 ber=0.0000 good=1 consec=14 acq=1 counted=1
+   [FrameCheck] j=017 rxId= 16 match=1 err=    0 ber=0.0000 good=1 consec=15 acq=1 counted=1
+   [FrameCheck] j=018 rxId= 17 match=1 err=    0 ber=0.0000 good=1 consec=16 acq=1 counted=1
+   [FrameCheck] j=019 rxId= 18 match=1 err=    0 ber=0.0000 good=1 consec=17 acq=1 counted=1
+   [FrameCheck] j=020 rxId= 19 match=1 err=    0 ber=0.0000 good=1 consec=18 acq=1 counted=1
+   [Per-frame BER] 0.505   -   0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 ... (25/37 shown)
+   [Per-frame BER summary] nonzero=1/37, first=1, last=1, max=5.05e-01@1
+   [Per-frame BER nonzero] 1:5.05e-01 
+   [候选角度] rot=  +0.0 deg, BER=0, Lock=97.3%, Err=0, Bits=258680[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>tryOneRotation (第 7671 行)
+位置: run_ccsds_tm_evaluation>tryOneRotationCandidate (第 7258 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5403 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [Coded DEBUG] demod-vs-encoded (16APSK): ASMAligned=0, rx/txOffset=-30 bits, txFrameOffset=0, polarity=+1, hardBER=0.499962 (170060/340146)
+   [Coded DEBUG] steady hardBER=0.500397 (129907/259608), frames=29, frameBER p95/max=0.506814/0.512064
+   [TPC DEBUG] bit-plane hardBER/soft | b1:BER=0.4982,|s|=1.12e+03,1=49.7%; b2:BER=0.5019,|s|=1.13e+03,1=50.3%; b3:BER=0.4994,|s|=603,1=50.4%; b4:BER=0.5003,|s|=605,1=50.1%; 
+   [Coded DEBUG] demod soft (16APSK/none): len=340176, bitsPerFrame=8920, mean=-14.73, std=1079, min=-5723, max=+4848, hard1=50.1%
+[TM uncoded ASM sync] pos=44 err=13 mean=10.00 frames=8 polarity=+1 accepted=1 outFrames=37
+   [FrameID DEBUG] 16APSK none post-decoder: decodedBits=330040, bitsPerFrame=8920, numRx=37, show=20
+      j=001 rxId= 55 match=0
+      j=002 rxId= 16 match=1 err= 4433 ber=0.4970
+      j=003 rxId=162 match=0
+      j=004 rxId=163 match=0
+      j=005 rxId= 38 match=0
+      j=006 rxId= 39 match=0
+      j=007 rxId=166 match=0
+      j=008 rxId=167 match=0
+      j=009 rxId= 32 match=1 err= 4457 ber=0.4997
+      j=010 rxId= 33 match=1 err= 4433 ber=0.4970
+      j=011 rxId=160 match=0
+      j=012 rxId=161 match=0
+      j=013 rxId= 36 match=1 err= 4433 ber=0.4970
+      j=014 rxId= 37 match=1 err= 4472 ber=0.5013
+      j=015 rxId=164 match=0
+      j=016 rxId=165 match=0
+      j=017 rxId= 50 match=0
+      j=018 rxId= 51 match=0
+      j=019 rxId=178 match=0
+      j=020 rxId=179 match=0
+   [FrameCheck] j=001 rxId= 55 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=002 rxId= 16 match=1 err= 4433 ber=0.4970 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=003 rxId=162 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=004 rxId=163 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=005 rxId= 38 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=006 rxId= 39 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=007 rxId=166 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=008 rxId=167 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=009 rxId= 32 match=1 err= 4457 ber=0.4997 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=010 rxId= 33 match=1 err= 4433 ber=0.4970 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=011 rxId=160 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=012 rxId=161 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=013 rxId= 36 match=1 err= 4433 ber=0.4970 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=014 rxId= 37 match=1 err= 4472 ber=0.5013 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=015 rxId=164 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=016 rxId=165 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=017 rxId= 50 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=018 rxId= 51 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=019 rxId=178 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=020 rxId=179 match=0 consec=0 acq=0 counted=0
+   [候选角度] rot= +90.0 deg, BER=0.5, Lock=0.0%, Err=0, Bits=0   [Phase ambiguity] best rotation =  +0.0 deg, lockRate=97.3%
+
+========= CCSDS 评估结果 =========
+ 调制方式 : 16APSK
+ 输入 SNR : 30.0 dB,  CFO=0.0 Hz,  Phase=0.0 deg,  Delay=0.000
+ Noise mode   : fixed PSD; the legacy snr field above is inactive
+ Noise order  : afterChannel
+ Noise PSD    : -115.30 dBm/Hz over 1.35e+07 Hz -> -44.00 dBm, EqSNR=34.00 dB
+ Signal ref   : -10.00 dBm before H/channel damage
+ --------------------------------
+ BER          : 0.000000
+ EVM (sync前) :  26.01 %
+ EVM (sync后) :   3.49 %
+ MER (sync后) :  29.15 dB
+ SNR_est      :  29.08 dB  (输入是 30.0 dB)
+ Residual CFO :   -0.049 Hz
+ PAPR (Tx)    :   4.84 dB
+ Frame Lock   :  97.30 %
+ FER          : 0.000000  (0/29 frames)
+ Acquisition  : 5 frames  (0.001115 s)
+ H channel    : h_matrix_file, taps=1, effective taps=1, gain=+14.48 dB
+ H time       : waveform=0.0085044 s, source=10 s, outOfRange=wrap, exceeds=no
+==================================
+
+[PASS] BER=0 Lock=97.3% FER=0 time=3.9s
+
+[h_channel_short 004/004] H_EQ_normH_std4_ITU_P681 | 32APSK | none | none
+  ccsdsTMWaveformGenerator - 属性:
+
+             WaveformSource: "synchronization and channel coding"
+    NumBytesInTransferFrame: 1115
+          RandomizerEnabled: false
+      RandomizerFECPosition: 'afterEncoding'
+               DataPathMode: 'single'
+             SplitPathDebug: 0
+                     HasASM: true
+                  ASMLength: []
+                     ASMHex: ''
+
+   Channel coding
+              ChannelCoding: "none"
+
+   Digital modulation and filter
+                 Modulation: "32APSK"
+         PulseShapingFilter: "root raised cosine"
+              RolloffFactor: 0.3500
+        FilterSpanInSymbols: 10
+           SamplesPerSymbol: 8
+
+  使用 get 显示所有属性
+
+         ActualCodeRate: 1
+       NumBitsPerSymbol: 5
+    SubcarrierFrequency: []
+
+[TX none] NumInputBits=8920, ActualCodeRate=1.000000
+[Actual TF] NumInputBits=8920, NumInputBytes=1115.000
+[Coded DEBUG] stored tx encodedBits for boundary check: 340176 bits
+
+[TM feed-forward blind phase search]
+  phases/window/hop: 61 / 33 / 4
+  reliable blocks  : 16459/17006 = 96.78%
+  metric/confidence: median 0.0025273 / 0.5968
+  reacquisitions    : 6
+  anchor/final     : +8.760 / +245.035 deg, preserved=0
+
+
+[TM APSK pilotless carrier recovery]
+  modulation      : 32APSK
+  NDA qualified   : 1
+  x^M FFT CFO     : M=48, -35459.220 Hz, confidence=40.07 dB, qualified=1
+  NDA residual CFO: -73.336 Hz
+  residual applied : 1
+  NDA CFO         : -35532.556 Hz
+  NDA phase       : +26.107 deg (mod 90 deg)
+  NDA metric      : 0.0024235 / 0.027201
+  blind phase BPS  : applied=1 reliable=96.78% metric=0.0025273 final=+245.03 deg
+  DD gate         : 0.1466 (dmin 0.36651), margin>=0.120
+  DD phase loop   : enabled=0
+  DD accept       : 29718 / 29718 = 43.69%
+  HOLD/fade       : 0 / 1723 symbols, events=0 recoveries=0
+  phase error RMS : 3.060 deg
+  final DD freq   : +0.000 Hz
+  ambiguity       : unresolved modulo 90 deg; use ASM later
+
+
+[TM one-tap complex gain tracker]
+  magnitude mode  : power, update reference=0
+  applied/update  : 1, 67862 updates
+  DD accept       : 67862/68020 = 99.77%, gate=0.35 margin>=0.000
+  HOLD/fade       : 0/0 symbols (0.00/0.00%), events=0 recoveries=0
+  h final         : +4.396 dB, +0.000 deg; range=[-14.159,+4.964] dB
+  inverse max     : +13.935 dB (configured cap +24.000 dB)
+  power in/out    : 1 / 0.99222
+
+
+[TM pilotless APSK front-end adapter]
+  mode             : pilotless-xM-nda-dd-one-tap
+  symbols in/out   : 68020 / 68020
+  x^M CFO/conf     : M=48, -35459.220 Hz / 40.07 dB
+  carrier accept   : 43.69%, HOLD=0.00%, fade=2.53%
+  pre-DD gain      : applied=0 accept=NaN% HOLD=NaN% fade=NaN%
+  blind phase BPS  : applied=1 reliable=96.78% metric=0.0025273 final=+245.03 deg
+  gain enabled     : 1, accept=99.77%, HOLD=0.00%, fade=0.00%
+  main boundary    : symbols still contain ASM; demap/FEC not performed here
+
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>selectRotationsByASM (第 5701 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5303 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [ASM phase] selected 1 rotation by periodic ASM: rot=+90.0 deg, err=0, mean=0.00, frames=8, pos=26912, gap=10.8
+   [ASM DEBUG] rotation score table:
+      rot=   +0.0 deg score=   27.250 err=   5.0 mean=   5.00 frames=   1 pos=  246091
+      rot=  +90.0 deg score=   38.000 err=   0.0 mean=   0.00 frames=   8 pos=   26912
+      rot= +180.0 deg score=   27.250 err=   5.0 mean=   5.00 frames=   1 pos=  241639
+      rot=  -90.0 deg score=   27.250 err=   5.0 mean=   5.00 frames=   1 pos=  249711
+   [ASM phase timeline] frame bitPos bestRot err runner gap invErr jump
+         1      56  +180.0   12     13    1     13 0
+         2    9008   +90.0   11     15    4     16 0
+         3   17960   +90.0    7     12    5     15 0
+         4   26912   +90.0    0     14   14     16 0
+         5   35864   +90.0    0     12   12     19 0
+         6   44816   +90.0    0     13   13     13 0
+         7   53768   +90.0    0     13   13     16 0
+         8   62720   +90.0    0     12   12     13 0
+         9   71672   +90.0    0     14   14     15 0
+        10   80624   +90.0    0     12   12     20 0
+        11   89576   +90.0    0     13   13     13 0
+        12   98528   +90.0    0     13   13     15 0
+        13  107480   +90.0    0     12   12     12 0
+        14  116432   +90.0    0     14   14     15 0
+        15  125384   +90.0    0     12   12     20 0
+        16  134336   +90.0    0     13   13     13 0
+        17  143288   +90.0    0     13   13     15 0
+        18  152240   +90.0    0     12   12     13 0
+        19  161192   +90.0    0     14   14     16 0
+        20  170144   +90.0    0     12   12     20 0
+        21  179096   +90.0    0     13   13     13 0
+        22  188048   +90.0    0     13   13     15 0
+        23  197000   +90.0    0     12   12     12 0
+        24  205952   +90.0    0     14   14     16 0
+        25  214904   +90.0    0     12   12     19 0
+        26  223856   +90.0    0     13   13     13 0
+        27  232808   +90.0    0     13   13     16 0
+        28  241760   +90.0    0     12   12     13 0
+        29  250712   +90.0    0     14   14     16 0
+        30  259664   +90.0    0     12   12     19 0
+        31  268616   +90.0    0     13   13     13 0
+        32  277568   +90.0    0     13   13     15 0
+        33  286520   +90.0    0     12   12     12 0
+        34  295472   +90.0    0     14   14     16 0
+        35  304424   +90.0    0     12   12     20 0
+        36  313376   +90.0    0     13   13     13 0
+        37  322328   +90.0    0     13   13     15 0
+        38  331280   +90.0    0     12   12     13 0
+   [ASM phase timeline summary] usable=38 slips=0 ambiguous=1
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>localDemodForASM (第 6876 行)
+位置: run_ccsds_tm_evaluation>localEvaluateASMRotationsAtKnownTimeline (第 5774 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5325 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [ASM frame phase correction] applied=1 reliable=35/38 slips=0 rotations=[90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90]
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>tryOneRotation (第 7671 行)
+位置: run_ccsds_tm_evaluation>tryOneRotationCandidate (第 7258 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5403 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [Coded DEBUG] demod-vs-encoded (32APSK): ASMAligned=1, rx/txOffset=+0 bits, txFrameOffset=37, polarity=+1, hardBER=0.487601 (4365/8952)
+   [TPC DEBUG] bit-plane hardBER/soft | b1:BER=0.4941,|s|=246,1=52.8%; b2:BER=0.4824,|s|=597,1=49.5%; b3:BER=0.4922,|s|=556,1=52.7%; b4:BER=0.4905,|s|=347,1=40.8%; b5:BER=0.4788,|s|=134,1=50.3%; 
+   [Coded DEBUG] demod soft (32APSK/none): len=340100, bitsPerFrame=8920, mean=-21.17, std=565.6, min=-3672, max=+3739, hard1=49.8%
+   [ASM bit-align] 32APSK/none trimmed 55 demod bits before decoder
+   [ASM bit-align] decoder frame synchronization disabled after periodic ASM alignment
+[TM uncoded ASM sync] pos=1 err=19 mean=4.62 frames=8 polarity=+1 accepted=1 outFrames=37
+   [FrameID DEBUG] 32APSK none post-decoder: decodedBits=330040, bitsPerFrame=8920, numRx=37, show=20
+      j=001 rxId= 71 match=0
+      j=002 rxId=  3 match=1 err= 4449 ber=0.4988
+      j=003 rxId=130 match=0
+      j=004 rxId=  3 match=1 err=    0 ber=0.0000
+      j=005 rxId=  4 match=1 err=    0 ber=0.0000
+      j=006 rxId=  5 match=1 err=    0 ber=0.0000
+      j=007 rxId=  6 match=1 err=    0 ber=0.0000
+      j=008 rxId=  7 match=1 err=    0 ber=0.0000
+      j=009 rxId=  8 match=1 err=    0 ber=0.0000
+      j=010 rxId=  9 match=1 err=    0 ber=0.0000
+      j=011 rxId= 10 match=1 err=    0 ber=0.0000
+      j=012 rxId= 11 match=1 err=    0 ber=0.0000
+      j=013 rxId= 12 match=1 err=    0 ber=0.0000
+      j=014 rxId= 13 match=1 err=    0 ber=0.0000
+      j=015 rxId= 14 match=1 err=    0 ber=0.0000
+      j=016 rxId= 15 match=1 err=    0 ber=0.0000
+      j=017 rxId= 16 match=1 err=    0 ber=0.0000
+      j=018 rxId= 17 match=1 err=    0 ber=0.0000
+      j=019 rxId= 18 match=1 err=    0 ber=0.0000
+      j=020 rxId= 19 match=1 err=    0 ber=0.0000
+   [FrameCheck] j=001 rxId= 71 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=002 rxId=  3 match=1 err= 4449 ber=0.4988 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=003 rxId=130 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=004 rxId=  3 match=1 err=    0 ber=0.0000 good=1 consec=1 acq=0 counted=0
+   [FrameCheck] j=005 rxId=  4 match=1 err=    0 ber=0.0000 good=1 consec=2 acq=0 counted=0
+   [FrameCheck] j=006 rxId=  5 match=1 err=    0 ber=0.0000 good=1 consec=3 acq=1 counted=0
+   [FrameCheck] j=007 rxId=  6 match=1 err=    0 ber=0.0000 good=1 consec=4 acq=1 counted=0
+   [FrameCheck] j=008 rxId=  7 match=1 err=    0 ber=0.0000 good=1 consec=5 acq=1 counted=0
+   [FrameCheck] j=009 rxId=  8 match=1 err=    0 ber=0.0000 good=1 consec=6 acq=1 counted=1
+   [FrameCheck] j=010 rxId=  9 match=1 err=    0 ber=0.0000 good=1 consec=7 acq=1 counted=1
+   [FrameCheck] j=011 rxId= 10 match=1 err=    0 ber=0.0000 good=1 consec=8 acq=1 counted=1
+   [FrameCheck] j=012 rxId= 11 match=1 err=    0 ber=0.0000 good=1 consec=9 acq=1 counted=1
+   [FrameCheck] j=013 rxId= 12 match=1 err=    0 ber=0.0000 good=1 consec=10 acq=1 counted=1
+   [FrameCheck] j=014 rxId= 13 match=1 err=    0 ber=0.0000 good=1 consec=11 acq=1 counted=1
+   [FrameCheck] j=015 rxId= 14 match=1 err=    0 ber=0.0000 good=1 consec=12 acq=1 counted=1
+   [FrameCheck] j=016 rxId= 15 match=1 err=    0 ber=0.0000 good=1 consec=13 acq=1 counted=1
+   [FrameCheck] j=017 rxId= 16 match=1 err=    0 ber=0.0000 good=1 consec=14 acq=1 counted=1
+   [FrameCheck] j=018 rxId= 17 match=1 err=    0 ber=0.0000 good=1 consec=15 acq=1 counted=1
+   [FrameCheck] j=019 rxId= 18 match=1 err=    0 ber=0.0000 good=1 consec=16 acq=1 counted=1
+   [FrameCheck] j=020 rxId= 19 match=1 err=    0 ber=0.0000 good=1 consec=17 acq=1 counted=1
+   [Per-frame BER]   -   0.499   -   0.000 0.000 0.000 0.000 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 ... (25/37 shown)
+   [Per-frame BER summary] nonzero=1/37, first=2, last=2, max=4.99e-01@2
+   [Per-frame BER nonzero] 2:4.99e-01 
+   [候选角度] rot=  +0.0 deg, BER=0, Lock=94.6%, Err=0, Bits=258680[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: HelperCCSDSTMDemodulator (第 38 行)
+位置: run_ccsds_tm_evaluation>tryOneRotation (第 7671 行)
+位置: run_ccsds_tm_evaluation>tryOneRotationCandidate (第 7258 行)
+位置: run_ccsds_tm_evaluation>computeBER (第 5403 行)
+位置: run_ccsds_tm_evaluation>runOneShot (第 2810 行)
+位置: run_ccsds_tm_evaluation (第 112 行)
+位置: reg_run_cases (第 138 行)
+位置: sweep_h_channel_short_frames (第 61 行)
+位置: codex_apsk32_std4_bps (第 93 行)
+位置: run (第 91 行)] 
+   [Coded DEBUG] demod-vs-encoded (32APSK): ASMAligned=0, rx/txOffset=-10 bits, txFrameOffset=0, polarity=+1, hardBER=0.499938 (170029/340100)
+   [Coded DEBUG] steady hardBER=0.500913 (130041/259608), frames=29, frameBER p95/max=0.514522/0.515192
+   [TPC DEBUG] bit-plane hardBER/soft | b1:BER=0.5005,|s|=277,1=49.9%; b2:BER=0.4988,|s|=614,1=50.3%; b3:BER=0.4982,|s|=612,1=49.8%; b4:BER=0.5031,|s|=327,1=49.3%; b5:BER=0.4992,|s|=167,1=49.7%; 
+   [Coded DEBUG] demod soft (32APSK/none): len=340100, bitsPerFrame=8920, mean=-21.44, std=565.5, min=-3739, max=+3672, hard1=49.8%
+[TM uncoded ASM sync] pos=8191 err=9 mean=11.38 frames=8 polarity=-1 accepted=1 outFrames=37
+   [FrameID DEBUG] 32APSK none post-decoder: decodedBits=330040, bitsPerFrame=8920, numRx=37, show=20
+      j=001 rxId=159 match=0
+      j=002 rxId=110 match=0
+      j=003 rxId=206 match=0
+      j=004 rxId= 51 match=0
+      j=005 rxId=144 match=0
+      j=006 rxId= 19 match=1 err= 4402 ber=0.4935
+      j=007 rxId= 58 match=0
+      j=008 rxId=  9 match=1 err= 4501 ber=0.5046
+      j=009 rxId=  1 match=1 err= 4386 ber=0.4917
+      j=010 rxId=179 match=0
+      j=011 rxId= 21 match=1 err= 4427 ber=0.4963
+      j=012 rxId=203 match=0
+      j=013 rxId= 93 match=0
+      j=014 rxId=188 match=0
+      j=015 rxId=210 match=0
+      j=016 rxId=235 match=0
+      j=017 rxId= 83 match=0
+      j=018 rxId= 41 match=0
+      j=019 rxId=227 match=0
+      j=020 rxId=137 match=0
+   [FrameCheck] j=001 rxId=159 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=002 rxId=110 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=003 rxId=206 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=004 rxId= 51 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=005 rxId=144 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=006 rxId= 19 match=1 err= 4402 ber=0.4935 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=007 rxId= 58 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=008 rxId=  9 match=1 err= 4501 ber=0.5046 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=009 rxId=  1 match=1 err= 4386 ber=0.4917 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=010 rxId=179 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=011 rxId= 21 match=1 err= 4427 ber=0.4963 good=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=012 rxId=203 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=013 rxId= 93 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=014 rxId=188 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=015 rxId=210 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=016 rxId=235 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=017 rxId= 83 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=018 rxId= 41 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=019 rxId=227 match=0 consec=0 acq=0 counted=0
+   [FrameCheck] j=020 rxId=137 match=0 consec=0 acq=0 counted=0
+   [候选角度] rot=+180.0 deg, BER=0.5, Lock=0.0%, Err=0, Bits=0   [Phase ambiguity] best rotation =  +0.0 deg, lockRate=94.6%
+
+========= CCSDS 评估结果 =========
+ 调制方式 : 32APSK
+ 输入 SNR : 30.0 dB,  CFO=0.0 Hz,  Phase=0.0 deg,  Delay=0.000
+ Noise mode   : fixed PSD; the legacy snr field above is inactive
+ Noise order  : afterChannel
+ Noise PSD    : -115.30 dBm/Hz over 1.35e+07 Hz -> -44.00 dBm, EqSNR=34.00 dB
+ Signal ref   : -10.00 dBm before H/channel damage
+ --------------------------------
+ BER          : 0.000000
+ EVM (sync前) :  46.57 %
+ EVM (sync后) :   4.31 %
+ MER (sync后) :  27.32 dB
+ SNR_est      :  27.26 dB  (输入是 30.0 dB)
+ Residual CFO :   -0.354 Hz
+ PAPR (Tx)    :   5.68 dB
+ Frame Lock   :  94.59 %
+ FER          : 0.000000  (0/29 frames)
+ Acquisition  : 6 frames  (0.0010704 s)
+ H channel    : h_matrix_file, taps=1, effective taps=1, gain=+14.38 dB
+ H time       : waveform=0.006802 s, source=10 s, outOfRange=wrap, exceeds=no
+==================================
+
+[PASS] BER=0 Lock=94.6% FER=0 time=4.1s
+
+[h_channel_short] PASS=4 FAIL_METRIC=0 ERROR=0 PENDING=0
+Checkpoint: E:\web_code\react\fft_project\react-fft\artifacts\ccsds\codex_apsk_16_32_noh_std4_bps\checkpoint.mat
+Summary   : E:\web_code\react\fft_project\react-fft\artifacts\ccsds\codex_apsk_16_32_noh_std4_bps\summary.csv
+
+==== H-channel sweep state ====
+Checkpoint: E:\web_code\react\fft_project\react-fft\artifacts\ccsds\codex_apsk_16_32_noh_std4_bps\checkpoint.mat
+CSV       : E:\web_code\react\fft_project\react-fft\artifacts\ccsds\codex_apsk_16_32_noh_std4_bps\h_channel_short_sweep.csv
+Encoded failures: E:\web_code\react\fft_project\react-fft\artifacts\ccsds\codex_apsk_16_32_noh_std4_bps\encoded_failure_details.csv
+MAT       : E:\web_code\react\fft_project\react-fft\artifacts\ccsds\codex_apsk_16_32_noh_std4_bps\h_channel_short_sweep.mat
+
+==== Weak / failed cases ====
+None under the configured PASS thresholds.
+             Scenario             BER    PredecoderBER    PredecoderSteadyBER    LockRate_pct    FER    EVM_post_pct    MER_dB    ASMFramePhaseCorrectionApplied    ASMFramePhaseCorrectionReliableFrames    Status
+    __________________________    ___    _____________    ___________________    ____________    ___    ____________    ______    ______________________________    _____________________________________    ______
+
+    "NoH_baseline"                 0        0.003531                0               97.297        0        3.4456       29.255                  1                                    37                      "PASS"
+    "NoH_baseline"                 0       0.0051258                0               97.297        0        4.1025       27.739                  1                                    37                      "PASS"
+    "H_EQ_normH_std4_ITU_P681"     0         0.49218              NaN               97.297        0        3.4875        29.15                  1                                    36                      "PASS"
+    "H_EQ_normH_std4_ITU_P681"     0          0.4876              NaN               94.595        0        4.3063       27.318                  1                                    35                      "PASS"
+

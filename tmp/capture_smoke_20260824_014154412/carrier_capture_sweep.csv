@@ -1,0 +1,2 @@
+CaseKey,Scenario,ModType,RequestedCFO_Hz,ConfiguredCaptureRange_Hz,BER,LockRate_pct,FER,EVM_post_pct,MER_dB,ResidualCFO_Hz,AcquisitionFrames,Passed,Status,ErrorIdentifier,ErrorMessage,Runtime_s
+NoH|QPSK|+0.000,NoH,QPSK,0,2000000,0,100,0,19.3634474420346,14.2603463788126,-1.94365916639454,3,1,PASS,,,2.2404555

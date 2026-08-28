@@ -1,0 +1,3 @@
+Scenario,ModType,ChannelCoding,Rate,BER,LockRate_pct,FER,EVM_post_pct,MER_dB,CountedFrames,MatchedFrames,CMAMSE,DDMSE,DDAcceptanceRate_pct,PredecoderBER,PredecoderOffset,PredecoderPolarity,PredecoderBitErrors,PredecoderBitsCompared,PredecoderSteadyBER,PredecoderSteadyBitErrors,PredecoderSteadyBitsCompared,PredecoderFramesCompared,PredecoderFrameBERP95,PredecoderFrameBERMax
+NoH_baseline,16QAM,TPC,1/2_x8,0,83.3333333333333,0,13.1154622861767,17.6443279408972,4,5,NaN,NaN,NaN,0.00132160919135139,0,1,300,226996,0,0,131200,4,0,0
+H_EQ_normH_std4_ITU_P681,16QAM,TPC,1/2_x8,0,100,0,13.6845816020364,17.2753695269399,4,6,0.377488385011978,0.00547591245096121,99.5418502202643,0.00039647577092511,0,1,90,227000,8.38414634146342e-05,11,131200,4,0.000121951219512195,0.000121951219512195

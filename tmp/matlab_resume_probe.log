@@ -1,0 +1,20 @@
+
+============================================================
+[TM system sweep] profile 1/9: combined_scramble_off
+  path=single randomizer=0 position=afterEncoding mods=BPSK,QPSK,OQPSK,UQPSK,8PSK,16QAM,32QAM,16APSK,32APSK,MSK,GMSK
+============================================================
+{错误使用 reg_run_cases>localValidateResumeState
+Checkpoint parameters, thresholds, or metadata differ from the current cases. First difference: case 1 (h.noh.baseline.bpsk.none.none), Params fields added since checkpoint:
+enableQAMBlindPhaseSearch, QAMBlindPhaseSearch, enableQAMPowerGainTracker, QAMPowerGainTracker, enableQAMPostBPSAdaptiveEqualizer, enableASMFramePhaseCorrection,
+asmFramePhaseCorrectionMaxError, asmFramePhaseCorrectionMinGap, asmFramePhaseCorrectionMinReliableFraction, debugASMPhaseTimelineFrames. Choose a new OutputDir/RunId, or restore
+that saved option before resuming.
+
+出错 reg_run_cases (第 67 行)
+        localValidateResumeState(state, suiteName, cases, caseIds, opts.PlanVersion);
+
+出错 sweep_h_channel_short_frames (第 61 行)
+    [~, state] = reg_run_cases("h_channel_short", cases, runnerOpts);
+
+出错 sweep_tm_normalized_h_system (第 63 行)
+        part = sweep_h_channel_short_frames(o);
+} 

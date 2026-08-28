@@ -1,0 +1,496 @@
+IEEE PHOTONICS JOURNAL, VOL. 16, NO. 4, AUGUST 2024                                                                    7201408
+
+     Viterbi-Viterbi Carrier Phase Estimation for
+     Multi-Ring M -APSK With Wiener Carrier
+
+            Phase Noise and Its Performance
+
+Qian Wang , Member, IEEE, Wenqiang Ma, Li Ping Qian , Senior Member, IEEE, Xinwei Du , Member, IEEE,
+                   Changyuan Yu , Senior Member, IEEE, and Pooi-Yuen Kam , Life Fellow, IEEE
+
+   Abstract—High-order modulations are currently widely used in                                          I. INTRODUCTION
+optical communications to increase the data rate. However, due to
+the existence of laser phase noise, the performance of high-order             W ITH the rapid development of both wireless and optical
+modulated systems will be greatly degraded. Therefore, phase                           communication systems, the demand for data trans-
+estimation (PE) methods and laser linewidth tolerance analysis are            mission rate is growing fast. High-order modulation formats,
+particularly important in practice. In this paper, we ﬁrst propose a          such as M -ary phase-shift keying (PSK), quadrature amplitude
+common reﬁned Viterbi-Viterbi carrier phase estimator for multi-              modulation (QAM) and amplitude phase-shift keying (APSK),
+ring M -ary amplitude phase-shift keying (M -APSK) with Wiener                have been considered positively to improve the spectrum efﬁ-
+phase noise. The design is based on the linear minimum mean                   ciency [1], [2], [3]. However, phase noise due to the imperfect
+square error (LMMSE) criterion to optimize the weight coefﬁcients             local oscillators (LO) is one major limiting factor to degrade
+with respect to the statistics of Wiener phase noise and additive,            the coherent performance, especially for high-order modulated
+white, Gaussian noise. For simple implementation, approximate                 transmission [4]. Speciﬁcally in coherent optical systems, ana-
+ring-detection-based and average-energy-based LMMSE estima-                   lyzing the laser phase noise effect on the transmission efﬁciency
+tors are further derived for multi-ring modulations. The laser                is very important, and this thus brings a lot of analytical investi-
+linewidth tolerance in Wiener phase noise is analyzed thoroughly              gations [5], [6]. For example, the laser phase noise tolerance of
+compared to the popular PE methods, e.g., decision-aided maxi-                high-order probabilistically shaped and uniformly shaped QAM
+mum likelihood and QPSK partitioning. Numerical results show                  signals is analyzed in [7]. Reference [8] considered the laser
+in detail the receiver sensitivity penalties as a function of the             linewidth tolerance for the set-partitioning QAM after carrier
+estimation memory length, and verify that the proposed estimators             phase recovery in phase noise.
+do not suffer from the block length effect and perform much better
+at high signal-to-noise ratio (SNR). They are suitable for coherent              Considering the presence of phase noise, the compensation
+demodulation of a multi-ring signal constellation in high SNR or              for the unknown carrier phase based on phase estimation (PE)
+fast-varying phase noise.                                                     before data detection is indispensable [9]. To overcome the
+                                                                              disadvantages of the optical phase-locked loop, several digital
+   Index Terms—M -ary amplitude phase-shift keying, wiener                    signal processing-based PE algorithms have been investigated
+phase noise, linear minimum mean square error, carrier phase                  recently. For example, [10] proposed the explicit structures
+estimation, laser linewidth tolerance.                                        of phase based, joint maximum likelihood (ML)/maximum a
+                                                                              posteriori (MAP) estimation of unknown single-sinusoid an-
+   Manuscript received 23 November 2023; revised 20 May 2024; accepted        gle parameters affected by time-varying phase noise. A novel
+12 June 2024. Date of publication 18 June 2024; date of current version 25    PE scheme based on local convex optimization for multi-level
+June 2024. This work was supported in part by the National Natural Science    modulations was derived in [11], which has a good ﬂexibility
+Foundation of China under Grant 62201507 and Grant 61571316, in part by       and achieves a balance between algorithm cost and estimation
+HK Research Grants Council under Grant GRF15209321, in part by the Basic      accuracy. Reference [12] considered the problem of phase ref-
+and Applied Basic Research Foundation of Guangdong Province under Grant       erence estimation with noise, and proposed a machine learning
+2022A1515110706, and in part by Zhuhai Basic and Applied Basic Research       approach based on clustering algorithms to mitigate the negative
+Foundation under Grant ZH22017003210016PWC. (Corresponding author:            effects of phase noise. By further optimizing the M th-power
+Xinwei Du.)                                                                   estimator in Wiener phase noise, [13] derived a reﬁned linear
+                                                                              minimum mean square error (LMMSE) phase estimator for
+   Qian Wang, Wenqiang Ma, and Li Ping Qian are with the College              M -PSK, which can be efﬁciently implemented in real time.
+of Information Engineering, Zhejiang University of Technology, Hangzhou       The proposed LMMSE estimator has better performance and
+310023, China (e-mail: wangqian18@zjut.edu.cn; 2112103024@zjut.edu.cn;        does not suffer from the block length effect, compared to many
+lpqian@zjut.edu.cn).                                                          popular methods, e.g., decision aided (DA) ML PE in [14]. Note
+                                                                              that most existing algorithms derived do not consider the random
+   Xinwei Du is with the Guangdong Provincial Key Laboratory of Interdis-
+ciplinary Research and Application for Data Science, BNU-HKBU United
+International College, Zhuhai 519087, China (e-mail: xinweidu@uic.edu.cn).
+
+   Changyuan Yu is with the Photonics Research Institute, Department of
+Electrical and Electronic Engineering, The Hong Kong Polytechnic University,
+Kowloon, Hong Kong (e-mail: changyuan.yu@polyu.edu.hk).
+
+   Pooi-Yuen Kam is with the School of Science and Engineering, The Chinese
+University of Hong Kong (Shenzhen), Shenzhen 518172, China, and also with
+the Center for Advanced Microelectronic Devices, NUS Research Institute
+(NUSRI), Suzhou 215123, China (e-mail: pykam@cuhk.edu.cn).
+
+   Digital Object Identiﬁer 10.1109/JPHOT.2024.3415635
+
+© 2024 The Authors. This work is licensed under a Creative Commons Attribution 4.0 License. For more information, see
+                                               https://creativecommons.org/licenses/by/4.0/
+7201408                                                                                          IEEE PHOTONICS JOURNAL, VOL. 16, NO. 4, AUGUST 2024
+
+                                                                              Fig. 2. Multi-ring constellations: Star-8QAM and 16APSK(8,8).
+
+Fig. 1. Digital coherent receiver. PC: polarization-controller. ADC: analog-
+to-digital converters.
+
+                                                                              by [13],
+
+process of Wiener phase noise, or cannot be simply generalized                      r(k) = m(k)ejθ(k) + n(k)
+to high-order multi-ring modulations.                                                     = |r(k)|ej∠r(k) = |r(k)|ej[φi(k)+θ(k)+ (k)]. (1)
+
+   In this paper, we consider the reﬁnement of Viterbi-Viterbi                Here, |r(k)| and ∠r(k) represent the amplitude and phase of
+(VV) carrier phase estimation for multi-ring M -APSK and
+analyze its laser linewidth tolerance in Wiener phase noise.                  the received signal r(k), respectively. Term m(k) is the kth
+The design is based on the LMMSE criterion to optimize the
+weight coefﬁcients with respect to the statistics of Wiener phase             transmitted signal chosen from the M equally likely signal
+noise and additive, white, Gaussian noise (AWGN), which is
+similar to the derivation of the reﬁned LMMSE estimator for                   points {Si = Aiejφi , i = 0, 1, . . . , M − 1}, in which Ai and
+single-ring M -PSK with Wiener phase noise in [13]. For simple                φi, respectively, represent the amplitude and phase of each
+implementation, two simpliﬁed estimation criteria including                   modulated signal. Term n(k) stands for the AWGN, which is
+ring-detection-based and average-energy-based estimators are
+further derived for multi-ring M -APSK. The inverse mean                      a Gaussian random variable with mean zero and variance N0.
+square error (IMSE) performance is analyzed in detail for the                 And θ(k) stands for the phase noise, which is modeled as a
+three proposed LMMSE estimators by simulations. It is shown
+that the common reﬁned VV estimator performs much better                      Wiener process, i.e., θ(k) = θ(k − 1) + v(k) [13]. Term {v(k)}
+than the simpliﬁed ones in low or moderate signal-to-noise ratio
+(SNR) range, which is yet at the cost of high complexity of matrix            is a sequence of independent, identically distributed Gaussian
+inversion. In comparison with other popular methods, e.g., DA
+ML and QPSK partitioning, the receiver sensitivity penalties are              random variables with mean zero and variance σp2 = 2πΔvTs,
+also given for different modulation formats including 16QAM.                  where Ts and Δv represent the symbol duration and the total
+It is to verify that the proposed estimators perform much better
+at high SNR and the estimation accuracy is immune to the block                3-dB laser linewidth of the transmitter and local oscillator lasers,
+length effect.
+                                                                              respectively. Term (k) denotes the additive, observation phase
+   The rest of this paper is structured as follows. The signal
+model is presented in Section II. The common reﬁned LMMSE                     noise (AOPN) due to the AWGN, which is approximately Gaus-
+estimator and the simpliﬁed ones for multi-ring M -APSK are
+derived in Section III. The numerical results are given in Section            sian  distributed  with  mean  zero  and  variance      σ2(k)  =      N0
+IV. The last section concludes the paper.                                                                                                       2|r(k)|Ai
+                                                                              in high SNR [9].
+                          II. SIGNAL MODEL
+                                                                              For   general  M -APSK,        the  signal  set  is  {S  =  a ek  j(  2πi  +ψk  )
+   As shown in Fig. 1, the received signal is ﬁrst combined                                                                                          lk
+with an LO laser in a 2×4 90◦ optical hybrid, then the output
+signals are detected by the in-phase and quadrature-phase signal              : 1 ≤ k ≤ N, 0 ≤ i ≤ lk − 1}, where N is the number of sig-
+balanced detectors. After sampling by a high-speed analog-to-
+digital converter, the signals will be processed by digital equal-            nal rings, ak, lk and ψk denote the radius, the number of
+ization and phase estimation. We assume that the polarization
+controller can make the polarization perfectly matched, and the               points and the relative phase shift corresponding to the kth
+inter-symbol interference caused by the dispersion is completely                                                        N
+compensated by the digital equalization. Thus, we only consider               ring, respectively [4]. We have           k=1    lk  =  M,  and   the      radii
+the effect of AWGN and laser phase noise here. In this case,
+the received signal model over the kth symbol interval is given               are assumed to be ordered such that a1 < · · · < aN . The av-
+                                                                                                                   N      lk ak2
+                                                                              erage energy constraint is thus      k=1             =   M Es,    where    Es
+
+                                                                              denotes the average energy per symbol. We also deﬁne the vector
+
+                                                                              l ≡ (l1, . . . , lN ) and use the notation MAPSK-l for an M -APSK
+                                                                              constellation with N rings and lk signal points on the kth ring,
+                                                                              e.g., 16APSK(8,8). Note that for a speciﬁc M -APSK with given
+
+                                                                              N , placing almost the same number of signal points on each ring
+
+                                                                              leads to the minimum error ﬂoor due to the phase noise, which
+
+                                                                              has been veriﬁed in our earlier work [4]. Thus, we consider star-
+
+                                                                              8QAM and 16APSK(8,8) as examples for numerical illustration
+
+                                                                              here, as shown in Fig. 2.
+
+                                                                              In the following, we will derive a common reﬁned VV carrier
+
+                                                                              phase estimator for any multi-ring M -APSK. Note that there
+
+                                                                              are not that many techniques available at the moment for carrier
+
+                                                                              recovery of multi-ring constellations. This work here provides
+WANG et al.: VITERBI-VITERBI CARRIER PHASE ESTIMATION FOR MULTI-RING M -APSK WITH WIENER CARRIER PHASE NOISE                                  7201408
+
+the non-decision aided carrier phase estimator for M -APSK con-      given by
+stellations in general that are circular and consisting of multiple
+rings in which the signal points are uniformly distributed.                       pl  =  e−    1  M  2  (|L−l+1|σp2  +σ2      (k−L+l−1))   ,           (5)
+                                                                                               2
+
+III. REFINED LMMSE PE FOR MULTI-RING M -APSK                         and the (x, y) element of R is given by
+
+   This section will ﬁrst introduce the general VV phase estima-     R(x,  y)  =  e−  1  M  2  [(|x−y|)σp2    +σ2  (k−L+x−1)+σ2         (k−L+y−1)]  ,  (6)
+tor based on the LMMSE criterion for multi-ring M -APSK with                          2
+Wiener phase noise. Then two simpliﬁed implementations in-
+cluding both ring-detection based estimator and average-energy       and the AOPN variance σ2(k) therein is given as
+based estimator are given in detail.
+                                                                                                  σ2(k)       ≈     N0        .                        (7)
+   Based on our previous work in [13] on the reﬁned LMMSE PE                                                     2|r(k)|2
+for M -PSK in Wiener phase noise, this work also considers to
+estimate each M -APSK symbol using an estimation window of           This approximation is because we have |r(k)| ≈ Ai in high
+size 2L+1, including the current symbol and its earlier and later    SNR for most times [9], and this form does not require the
+L symbols. Here, L is the memory length. By referring to the         priori information on the transmitted amplitude Ai. The detailed
+conventional M th-power carrier phase estimation, raising the        derivation is similar to the process in [13, Appendix A], which
+received symbol to the M th-power and taking the normalization       is thus avoided here. We will verify the accuracy of this reﬁned
+will remove the phase modulation, which thus gives                   LMMSE estimator (3) for multi-ring M -APSK by simulations
+                                                                     later. Note that both p and R are time-varying due to the ﬂuctua-
+yM (k) =   r(k)    M     ej[φ(k)+θ(k)+ (k)] M                        tion of the received signal amplitude |r(k)| in the AOPN variance
+           |r(k)|                                                    σ2(k). Thus, we consider two simpliﬁed implementations in the
+                      =                                              following, which are computationally more efﬁcient and more
+                                                                     suitable in practice.
+= ej[M[θ(k)+ (k)]].                            (2)
+                                                                        For the ﬁrst simpliﬁcation, the main idea is to treat the
+It is worth emphasizing that the M in the M th power here            multi-ring M -APSK as one single-averaged-ring M -PSK. In
+is the least common multiple of (l1, . . . , lN ) considering all    this way, estimating multi-ring modulated phase can be approx-
+signal rings, instead of the modulation order. That is, given        imated to estimating one single-averaged-ring modulated phase.
+16APSK(8,8) for example, the M in the M th power is M = 8. In        Therefore, in the estimation process, we ﬁrst determine which
+this way, M φ(k) = 2π can be removed. Thus, based on the ob-         ring the received signal in the estimation window belongs to, and
+servations within the symmetrical window, i.e., {yM (l)}lk=+kL−L,    then using the mean of all received ai for the weight calculation
+the phase estimate θˆ(k) can be obtained using this reﬁned M th-     after ring detection. The ring detection rule used here is given
+power estimator. Here, we will give the derivation for M -APSK       as [9, eq.(12)]
+with the consideration of both AWGN and Wiener phase noise.
+                                                                                      |r(k)|       A=ai       rth   =  ai     + ai+1    ,              (8)
+   With the phasor at the kth time interval denoted as VM (k) =                                                                2
+ejMθ(k), the estimated phasor using the reﬁned method is simi-                                       ≶
+larly given by [13, eq. (23)]
+                                                                                                  A=ai+1
+
+           k+L                                                       where ai and ai+1 represent the radii of the ith and (i+1)th
+                                                                     rings, respectively, and A denotes the ring decision of the
+VˆM (k) =         F (|r(l)|)yM (l) = wH yM(k) (3)                    received signal. Note that for the special case of M -APSK,
+                                                                     e.g., 16APSK(8,8) where each ring has the same number of
+           l=k−L                                                     points with the same phase values, our earlier work in [9] has
+                                                                     veriﬁed that the two-step detector that ﬁrst determines the ring
+where yM(k) = [yM (k − L), . . . , yM (k + L)]T represents the       and then the phase is equivalent to the approximate optimum
+observation vector for the kth time interval, and w = [F (|r(k −     detector through the whole SNR region. This implies that the
+L)|), . . . , F (|r(k + L)|)]H denotes the complex weight coef-      ring detection error induced by (8) can be ignored, especially
+                                                                     for high SNR. After ring detection, we can calculate the mean
+ﬁcients, which can be chosen to optimize the estimation per-         of all received ai in the estimation window, denoted as a¯i
+                                                                     for the estimation weight calculation. That is, we average the
+formance. Here, superscripts T denotes the transpose and H           radii obtained by the detection rule throughout the received
+                                                                     window to replace |r(k)| in calculating σ2(k). In this way, the
+denotes the Hermitian transpose. Previously, the optimal non-        corresponding AOPN σ2(k) can be approximated as
+linearity F (|r(l)|) was discussed with AWGN only. For exam-
+ple, the optimal nonlinearity of F (|r(l)|) = |r(l)|2 was veriﬁed                                    σ2(k)       ≈  N0     .                           (9)
+in [13] for M -PSK. Here, with the consideration of both AWGN                                                       2a¯2i
+and linear phase noise, the optimal F (|r(l)|) can be derived
+
+explicitly based on the LMMSE criterion. Speciﬁcally, the esti-
+mation error can be expressed as e(k) = VM (k) − VˆM (k), and
+by minimizing the mean squared error E[|e(k)2|], the optimal
+weight coefﬁcient wo can be obtained as [13, eq.(27)]
+
+                  wo = R−1p,                   (4)                   And thus, we have the calculation of (5) and (6) simpliﬁed as
+
+where p is the (2L+1)×1 cross-correlation vector, and R is the                                    −  1  M  2  |L−l+1|σp2      +  N0
+(2L+1)×(2L+1) auto-correlation matrix. The lth term of p is                                          2                           2a¯2i
+                                                                                         p = e , l                                                     (10)
+7201408                                                             IEEE PHOTONICS JOURNAL, VOL. 16, NO. 4, AUGUST 2024
+
+and                                                                                TABLE I
+                                                                    GENIE-AIDED PHASE UNWRAPPING
+
+         R(x,  y)  =    −  1  M2  (|x−y|)σp2  +2  N0     .  (11)
+                           2                      2a¯i2
+                      e
+
+The estimated phasor values Vˆ (k) will be obtained based on        A. IMSE Comparison for Different Implementations
+(8)–(11). This process is denoted as the ring-detection based
+LMMSE estimator for M -APSK.                                           Here, we consider the IMSE comparison among the com-
+                                                                    mon reﬁned estimator and the simpliﬁed ones including both
+   In addition to the simpliﬁed ring detection-based estimator,     ring-detection based and average-energy based estimators. In
+we further consider another approximate implementation using        simulations, the IMSE is deﬁned as
+the average energy per symbol. We a√ssume that the received
+amplitude |r(k)| approaches closely to Es in high SNR. Thus,
+the AOPN variance σ2(k) can be further approximated as a
+constant
+
+                      σ2      ≈   N0   ,                    (12)
+                                  2Es
+
+where Es/N0 represents the average SNR per symbol. We deﬁne         IM SE = −10 log10  q    [θ(k)  −  θˆ(k)]2  ,      (13)
+the implementation of (3), (4), (10)–(12) as the average-energy                        k=1
+based LMMSE estimator. It is worth noting that the approximate
+σ2 in (12) makes the calculation of wo be performed only once                               q
+in the entire phase estimation process, which greatly reduces the
+implementation complexity.                                          where q denotes the sample size for each calculation of IMSE. To
+                                                                    distinguish the three implementations in the plots, the LMMSE
+   In brief, we ﬁrst propose the common reﬁned LMMSE PE             notation is used to represent the common reﬁned LMMSE
+for multi-ring M -APSK in Wiener phase noise, where the op-         estimator for short, and the LMMSE-ring and the LMMSE-Es
+timal nonlinearity of F (|r(l)|) is also shown as a function of     denote the ring-detection based and average-energy based sim-
+|r(l)|2 due to using the AOPN variance in (7). Then two simple      pliﬁed implementations, respectively.
+implementations for practical applications are introduced based
+on the assumption of constant σ2. Obviously, the simpliﬁcation         Fig. 3 shows the IMSE performance as a function of the
+or the assumption would degrade the estimation accuracy, par-       memory length L with the laser linewidth ﬁxed at 1 MHz. We
+ticularly at low SNR. To verify its feasibility, the performance    can see that the performance of all the implementations becomes
+impairment due to the simpliﬁed implementation is evaluated         better as SNR increases, and it is not affected by the increase
+through numerical simulations later. More importantly, the laser    of L, i.e., does not suffer from the block length effect. As Fig.
+linewidth tolerance analysis in Wiener phase noise will be given    3(a) and (b) show for Star-8QAM and 16APSK(8,8) in relatively
+explicitly, compared to the existing popular PE methods, e.g.,      high SNR, e.g., 15 dB and 25 dB, the common reﬁned LMMSE
+DA ML in [14]. Note that the DA ML estimator is statistically       estimator performs the best, and the ring-detection based and
+optimum in the presence of AWGN and a quasi-static carrier          the average-energy based methods perform a little worse but
+phase process [15], but its application is less common in practice  very close to each other. For example, when SNR=15 dB, the
+than that of the M th-power estimator, since the latency issue      common reﬁned estimator performs about 1 dB better than
+associated with the need for making symbol decisions before         other two methods. This is expected since the two simpliﬁed
+performing the decision-aided phase estimation can cause a          algorithms sacriﬁce performance to reduce the time or compu-
+serious problem in practical receiver implementations.              tation complexity. But in low SNR, e.g., 5 dB, the estimation
+                                                                    performance deteriorates fast for all the methods. Especially
+                      IV. NUMERICAL RESULTS                         for 16APSK(8,8) shown in Fig. 3(b), the performance of the
+                                                                    common reﬁned estimator drops to the same level as those of
+   This section analyzes the laser linewidth tolerance of the       the simpliﬁed ones.
+reﬁned LMMSE PE for multi-ring constellations in Wiener
+phase noise by Monte Carlo simulations. For comparison, the            We also consider the widely used 16QAM here, which can
+performance of the well-known DA ML PE on multi-ring APSK           be viewed as the combination of multiple signal rings. Fig. 3(c)
+and the popular QPSK partitioning method on 16QAM are               shows that the phenomenon for 16QAM at 5 dB and 15 dB
+investigated. The performance comparison between the existing       is similar to that of 16APSK(8,8). In comparison, the most
+methods and proposed algorithms is conducted in terms of IMSE       interesting ﬁnding for 16QAM is that the ring-detection based
+and SNR penalty. In this paper, the SNR penalty is calculated via   method performs a little bit better than the common reﬁned one
+simulations and is the value of the difference between required     at SNR=25 dB. We infer that this is due to the non-symmetric
+SNRs under the phase noise channel and the pure AWGN                middle-ring structure and the high detection accuracy in high
+channel.                                                            SNR. Additionally, it is worth noting that with the decrease
+                                                                    of SNR, the performance of the two simpliﬁed algorithms
+   In order to combat the phase ambiguity caused by the             drops faster. This trend similar to that in Fig. 3(a) and (b) is
+M th-power operation, Genie-aided phase unwrapping given in         particularly pronounced in 16QAM. For example, in Fig. 3(c),
+Table I is used here [13].                                          when SNR=15 dB, the performance gap between the simpliﬁed
+WANG et al.: VITERBI-VITERBI CARRIER PHASE ESTIMATION FOR MULTI-RING M -APSK WITH WIENER CARRIER PHASE NOISE  7201408
+
+                                                                                                          TABLE II
+                                                                     SNR REQUIRED TO ACHIEVE BER=10−2 FOR DIFFERENT MODULATION
+
+                                                                                                           FORMATS
+
+                                                                     Fig. 4. Receiver sensitivity penalties at BER=10−2 versus linewidth per laser/
+                                                                     symbol rate using average-energy based method. Bit rate at 40 Gb/s.
+
+Fig. 3. IMSE performance comparison among three implementations for  formats and the corresponding required SNR values are shown
+(a) Star-8QAM, (b) 16APSK(8,8), and (c) 16QAM. Bit rate at 40 Gb/s.  in Table II. We can see that the laser linewidth tolerance of star-
+                                                                     8QAM is much better than 16-ary formats, which is expected
+algorithms and the common reﬁned LMMSE algorithm is about            due to the lower sensitivity to phase noise. Moreover, the SNR
+2 dB. When the SNR drops to 5 dB, the performance gain of the        required for the common reﬁned LMMSE estimator to reach
+common reﬁned LMMSE algorithm decays to be very tiny.                BER=10−2 is always the lowest. While the SNR required for
+                                                                     the average-energy based method is generally the same as the
+B. Receiver Sensitivity Analysis for Different Modulations           ring-detection based method. Considering the lower complexity,
+   All the three implementations are considered here, and the        the average-energy based method will be used in subsequent
+                                                                     simulations to analyze the receiver sensitivities for different
+minimum Euclidean distance detection rule is used after phase        modulations at BER=10−2.
+estimation. The range of laser linewidths for various modulated
+                                                                        Fig. 4 shows the receiver sensitivity penalty comparison at
+                                                                     BER=10−2 for different modulations, based on the average-
+                                                                     energy based LMMSE method. Here, the SNR penalty denotes
+                                                                     the performance gap of the channel with phase noise compared
+                                                                     with the pure AWGN channel, given a speciﬁc ratio of the
+                                                                     linewidth per laser to the symbol rate. It veriﬁes again that the
+                                                                     laser linewidth tolerance of star-8QAM is the best, and the tol-
+                                                                     erance of 16QAM is the worst. 16APSK(8,8) performs slightly
+                                                                     better than 16PSK, but worse than 8PSK. More speciﬁcally,
+                                                                     by considering 1 dB SNR penalty at the BER of 10−2, the
+                                                                     maximum tolerable ΔvT of 8PSK is above 10−3, while that
+                                                                     of 16QAM, 16PSK and 16APSK are 4×10−5, 9×10−5 and
+                                                                     3×10−4, respectively. Additionally, though the slow increase
+                                                                     in SNR penalty restricts the maximum tolerance of Star-8QAM
+                                                                     from appearing in Fig. 4, the maximum tolerable ΔvT is around
+                                                                     4.5×10−3.
+
+                                                                     C. Performance Comparison With DA ML PE
+
+                                                                        It is well known that a large laser linewidth results in a
+                                                                     large phase noise variance which will cause a rapidly changing
+7201408                                                                       IEEE PHOTONICS JOURNAL, VOL. 16, NO. 4, AUGUST 2024
+
+                                                                              Fig. 6. Receiver sensitivity penalties (dB) at BER=10−2 versus the linewidth
+                                                                              per laser and memory length L for (a) star-8QAM with LMMSE-Es and (b)
+
+                                                                              star-8QAM with DA ML.
+
+Fig. 5. Receiver sensitivity penalties (dB) at BER=10−2 versus the linewidth
+per laser and memory length L: (a) 8PSK with LMMSE-Es, (b) 8PSK with DA
+
+ML, (c) 16PSK with LMMSE-Es, and (d) 16PSK with DA ML.
+
+interference to the phase estimation. Therefore, the linewidth                Fig. 7. Receiver sensitivity penalties (dB) at BER=10−2 versus the linewidth
+tolerance analysis for phase estimation is very important. More-              per laser and memory length L for (a) 16APSK(8,8) with LMMSE, (b)
+over, the selection of the memory length L will affect the                    16APSK(8,8) with DA ML, and (c) 16APSK(8,8) with LMMSE-Es.
+estimation accuracy in the most existing PE algorithms, which is
+known as the block length effect. Thus, to test the laser linewidth           to determine for a given laser linewidth, that is, its performance
+tolerance of the reﬁned estimators, some numerical comparisons                is affected by the block length effect. In contrast, this proposed
+with the popular DA ML PE are performed here. Speciﬁcally,                    method does not suffer from the block length effect. Fig. 5(c) and
+the contour plots of the receiver sensitivity penalties for different         (d) verify again that even with the simpliﬁed implementation, the
+modulation formats with various linewidths and memory lengths                 laser linewidth tolerance of the average-energy based LMMSE
+at BER=10−2 are shown in detail in Figs. 5, 6 and 7, at a bit rate            estimator remains much better and avoids the block length effect
+of 40 Gb/s.                                                                   for high-order PSK.
+
+   Fig. 5 shows the performance comparison between the
+average-energy based LMMSE estimator and the DA ML es-
+timator in [14] for single-ring 8PSK and 16PSK. Note that for
+single-ring PSK, the ring-detection based estimator is equivalent
+to the average-energy based one. It is shown that given the same
+linewidth, the SNR penalty of the reﬁned LMMSE estimator is
+much smaller than that of the DA ML estimator. For example,
+given the linewidth to be 2.4 MHz for 8PSK, the SNR penalty
+is 0.6 dB for the LMMSE estimator, whereas it is at least 1.5 dB
+for the DA ML estimator as shown in Fig. 5(a) and (b). With the
+continuous increase of L, the receiver sensitivity penalty tends to
+be stable for the LMMSE estimator, whereas the penalty of the
+DA ML estimator has a contour growth given a ﬁxed linewidth.
+Obviously, the DAML method has an optimal memory length L
+WANG et al.: VITERBI-VITERBI CARRIER PHASE ESTIMATION FOR MULTI-RING M -APSK WITH WIENER CARRIER PHASE NOISE  7201408
+
+   Figs. 6 and 7 show the receiver sensitivity comparison for
+multi-ring star-8QAM and 16APSK(8,8), respectively. It is
+worth noting that for star-8QAM, the SNR penalty of the com-
+mon reﬁned estimator is always about 0 dB throughout the
+linewidth range considered, which means that it can perfectly
+compensate the phase and achieve the performance as in pure
+AWGN. Besides, as can be seen in Fig. 6, the average-energy
+based method performs better than the DA ML method. When
+the laser linewidth is set to be 30 MHz, the SNR penalties are
+about 0.4 dB for the LMMSE estimator and 0.5 dB for the
+DA ML estimator with the optimal length chosen, respectively.
+This implies that even the simpliﬁed estimator has a better laser
+linewidth tolerance, compared to the DA ML method which yet
+requires an optimal L. For 16APSK(8,8) shown in Fig. 7, the
+laser linewidth tolerance of the common reﬁned estimator and
+the DA ML estimator are comparable. For example, given the
+linewidth to be 2 MHz, the SNR penalty is about 0.5 dB for
+the LMMSE estimator, whereas it is also about 0.5 dB for the
+DA ML estimator with the optimal length chosen. Whereas, the
+SNR penalty of the average-energy based estimator is more than
+0.8 dB as shown in Fig. 7(c). It is worth emphasizing again that
+the reﬁned LMMSE estimators proposed for multi-ring APSK
+do not suffer from the block length effect, compared to the
+popular DA ML method.
+
+D. Performance Comparison With QPSK Partitioning Method            Fig. 8. Receiver sensitivity penalties (dB) at BER=10−2 versus the
+                                                                   linewidth per laser and memory length L for (a) 16QAM with LMMSE,
+   Here, in order to verify the generalization of the reﬁned       (b) 16QAM with QPSK partitioning, and (c) 16QAM with LMMSE-Es. Bit
+LMMSE PE method, the well-known QPSK partitioning scheme           rate at 40 Gb/s.
+in [16] is also considered for 16QAM as a comparison. Fig.
+8 shows the receiver sensitivity penalty comparison with the       reﬁned LMMSE, ring-detection based and average-energy based
+QPSK partitioning method for 16QAM. In QPSK partitioning           estimators are all based on (3). Therefore, here we consider
+scheme, the received signals are partitioned into two sets during  the time complexity involved by (4), (5) and (6). Denote the
+estimation: the signals to be rotated and the benchmark signals    window length 2L + 1 as W , then we have the time complexity
+(i.e., the signals on the diagonal). Since the rotation is ﬁrst    involved for calculating R and p is O(W 2) and O(W ), re-
+implemented with reference to the benchmark signals, a limited     spectively. The complexity for obtaining (4) is O(W 3 + W 2).
+number of reference points will have a signiﬁcant impact on the    Suppose the length of entire signal is Nd, the window needs
+estimation accuracy. Therefore, the memory length L required       to be updated for (Nd − 2L) times. Therefore, we can obtain
+for QPSK partitioning scheme to achieve BER = 10−2 cannot          that the time complexity of common reﬁned LMMSE estimator
+be less than 5, as shown in Fig. 8(b). Given the linewidth to be   and ring-detection based estimator are both O(W 3(Nd − 2L)).
+2.5 MHz, the SNR penalty is 2.5 dB for the QPSK partitioning       For the average-energy based estimator, the AOPN variance
+estimator. And with the continuous increase of L, the SNR          σ2 is calculated in advance based on SNR, and it is a con-
+penalty exhibits a contour growth. On the contrary, the LMMSE      stant over the entire phase estimation process. Therefore, its
+estimator exhibits a superior SNR gain of approximately 1.4 dB     time complexity is just O(W 3), which is much lower than
+with L = 5 as shown in Fig. 8(a), compared to the QPSK             that of common reﬁned LMMSE and ring-detection based
+partitioning estimator. Additionally, the average-energy based     estimators.
+estimator has a slightly worse performance, but will not worsen
+as L increases. That veriﬁes that our reﬁned LMMSE estimators         Additionally, for the computational complexity, since the
+can be generalized to 16QAM, and the choice of L = 5 is more       main difference between the common reﬁned LMMSE and ring-
+suitable for multi-ring modulated systems with high latency        detection based estimators is the calculation of AOPN variance,
+requirement.                                                       here we just compare the number of real/complex multiplica-
+                                                                   tions in (7) and (9), within a single window. It is obvious that
+E. Complexity Analysis                                             for each time index, there are 3 multiplications involved for
+                                                                   obtaining σ2(k), which results in 3W multiplications in the
+   To indicate the effectiveness of the proposed ring-detection    common reﬁned LMMSE estimator. In (9), the ring-detection
+based and average-energy based estimators, in this subsection,
+we investigate time complexity and computational complexity
+analysis. As can be observed, the phase estimates of common
+7201408                                                                            IEEE PHOTONICS JOURNAL, VOL. 16, NO. 4, AUGUST 2024
+
+based estimator replaces the time-varying denominator by a                          [3] A. Soleimanzade and M. Ardakani, “EGN-based optimization of the APSK
+constant, resulting in merely 3 multiplications, which is much                           constellations for the non-linear ﬁber channel based on the symbol-wise
+lower than that of the common reﬁned LMMSE estimator.                                    mutual information,” J. Lightw. Technol., vol. 40, no. 7, pp. 1937–1952,
+                                                                                         Apr. 2022.
+   In comparison with the DA ML estimator, it is obvious that
+the DA ML estimator possesses much lower complexity, which                          [4] Q. Wang, Z. Quan, T. Song, M.-W. Wu, Y. Li, and P.-Y. Kam, “M-APSK
+is O(W ) in one estimation window. However, given the values                             constellation optimization in the presence of phase reference error,” IEEE
+of SNR, window length W , the phase noise variance σp2, the                              Wirel. Commun. Le., vol. 9, no. 12, pp. 2154–2158, Dec. 2020.
+matrix R and vector p actually can be obtained in advance for
+the weight calculation, i.e., before performing the phase estima-                   [5] D. Villafani, J. Schröder, M. Karlsson, P. A. Andrekson, and E. Goobar,
+tion with the proposed average-energy based estimator. Thus,                             “Impact of low frequency laser phase noise in high order modulation
+considering the similar implementations of (3) for both methods,                         formats,” in Proc. SBMO/IEEE MTT-S Int. Microw. Optoelectron. Conf.
+the time complexity of the average-energy based estimator can                            (IMOC), 2019, pp. 1–3.
+be reduced to merely O(W (Nd − 2L)), which is the same as
+that of the DA ML estimator.                                                        [6] M. Al-Qadi, M. O’Sullivan, C. Xie, and R. Hui, “Phase noise mea-
+                                                                                         surements and performance of lasers with non-white FM noise for use
+                            V. CONCLUSION                                                in digital coherent optical systems,” J. Lightw. Technol., vol. 38, no. 6,
+                                                                                         pp. 1157–1167, Mar. 2020.
+   In this paper, the common reﬁned LMMSE PE method and
+two simple implementations are proposed for multi-ring APSK                         [7] T. Sasai, A. Matsushita, M. Nakamura, S. Okamoto, F. Hamaoka, and
+and even QAM with Wiener phase noise. The laser linewidth                                Y. Kisaka, “Laser phase noise tolerance of uniform and probabilistically
+tolerance analysis is provided comprehensively. The numerical                            shaped QAM signals for high spectral efﬁciency systems,” J. Lightw.
+results show that the common LMMSE estimator performs much                               Technol., vol. 38, no. 2, pp. 439–446, Jan. 2020.
+better than the DA ML and QPSK partitioning methods with the
+optimal length chosen for the latter two. And even the simpliﬁed                    [8] J. Lu et al., “Carrier phase recovery for set-partitioning QAM formats,” J.
+ones do not suffer from the block length effect. The improved                            Lightw. Technol., vol. 36, no. 18, pp. 4129–4137, Sep. 2018.
+receiver sensitivity without sacriﬁcing the complexity enables
+the proposed estimators to be implemented in a practical multi-                     [9] Q. Wang and P.-Y. Kam, “Optimum detection of two-dimensional carrier
+ring coherent receiver in high SNR or rapidly-changing phase                             modulations with linear phase noise using received amplitude and phase
+noise environment.                                                                       information and performance analysis,” J. Lightw. Technol., vol. 34, no. 10,
+                                                                                         pp. 2439–2451, May 2016.
+                                 REFERENCES
+                                                                                   [10] Q. Wang, Z. Quan, S. Bi, and P.-Y. Kam, “Joint ML/MAP estimation of
+ [1] N. Shibata, N. Iiyama, J. ichi Kani, S.-Y. Kim, J. Terada, and N. Yoshimoto,        the frequency and phase of a single sinusoid with Wiener carrier phase
+      “Star-QAM constellation design for hierarchically modulated PON sys-               noise,” IEEE T. Signal Proces., vol. 70, pp. 337–350, 2022.
+      tems with 20-Gbps PSK and 10-Gbps OOK signals,” J. Lightw. Technol.,
+      vol. 32, no. 18, pp. 3184–3191, Sep. 2014.                                   [11] Y. Guo et al., “Phase noise estimation in coherent optical communication
+                                                                                         based on local convex optimization,” in Proc. IEEE 16th Int. Conf. Opt.
+ [2] H. Kishikawa, M. Uetai, and N. Goto, “All-optical modulation format                 Commun. Netw., 2017, pp. 1–3.
+      conversion between OOK, QPSK, and 8QAM,” J. Lightw. Technol., vol. 37,
+      no. 16, pp. 3925–3931, Aug. 2019.                                            [12] N. Xie, L. Ou-Yang, and A. X. Liu, “A machine learning approach to
+                                                                                         phase reference estimation with noise,” IEEE T. Commun., vol. 68, no. 4,
+                                                                                         pp. 2579–2592, Apr. 2020.
+
+                                                                                   [13] Y. Li, M.-W. Wu, X. Du, T. Song, and P.-Y. Kam, “A reﬁnement to the
+                                                                                         Viterbi-Viterbi carrier phase estimator and an extension to the case with
+                                                                                         a Wiener carrier phase process,” IEEE Access, vol. 7, pp. 78170–78184,
+                                                                                         2019.
+
+                                                                                   [14] S. Zhang, P. Y. Kam, C. Yu, and J. Chen, “Laser linewidth tolerance of
+                                                                                         decision-aided maximum likelihood phase estimation in coherent optical
+                                                                                         M-ary PSK and QAM systems,” IEEE Photonic. Tech. L., vol. 21, no. 15,
+                                                                                         pp. 1075–1077, Aug. 2009.
+
+                                                                                   [15] P. Y. Kam, “Maximum likelihood carrier phase recovery for linear
+                                                                                         suppressed-carrier digital data modulations,” IEEE Trans. Commun.,
+                                                                                         vol. 34, no. 6, pp. 522–527, Jun. 1986.
+
+                                                                                   [16] I. Fatadin, D. Ives, and S. J. Savory, “Laser linewidth tolerance for 16-
+                                                                                         QAM coherent optical systems using QPSK partitioning,” IEEE Photonic.
+                                                                                         Tech. L., vol. 22, no. 9, pp. 631–633, May 2010.

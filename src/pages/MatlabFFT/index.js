@@ -113,6 +113,11 @@ const DEFAULT_CCSDS_PARAMS = {
   hasASM: true,
   RandomizerMode: "off",
   DataPathMode: "single",
+  TMDataSource: "random",
+  TMDataSourceI: "random",
+  TMDataSourceQ: "random",
+  TMDataSourceFixedPattern: 85,
+  TMDataSourceIncrementStart: 0,
   AGCMode: "off",
   rsPreset: "rs-255-223-i5",
   channelModel: "none",
@@ -134,6 +139,16 @@ const MODULATION_OPTIONS = [
   { value: "FM", label: "FM" },
   { value: "4D-8PSK-TCM", label: "4D-8PSK-TCM" },
   { value: "PCM/PSK/PM", label: "PCM/PSK/PM" },
+];
+
+const TM_DATA_SOURCE_OPTIONS = [
+  { value: "random", label: "随机帧数据（原默认）" },
+  ...[7, 8, 9, 10, 11, 15, 23, 31].map((order) => ({
+    value: `PN${order}`,
+    label: `PN${order}`,
+  })),
+  { value: "fixed", label: "固定码" },
+  { value: "incrementing", label: "递增码" },
 ];
 
 const CHANNEL_CODING_OPTIONS = [
@@ -403,6 +418,10 @@ const getGMSKEvmSummary = () =>
 const normalizeSimulationResult = (raw) => {
   if (!raw) return null;
 
+  // 兼容 link_simulation 的结果包装：数值指标和三张 Base64 图片分开。
+  const referenceImages = raw.images || {};
+  raw = raw.matlab_result_data || raw;
+
   if (raw.success === false) {
     return raw;
   }
@@ -425,6 +444,15 @@ const normalizeSimulationResult = (raw) => {
       constellation_synced: raw.constellation_synced,
       pipeline: raw.pipeline, // 4 阶段星座 + EVM 数组 + 标签
       channelPower: raw.channelPower,
+      images: {
+        time: referenceImages.time_base64 || raw.time_base64 || null,
+        spectrum:
+          referenceImages.spectrum_base64 || raw.spectrum_base64 || null,
+        constellation:
+          referenceImages.constellation_base64 ||
+          raw.constellation_base64 ||
+          null,
+      },
       stats: {
         Fs: raw.Fs,
         CodeRate: formatCodeRateDisplay(raw),
@@ -463,6 +491,9 @@ const normalizeSimulationResult = (raw) => {
         InputPhase: raw.phase_in,
         InputDelay: raw.delay_in,
         DataPathMode: raw.DataPathMode,
+        TMDataSource: raw.TMDataSource,
+        TMDataSourceI: raw.TMDataSourceI,
+        TMDataSourceQ: raw.TMDataSourceQ,
         RandomizerEnabled: raw.RandomizerEnabled,
         RandomizerFECPosition: raw.RandomizerFECPosition,
         AGCEnabled: raw.AGCEnabled,
@@ -505,6 +536,13 @@ const CCSDSPlatform = () => {
   const [currentTaskId, setCurrentTaskId] = useState(null);
   const [taskStatusText, setTaskStatusText] = useState("");
   const [simResult, setSimResult] = useState(null);
+  const hasRemoteImages =
+    !simResult?.spectrum &&
+    Boolean(
+      simResult?.images?.time ||
+        simResult?.images?.spectrum ||
+        simResult?.images?.constellation,
+    );
   const [isElectron, setIsElectron] = useState(false);
   const [historyVisible, setHistoryVisible] = useState(false);
   const [historyList, setHistoryList] = useState([]);
@@ -1319,6 +1357,13 @@ const CCSDSPlatform = () => {
                       ? "I/Q 分路"
                       : "合路（单路 TM）"}
                 </Descriptions.Item>
+                <Descriptions.Item label="内部数据源">
+                  {simResult.stats.TMDataSource === "split"
+                    ? `I=${simResult.stats.TMDataSourceI || "random"}, Q=${
+                        simResult.stats.TMDataSourceQ || "random"
+                      }`
+                    : simResult.stats.TMDataSource || "random"}
+                </Descriptions.Item>
                 <Descriptions.Item label="加扰">
                   {!simResult.stats.RandomizerEnabled
                     ? "关闭"
@@ -2087,7 +2132,114 @@ const CCSDSPlatform = () => {
                   </Select>
                 </Form.Item>
               </Col>
+              <Form.Item noStyle dependencies={["DataPathMode"]}>
+                {({ getFieldValue }) => {
+                  const split = getFieldValue("DataPathMode") === "dualIQ";
+                  if (split) {
+                    return (
+                      <>
+                        <Col span={8}>
+                          <Form.Item
+                            name="TMDataSourceI"
+                            label="I路内部数据"
+                            initialValue="random"
+                            rules={[
+                              enumRule(
+                                TM_DATA_SOURCE_OPTIONS.map((item) => item.value),
+                                "I路内部数据",
+                              ),
+                            ]}
+                          >
+                            <Select options={TM_DATA_SOURCE_OPTIONS} />
+                          </Form.Item>
+                        </Col>
+                        <Col span={8}>
+                          <Form.Item
+                            name="TMDataSourceQ"
+                            label="Q路内部数据"
+                            initialValue="random"
+                            rules={[
+                              enumRule(
+                                TM_DATA_SOURCE_OPTIONS.map((item) => item.value),
+                                "Q路内部数据",
+                              ),
+                            ]}
+                          >
+                            <Select options={TM_DATA_SOURCE_OPTIONS} />
+                          </Form.Item>
+                        </Col>
+                      </>
+                    );
+                  }
+                  return (
+                    <Col span={8}>
+                      <Form.Item
+                        name="TMDataSource"
+                        label="内部数据"
+                        initialValue="random"
+                        rules={[
+                          enumRule(
+                            TM_DATA_SOURCE_OPTIONS.map((item) => item.value),
+                            "内部数据",
+                          ),
+                        ]}
+                      >
+                        <Select options={TM_DATA_SOURCE_OPTIONS} />
+                      </Form.Item>
+                    </Col>
+                  );
+                }}
+              </Form.Item>
             </Row>
+            <Form.Item
+              noStyle
+              dependencies={[
+                "DataPathMode",
+                "TMDataSource",
+                "TMDataSourceI",
+                "TMDataSourceQ",
+              ]}
+            >
+              {({ getFieldValue }) => {
+                const split = getFieldValue("DataPathMode") === "dualIQ";
+                const sources = split
+                  ? [
+                      getFieldValue("TMDataSourceI"),
+                      getFieldValue("TMDataSourceQ"),
+                    ]
+                  : [getFieldValue("TMDataSource")];
+                const usesFixed = sources.includes("fixed");
+                const usesIncrementing = sources.includes("incrementing");
+                if (!usesFixed && !usesIncrementing) return null;
+                return (
+                  <Row gutter={16}>
+                    {usesFixed && (
+                      <Col span={6}>
+                        <Form.Item
+                          name="TMDataSourceFixedPattern"
+                          label="固定码字节"
+                          initialValue={85}
+                          extra="十进制 0~255；85 即 0x55"
+                        >
+                          <InputNumber min={0} max={255} precision={0} />
+                        </Form.Item>
+                      </Col>
+                    )}
+                    {usesIncrementing && (
+                      <Col span={6}>
+                        <Form.Item
+                          name="TMDataSourceIncrementStart"
+                          label="递增码起始字节"
+                          initialValue={0}
+                        >
+                          <InputNumber min={0} max={255} precision={0} />
+                        </Form.Item>
+                      </Col>
+                    )}
+                  </Row>
+                );
+              }}
+            </Form.Item>
             <Row gutter={16}>
               <Col span={10}>
                 <Form.Item
@@ -2164,68 +2316,74 @@ const CCSDSPlatform = () => {
 
         {/* 2. 底部：图表展示区 */}
         <div className="charts-row">
-          {/* 第一行：星座图对比 (左右各占 12/24) */}
+          {/* 第一行：远控图片模式显示时域和星座；完整数据模式保留原 ECharts。 */}
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-            {/* 左上：修复前 */}
             <Col span={12}>
               <Card
                 title={
                   <>
-                    <RadarChartOutlined /> 修复前 (Before)
+                    <RadarChartOutlined /> {hasRemoteImages ? "时域功率" : "修复前 (Before)"}
                   </>
                 }
                 bordered={false}
               >
                 <div className="square-container">
-                  {/* 绑定 rawConstellationRef */}
-                  <div
-                    ref={rawConstellationRef}
-                    // style={{ width: "100%", height: "400px" }}
-                    className="chart-box"
-                  />
+                  {simResult?.images?.time ? (
+                    <img
+                      src={simResult.images.time}
+                      alt="时域功率"
+                      className="result-image"
+                    />
+                  ) : (
+                    <div ref={rawConstellationRef} className="chart-box" />
+                  )}
                 </div>
               </Card>
             </Col>
 
-            {/* 右上：修复后 */}
             <Col span={12}>
               <Card
                 title={
                   <>
-                    <RadarChartOutlined /> 修复后 (After)
+                    <RadarChartOutlined /> {hasRemoteImages ? "星座图" : "修复后 (After)"}
                   </>
                 }
                 bordered={false}
               >
                 <div className="square-container">
-                  {/* 🆕 绑定 syncedConstellationRef */}
-                  <div
-                    ref={syncedConstellationRef}
-                    className="chart-box"
-                    // style={{ width: "100%", height: "400px" }}
-                  />
+                  {simResult?.images?.constellation ? (
+                    <img
+                      src={simResult.images.constellation}
+                      alt="星座图"
+                      className="result-image"
+                    />
+                  ) : (
+                    <div ref={syncedConstellationRef} className="chart-box" />
+                  )}
                 </div>
               </Card>
             </Col>
           </Row>
 
           {/* 第二行：信道功率轨迹 */}
-          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-            <Col span={12}>
-              <Card title="信道输入/输出瞬时功率" bordered={false}>
-                <div className="rect-container" style={{ height: 300 }}>
-                  <div ref={channelPowerRef} className="chart-box" />
-                </div>
-              </Card>
-            </Col>
-            <Col span={12}>
-              <Card title="信道输入/输出 PSD" bordered={false}>
-                <div className="rect-container" style={{ height: 300 }}>
-                  <div ref={channelSpectrumRef} className="chart-box" />
-                </div>
-              </Card>
-            </Col>
-          </Row>
+          {!hasRemoteImages && (
+            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+              <Col span={12}>
+                <Card title="信道输入/输出瞬时功率" bordered={false}>
+                  <div className="rect-container" style={{ height: 300 }}>
+                    <div ref={channelPowerRef} className="chart-box" />
+                  </div>
+                </Card>
+              </Col>
+              <Col span={12}>
+                <Card title="信道输入/输出 PSD" bordered={false}>
+                  <div className="rect-container" style={{ height: 300 }}>
+                    <div ref={channelSpectrumRef} className="chart-box" />
+                  </div>
+                </Card>
+              </Col>
+            </Row>
+          )}
 
           {/* 第三行：频谱图 + 统计 (占满整行 24/24) */}
           <Row gutter={[16, 16]}>
@@ -2239,8 +2397,15 @@ const CCSDSPlatform = () => {
                 bordered={false}
               >
                 <div className="rect-container" style={{ height: 350 }}>
-                  {/* 频谱图通常宽一点好看，高度可以稍微给低一点 */}
-                  <div ref={spectrumRef} className="chart-box" />
+                  {simResult?.images?.spectrum ? (
+                    <img
+                      src={simResult.images.spectrum}
+                      alt="功率谱密度"
+                      className="result-image"
+                    />
+                  ) : (
+                    <div ref={spectrumRef} className="chart-box" />
+                  )}
                 </div>
 
                 {simResult &&

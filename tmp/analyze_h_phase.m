@@ -1,0 +1,33 @@
+files = { ...
+    'std2_TDL', 'E:/matlab_project/v3.0/v3.0/channel/2-ChannelData.mat'; ...
+    'std3_CDL', 'E:/matlab_project/v3.0/v3.0/channel/3-ChannelData.mat'; ...
+    'std4_ITU_P681', 'E:/matlab_project/v3.0/v3.0/channel/4-ChannelData.mat'; ...
+    'std5_Jakes', 'E:/matlab_project/v3.0/v3.0/channel/ChannelData_5.mat'; ...
+    'std6_CLoo', 'E:/matlab_project/v3.0/v3.0/channel/ChannelData_6.mat'; ...
+    'std7_Corazza', 'E:/matlab_project/v3.0/v3.0/channel/ChannelData_7.mat'; ...
+    'std8_Lutz', 'E:/matlab_project/v3.0/v3.0/channel/ChannelData_8.mat'};
+
+for i = 1:size(files, 1)
+    s = load(files{i, 2}, 'H_Martix_tMode');
+    H = s.H_Martix_tMode;
+    if ndims(H) == 2
+        H = reshape(H, size(H, 1), size(H, 2), 1);
+    end
+    p = squeeze(mean(mean(abs(H).^2, 2), 3));
+    [~, dominant] = max(p);
+    h = reshape(H(dominant, :, 1), [], 1);
+    h = h(abs(h) > 0);
+    a = abs(h);
+    adb = 20*log10(max(a/rms(a), 1e-15));
+    rawStep = angle(h(2:end).*conj(h(1:end-1)));
+    reliable = a(2:end) > median(a)*0.1 & a(1:end-1) > median(a)*0.1;
+    rawStep = rawStep(reliable);
+    nominalStep = angle(mean(exp(1j*rawStep)));
+    dp = abs(rad2deg(angle(exp(1j*(rawStep - nominalStep)))));
+    qA = prctile(adb, [1 50 99]);
+    qP = prctile(dp, [99 100]);
+    fprintf(['%-15s shape=%dx%dx%d amp_dB p1/med/p99=%7.2f/%6.2f/%6.2f ', ...
+        'min=%8.2f dphiNom=%7.2f residual p99/max=%7.2f/%7.2f deg >10deg=%6.3f%%\n'], ...
+        files{i, 1}, size(H,1), size(H,2), size(H,3), qA(1), qA(2), qA(3), ...
+        min(adb), rad2deg(nominalStep), qP(1), qP(2), 100*mean(dp > 10));
+end

@@ -1,0 +1,268 @@
+                                         POLITECNICO DI TORINO
+                                         Repository ISTITUZIONALE
+
+Dual stage carrier phase estimation for 16-QAM systems based on a modified QPSK-partitioning
+
+   Original
+   Dual stage carrier phase estimation for 16-QAM systems based on a modified QPSK-partitioning / Bilal, S.M., Bosco, G..
+   - (2013), pp. 1-4. (2013 15th International Conference on Transparent Optical Networks (ICTON) Cartagena, Spain 23-
+   27 June 2013) [10.1109/ICTON.2013.6602997].
+   Availability:
+   This version is available at: 11583/2542091 since:
+   Publisher:
+   Published
+   DOI:10.1109/ICTON.2013.6602997
+   Terms of use:
+   This article is made available under terms and conditions as specified in the corresponding bibliographic description in
+   the repository
+
+   Publisher copyright
+
+                                                                (Article begins on next page)
+
+  22 August 2026
+Dual Stage Carrier Phase Estimation for 16-QAM Systems Based
+             on a Modified QPSK-Partitioning Algorithm
+
+                                      Syed M. Bilal, Gabriella Bosco, Member, IEEE
+                     Politecnico di Torino, DET, C.so Duca Degli Abruzzi 24, 10129, Torino, Italy
+
+                                                   e-mail: syed.bilal@polito.it
+
+ABSTRACT
+Coherent optical communications based on higher order modulation formats are severely affected by the phase
+noise of transmitter and receiver lasers. In this work, a novel yet simple scheme is presented for carrier phase
+estimation (CPE) of 16-ary Quadrature Amplitude Modulation (16- QAM) formats, based on a modified QPSK-
+partitioning algorithm. The proposed algorithm can tolerate a linewidth times symbol duration product (Δ ·Ts)
+of the order of 10-4, with 1 dB penalty at a bit error rate (BER) of 10-3. Tolerance can be further improved by
+introducing a maximum likelihood estimation (MLE) stage (Δ ·Ts ≈ 1.432 x 10-4). Comparison of the scheme
+with other proposed algorithms is shown. The obtained results indicate that the presented approach can be used
+with the commercially available state of the art lasers for 16-ary Quadrature Amplitude Modulation (16- QAM)
+transmission at 100 Gbps.
+Keywords: Carrier phase recovery, Quadrature amplitude modulation (QAM), Viterbi & Viterbi algorithm,
+
+              QPSK-partitioning, Maximum Likelihood Estimation (MLE).
+
+1. INTRODUCTION
+
+Phase noise is considered to be one of the main impairments in coherent optical communication systems when
+high-order modulation formats are employed. An electrical or optical phase locked loop (PLL) is traditionally
+considered for demodulating coherent optical signals. It provides synchronization between the transmitter laser
+and local oscillator’s (LO) phase and frequency. However PLL’s are subjected to propagation delays within the
+loop and ultimately results in loop instability [1]. Also for coherent detection, laser linewidth requirements are
+very strict for PLL’s [1].
+
+  Owing to the advances in very large scale integration (VLSI) technology, digital signal processing (DSP)
+algorithms now can be used for the compensation of channel impairments. Moreover, digital coherent receivers
+can provide new methods for carrier synchronization. Due to this fact, PLL’s can be avoided, since DSP can be
+used to track the mismatch of frequency between the LO and transmitter laser. A feed forward architecture, such
+as the one shown in Fig. 1, can be used for the compensation of frequency mismatch between the LO and
+transmitter laser, for various Phase Shift Keying (PSK) or Quadrature Amplitude Modulation (QAM) formats.
+Experiments have shown that the carrier recovery schemes using the feed forward architecture are more immune
+to phase noise than PLL’s [2].
+
+  16-ary Quadrature Amplitude Modulation (16-QAM) is considered to be among the most promising formats
+for the future 100 Gbps systems. At 14 Gbaud, using 16-QAM wavelength division multiplexing (WDM),
+spectral efficiency of 6.2 b/s/Hz has been experimentally demonstrated [5]. Hence 16-QAM can be considered as
+a promising key technology for increasing the spectral efficiency of optical transmission and to overcome the
+limitations of existing fiber infrastructure. For 16-QAM systems, various PE Algorithms have been proposed and
+established [ ] [8]. In this paper, we propose a modified version of the Viterbi & Viterbi algorithm based on
+QPSK-partitioning, which allows the performance to be further improved with a negligible increase in
+complexity.
+
+2. PE ALGORITHM OVERVIEW
+
+The algorithms based on M-th Power schemes are comparatively simple and have much relaxed laser linewidth
+requirements than the closed loop schemes [9]. However, the M-th Power algorithm is commonly used for
+QPSK or mPSK formats. It cannot be used for 16-QAM in its original version, since it is not possible to reduce
+the 16-QAM constellations to a single phase vector through a (.)M operation. The algorithm proposed in [4]
+estimates the phase error by considering only the subgroup symbols with modulation angles equal to π/4 + m •
+π/2 (m=0… ). Since only a subgroup of the symbols is considered, a large number of symbols are needed to
+provide a satisfactory phase estimate. The performance of M-th power scheme is adapted to multi-modulus
+modulation formats in [6] and [10] by using QPSK partitioning. In [6], an additional mechanism was needed to
+avoid the propagation of phase error, if a symbol is incorrectly sorted in a sub-class. In [10], the proposed
+scheme complexity has increased by four real adders and eight real multipliers, for each particular sub-group
+symbol.
+
+  In this paper we propose a novel yet simple approach that considers all the symbols for the phase estimate. The
+flow chart of the proposed scheme is shown in Fig. 2. Performance of the scheme for different linewidth times
+symbol duration products (Δ ·Ts) is also observed, finding that, for a 1-dB penalty at a bit error rate (BER) of
+10-3, the proposed scheme can tolerate Δ ·Ts approximately equal to 10-4. Hence at 100 Gbps, the proposed
+scheme can be used with the commercially available state of the art lasers for 16-QAM transmission.
+
+Input                                                                         Output                                         θ(k-1) D
+                                                                              Symbols
+symbols  (.)M             ∑  1                   Phase           Phase Error                                       WGN  +
+                             ������ arg(.)          Unwrap           Correction
+                                                                                                           symbols
+
+Figure 1. M-th Power, Viterbi & Viterbi, Feed                                                                 Figure 3. Phase Noise Model
+              Forward Architecture
+
+                             Incoming Data
+
+                             Partition Class-1
+                               & 2 Symbols
+
+         Class-2 Symbols                        Class-1 Symbols
+
+                                                 Rotate Class-1
+                                                Symbols by pi/8
+
+                             Combine Symbols
+                                   Symols^8
+                                      VVPE
+
+                             ML Estimator
+
+                                        φML
+
+                             BER Decision
+
+         Figure 2. Flow Chart of Proposed Scheme                                                  Figure 4. 16-QAM constellation indicating both
+                                                                                                   Class 1&2 symbols along with the ASE noise
+
+3. DESCRIPTION OF CPE TECHNIQUE
+
+Fig. 4 shows the constellation plot of a 16-QAM system. The subgroup symbols inside the green and outside the
+red circles are called Class-1 symbols, whereas the subgroup symbols in-between these two circles are called
+Class-2 symbols. Both the circles indicate the thresholds to separate the symbols of different amplitudes. One
+possible approach consists in performing phase error estimation and compensation using only Class-1 symbols.
+The complex samples are raised to the 4-th power to remove the phase modulation. To increase the accuracy of
+the estimate, a moving average with a uniform window of length N1 symbols is performed. By finding the angle
+of the complex sum vector, a phase error estimate is obtained for this block. For the sake of phase error
+estimation, the complex samples have to be normalized before they can be summed up:
+
+                                                                  est,class1           1       N1    X  4
+                                                                                          4  arg  k 1     k                               (1)
+
+                                                                                                        X  4
+                                                                                                           k
+
+The performance of this estimator can be improved by adding an (optional) maximum-likelihood estimation
+
+(MLE) stage, as shown in [11]. The expression of the ML estimator is:                                                                      , with
+
+                             , where yk is the decision of xk and N2 is the block length for the MLE stage.
+
+  Our proposed approach includes in the phase error estimate also Class-2 symbols. As compared to Class-1
+symbols, Class-2 symbols do-not lie at an angle of m·π/4 (m=1, 3, 5, 7). In-fact they lie at an angle of ± 4° from
+m·π/8 (m=1, , 5…….15). By raising them to the power of 8, they can approximately be reduced to single phase
+vectors. Hence it is possible to get a phase error estimate from Class-2 symbols, simply by raising them to the
+power of eight, instead of four and then applying the conventional VVPE algorithm.
+
+                                                                  est,class2           1       N1    X  8
+                                                                                          8  arg  k 1     k                               (2)
+
+                                                                                                        X  8
+                                                                                                           k
+Note that, if the averaging window is sufficiently long, the ±4° error is averaged out and the estimation of phase
+
+noise is only marginally affected by these errors.
+
+The estimation obtained by using only Class-2 symbols, especially at high phase noise, is close enough but not
+
+as good as Class-1 symbols. A better phase error estimate can be obtained by using both Class-1 and Class-2
+
+symbols. In order to do this, Class-1 symbols are rotated by π/8 to approximately align them to Class-2 symbols,
+
+as shown in Fig. 7. Then all the symbols are raised to the power of eight and the same conventional VVPE
+
+algorithm is applied for the phase error estimate:
+
+                                                              N1    X  8
+  1                                                                  k
+                                                        arg              (3)
+est , cla ss1& 2                                       8            X  8
+                                                                       k
+                                                              k 1
+
+Figure 5. SNR vs. Linewidth times symbol duration (Δ ·Ts ) for phase error estimate obtained by using Class-1,
+                                              Class-2 & both Class-1&2 symbols
+
+Figure 6. Block length vs. Linewidth times symbol       Figure 7. 16-QAM constellation plot with class-1
+                  duration (Δ·Ts )                   symbols rotated by  /8 and approximately aligned
+
+                                                                      with the Class-2 symbols
+4. SIMULATION RESULTS AND ANALYSIS
+
+In this section we compare by simulation the performance of the various CPE algorithms described in Section 3.
+
+The signal samples at the output of the digital coherent receiver can be written as:  , where xk is
+
+the data symbol that belongs to the set {±1 ± j, ±3 ± j, ±1 ± 3j, ±3 ± 3j} and ηk is the additive white Gaussian
+
+noise (AWGN), which models for instance the ASE noise introduced by optical amplifiers. θk is the laser phase
+
+noise and is modelled as a Wiener process [12] (see Fig. 3):   , where i’s are independent and
+
+identically distributed Gaussian random variables with zero mean and variance          , Δ is the
+
+combined laser linewidth of transmitter laser and LO and Ts is the symbol period.
+  Fig. 5 shows the performance comparison between the QPSK partitioning algorithms described in the previous
+
+section, considering Class-1, Class-2 or both Class-1 and Class-2 symbols, in terms of SNR required to obtain a
+BER equal to 10-3 as a function of the product Δ ·Ts. The maximum tolerable value of Δ ·Ts to keep the SNR
+penalty below 1 dB was found to be 6.4·10-5, 5.7·10-5 and 9.9 ·10-5, for Class-1 symbols, Class-2 symbols and
+both Class-1 & Class-2 symbols respectively. After MLE, the tolerance is increased to Δ ·Ts = 9.9·10-5 and
+1.4·10-4 for the methods using Class-1 symbols only and both Class-1 & Class-2 symbols, respectively.
+
+  Fig. 6 shows the values block lengths (i.e. the length of the Viterbi&Viterbi averaging window) corresponding
+to a sensitivity penalty of 1dB: for each linewidth, all values of block length between the lower and upper part of
+the curve allow to keep the penalty lower than 1 dB. The value which maximizes the linewidth tolerance in all
+cases is around 20 symbols (N1=20). Performing a similar analysis, the optimum block length for MLE stages
+was found to be 10 symbols (N2=10).
+
+  The improvement in linewidth tolerance of the algorithm employing both Class-1 and Class-2 symbols (w/o
+MLE) with respect to [4] is due to the fact that all the symbols are considered for the phase error estimate. In
+comparison to the method used in [6], no additional mechanism is required to avoid the propagation of phase
+error, in case of a situation in which a symbol is incorrectly sorted in a sub-class. Finally, the proposed algorithm
+yields similar linewidth tolerance as the one described in [10], with lower additional complexity with respect to a
+QPSK partitioning algorithm employing Calss-1 symbols only.
+
+5. CONCLUSION
+
+A novel feed forward carrier phase estimation algorithm for a 16-QAM system has been presented. Different
+stages involving partition, selection and rotation of symbols have also been discussed. For an OSNR penalty of 1
+dB at BER=10-3, the proposed algorithm can tolerate a linewidth times symbol rate product around 10-4, making
+it suitable for the use in 100Gbps 16-QAM optical systems with commercially available state of the art lasers.
+
+REFERENCES
+
+[1] E. Ip, et al.: Feedforward carrier recovery for coherent optical communications, J. Lightwave Technol.,
+      vol. 25, pp. 2675–2692, Sep. 2007.
+
+[2] K. Kikuchi: Coherent detection of phase-shift keying signals using digital carrier-phase estimation, in
+      OFC/NFOEC, Mar 2006, paper OTuI4.
+
+[3] I. Fatadin, et al.: Blind equalization and carrier phase recovery in a 16-QAM optical coherent system, J.
+      Lightwave Technol., vol. 27, pp. 3042 –3049, Aug. 2009.
+
+[4] M. Seimetz: Laser linewidth limitations for optical system with high-order modulation employing feed
+      forward digital carrier phase estimation, in OFC/NFOEC 2008, Feb 2008.
+
+[5] P. Winzer, et al.: Spectrally efficient long-haul optical networking using 112-gb/s polarization-multiplexed
+      16-QAM, J. Lightwave Technol., vol. 28, pp. 547–556, Feb. 2010.
+
+[6] H. Louchet, K. Kuzmin, A. Richter: Improved DSP algorithms for coherent 16-QAM transmission, in
+      ECOC 2008, Sep. 2008, paper Tu.1.E.6.
+
+[7] Zhang, P. Kam, C. Yu, J. Chen, Laser linewidth tolerance of decision-aided maximum likelihood phase
+      estimation in coherent optical M-ary PSK and QAM systems, IEEE Photon. Technol. Lett., vol. 21, pp.
+      1075 –1077, Aug. 2009.
+
+[8] J. H. Ke, et al.: Linewidth-tolerant and low-complexity two-stage carrier phase estimation for dual-
+      polarization 16-QAM coherent optical fiber communications, J. Lightwave Technol., vol. 30, pp. 3987 –
+      3992, Dec. 2012.
+
+[9] D.-S. Ly-Gagnon, et al.: Coherent detection of optical Quadrature phase-shift keying signals with carrier
+      phase estimation, J. Lightwave Technol., vol. 24, pp. 12 – 21, Jan. 2006.
+
+[10] I. Fatadin, et al.: Laser linewidth tolerance for 16-QAM coherent optical systems using QPSK partitioning,
+      IEEE Photon. Technol. Lett., vol. 22, pp. 631 – 633, May. 2010.
+
+[11] Y. Gao, et al: Low-complexity two-stage carrier phase estimation for 16-QAM systems using QPSK
+      partitioning and maximum likelihood detection, in OFC/NFOEC 2011, Mar. 2011, paper OMJ6.
+
+[12] T. Pfau, et al.: Hardware-efficient coherent digital receiver concept with feedforward carrier recovery for
+      M-QAM constellations, J. Lightwave Technol., vol. 27, pp. 989 – 999, Apr. 2009.

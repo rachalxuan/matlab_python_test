@@ -1,0 +1,786 @@
+This material is posted here with permission of the IEEE. Internal or personal use of this material is permitted. However, permission to reprint/
+republish this material for advertising or promotional purposes or for creating new collective works for resale or redistribution must be obtained from
+the IEEE by writing to pubs-permissions@ieee.org. By choosing to view this document, you agree to all provisions of the copyright laws protecting it.
+
+JOURNAL OF LIGHTWAVE TECHNOLOGY, VOL. 27, NO. 8, APRIL 15, 2009                                                         989
+
+ Hardware-Efﬁcient Coherent Digital Receiver
+
+M Concept With Feedforward Carrier Recovery for
+                  -QAM Constellations
+        Timo Pfau, Student Member, IEEE, Sebastian Hoffmann, and Reinhold Noé, Member, IEEE
+
+Abstract—This paper presents a novel digital feedforward
+
+carrier recovery algorithm for arbitrary -ary quadrature
+
+amplitude modulation ( -QAM) constellations in an intradyne
+
+coherent optical receiver. The approach does not contain any
+
+feedback loop and is therefore highly tolerant against laser phase
+
+noise. This is crucial, especially for higher order QAM constella-
+
+tions, which inherently have a smaller phase noise tolerance due
+
+to the lower spacing between adjacent constellation points. In
+
+addition to the mathematical description of the proposed carrier
+
+recovery algorithm also a possible hardware-efﬁcient implemen-
+
+tation in a parallelized system is presented and the performance
+
+of the algorithm is evaluated by Monte Carlo simulations for
+
+square 4-QAM (QPSK), 16-QAM, 64-QAM, and 256-QAM. For
+
+the simulations ASE noise and laser phase noise are considered as
+
+well as analog-to-digital converter (ADC) and internal resolution
+BER = 10 effects. For a 1 dB penalty at  3, linewidth times
+4 1 10 1 4 10 symbol duration products of
+                                4 (4-QAM),                       4
+4 0 10 8 0 10 (16-QAM),
+                5 (64-QAM) and            6 (256-QAM)
+
+are tolerable.
+
+   Index Terms—Coherent communication, feedforward carrier
+recovery, optical communication, parallel processing, phase esti-
+mation, phase noise, quadrature amplitude modulation.
+
+                I. INTRODUCTION                                             Fig. 1. Square QAM constellation diagrams.
+
+Q UADRATURE amplitude modulation in combination                             16-QAM [6], [7], and the transmission of a polarization-multi-
+        with coherent detection is very attractive for future               plexed 128-QAM signal was demonstrated using a pilot carrier
+        optical transmission systems, since it allows to increase           for optical phase noise cancelling [8].
+the data rate without increasing the symbol rate or the required
+bandwidth. This allows integrating single wavelength channels                  However, a linewidth tolerant feed-forward carrier recovery
+with data rates at 100 Gb/s and above into existing dense wave-             avoiding feedback loops for higher-order QAM constellations
+length division multiplexed (DWDM) systems with 50 GHz                      has not been proposed so far. The published algorithms either
+spacing. Additionally, as the throughput for coherent transmis-             contain a decision directed feedback loop [9]–[11], use only
+sion systems is strongly limited by the ADC bandwidth and                   dedicated symbols for carrier recovery that fulﬁll certain cri-
+sampling rate, higher order QAM modulation formats reduce                   teria [12] or perform differential decoding without carrier re-
+these requirements.                                                         covery [13]. The ﬁrst two approaches achieve only a low laser
+                                                                            linewidth tolerance in practical systems prohibiting the utiliza-
+   Tremendous studies have already been done on coherent                    tion of standard distributed DFB lasers. The latter has a lower
+quadrature phase shift keying (QPSK) [1], [2], which can also               receiver sensitivity due to the asynchronous detection.
+be regarded as 4-QAM, and ﬁrst realtime transmission systems
+have already been demonstrated [3]–[5]. Also higher order                      In this article we present a hardware-efﬁcient and phase
+QAM modulation formats (see Fig. 1) attract more and more at-               noise tolerant feedforward carrier recovery concept for syn-
+tention. Integrated modulators have already been developed for              chronous decoding of arbitrary -QAM constellations. The
+                                                                            feedbackless algorithm is described mathematically and a hard-
+   Manuscript received August 01, 2008; revised November 20, 2008, October  ware-efﬁcient implementation is proposed. The performance
+23, 2008. Current version published April 17, 2009.                         of the algorithm is investigated for 4-QAM (QPSK), 16-QAM,
+                                                                            64-QAM and 256-QAM in Monte Carlo simulations (Fig. 1).
+   The authors are with the Optical Communication and High-Frequency        The implementation of 32-QAM and 128-QAM is also possible
+Engineering, University of Paderborn, 33098 Paderborn, Germany (e-mail:     but not addressed in this article. The simulations consider laser
+pfau@ont.upb.de; hoffmann@ont.upb.de; noe@upb.de).                          phase noise effects, but also various quantization effects in the
+
+   Digital Object Identiﬁer 10.1109/JLT.2008.2010511
+
+                                            0733-8724/$25.00 © 2009 IEEE
+
+Authorized licensed use limited to: UNIVERSITATSBIBLIOTHEK PADERBORN. Downloaded on April 26,2010 at 10:19:51 UTC from IEEE Xplore. Restrictions apply.
+990                                                                                  JOURNAL OF LIGHTWAVE TECHNOLOGY, VOL. 27, NO. 8, APRIL 15, 2009
+
+1 = 1 Fig. 2. Decision-directed carrier recovery with  .
+
+receiver. The results show that a practical implementation of                (1  1) Fig. 3. Decision-directed carrier recovery in a parallelized and pipelined re-.
+16-QAM using DFB lasers is already possible today, therefore                 ceiver
+being a potential candidate for 100 Gb/s transmission systems.
+64-QAM and 256-QAM can be realized in the near future and                    within one clock cycle, but only fractions of the processing are
+may enable 400 Gb/s transmission in 50-GHz-spaced DWDM
+channels.                                                                    performed and the auxiliary results are stored in registers or
+
+    II. PHASE NOISE TOLERANCE OF DECISION-DIRECTED                           ﬂip-ﬂops (FF). Fig. 3 shows the structure of such an implemen-
+    DIGITAL CARRIER RECOVERY CONCEPTS FOR -QAM
+                                                                             tation. It can be seen that due to the parallel processing of
+                           CONSTELLATIONS
+   Phase noise can be modeled as a Wiener process [14]                       consecutive samples the feedback delay between two symbols
+
+                                                                        (1)  within one module is equal to the degree of parallelism . Even
+
+where the ’s are independent and identically distributed                     if the latest phase estimate from all parallel outputs is fed back
+random Gaussian variables with zero mean and variance
+                                                                             into each module as shown in Fig. 3, the average delay amounts
+
+                                                                             to            . Taking also the number of pipeline stages into
+
+                                                                             account (represented by the ﬂip-ﬂops (FF) in Fig. 3), meaning
+
+                                                                             that it takes clock cycles until an input sample has an impact
+
+                                                                             on the feedback value, the total average feedback delay is
+
+                                                                                                                                         (5)
+
+                                                          (2)                Note that the minimum number of pipeline stages is 1, because
+
+     is the sum linewidth of signal and local oscillator lasers and          this is the minimum number of clock cycles required in a digital
+
+     is the symbol period.                                                   feedback system (cp. Fig. 2).
+
+Fig. 2 shows the general structure of a decision-directed car-                   To determine the effect of on the phase noise tolerance
+
+rier & data recovery module with feedback delay           . The              of the receiver, let       be a perfect estimate of         , i.e.,
+
+phase estimator uses the estimated carrier phase          to dero-                            and is only corrupted by phase noise. With
+
+tate the symbol , and the result is fed into a decision device               (3), can be written as
+
+( denotes the output of the decision device).                                                                                            (6)
+
+                                                          (3) According to (1) is given by
+
+The carrier phase estimate is calculated with
+
+                                                                                                                                         (7)
+
+                                                          (4)
+
+                                                                                 is a random Gaussian variable with zero mean and variance
+
+where are weighting coefﬁcients (e.g., Wiener ﬁlter coefﬁ-                                                  . Therefore, the standard devi-
+
+cients) and is the FIR ﬁlter length. If only preceding symbols               ation of the phase noise increases by the factor .
+
+are used as inputs to the FIR ﬁlter, a feedback delay of                         In a practical implementation, assuming e.g., parallel pro-
+
+becomes theoretically possible [10].                                         cessing with          and         pipeline stages, the average
+
+However, in a practical implementation it is impossible to                   feedback delay is              samples. This shows that a de-
+
+achieve  . A real circuit implementation that supports                       cision-directed carrier recovery is fairly unfeasible because the
+
+100 Gb/s or higher data throughput, will use massive paral-                  phase noise tolerance is reduced by a factor of 8.5. Conse-
+
+lelization and pipelining to realize a synchronous carrier and               quently any feedback loop must be avoided in the carrier re-
+
+data recovery. Parallelization means that the received samples               covery process, especially for higher order QAM constellations
+
+are demultiplexed into several parallel modules to be able to                with their inherently smaller phase noise tolerance. In particular,
+
+process the data at a lower clock speed. Pipelining signiﬁes that            the carrier cannot be recovered in a decision-directed manner
+
+the whole carrier recovery process is not executed completely                when normal DFB lasers are used.
+
+Authorized licensed use limited to: UNIVERSITATSBIBLIOTHEK PADERBORN. Downloaded on April 26,2010 at 10:19:51 UTC from IEEE Xplore. Restrictions apply.
+PFAU et al.: HARDWARE-EFFICIENT COHERENT DIGITAL RECEIVER CONCEPT WITH FEEDFORWARD CARRIER RECOVERY FOR -QAM CONSTELLATIONS 991
+
+B ' Fig. 4. Feedforward carrier recovery using test phase values .
+
+     III. FEEDFORWARD CARRIER RECOVERY ALGORITHM                             Due to the 4-fold ambiguity of the recovered phase in the
+
+A. Square QAM Constellations                                                 square -QAM constellation the receiver cannot uniquely as-
+
+   Fig. 4 shows a block diagram of the proposed carrier recovery             sign the  bits to the recovered symbol. This problem
+module. The input signal of the coherent receiver is sampled
+at the symbol rate, and perfect clock recovery and equalization              can be resolved either by using framing information [15] or by
+are assumed. To recover the carrier phase in a pure feedforward
+approach the received signal is rotated by test carrier phase                applying differential coding [16]. It is sufﬁcient to differentially
+angles with
+                                                                             Gray-encode the two bits that determine the quadrant of the
+
+                                                                             complex plane. The differential encoding and decoding process
+
+                                                                             is the same as for QPSK and is presented in detail in [17]. It can
+
+                                                                             be described by the following formula
+
+                                                                    (8)
+                                                                                                                                                  (11)
+
+Then all rotated symbols are fed into a decision circuit and the             where is the differentially decoded quadrant number,
+                                                                             is the received quadrant number and is the jump number.
+squared distance          to the closest constellation point is cal-         The only required modiﬁcation of the decoding process com-
+                                                                             pared to [17] is that quadrant jumps are detected according to
+culated in the complex plane                                                 the following formula:
+
+                                                                    (9)
+
+   In order to remove noise distortions, the distances of                                                                                           (12)
+consecutive test symbols rotated by the same carrier phase angle
+                                                                             All other bits that determine the symbol within the quadrant
+    are summed up                                                            of the complex plane are Gray-encoded without any differen-
+                                                                             tial encoding or decoding. Fig. 5 exempliﬁes the bit to symbol
+                                                                       (10)  assignment including differential encoding/decoding for square
+                                                                             16-QAM.
+The optimum value of the ﬁlter half width depends on the
+                                                                                The resulting constellation diagram is not any more Gray-
+laser linewidth times symbol rate product.                          will     encoded. This results in a coding penalty, which is 3 dB for
+                                                                             4-QAM (QPSK) and drops to nearly 0 dB for high order con-
+be a fairly good choice.                                                     stellations [18].
+
+After ﬁltering the optimum phase angle is determined by                      B. Arbitrary QAM Constellations
+                                                                                The proposed feedforward carrier recovery concept can also
+searching the minimum sum of distance values. As the de-
+                                                                             be applied to arbitrary QAM constellations. If the constellation
+coding was already executed in (9), the decoded output symbol
+
+can be selected from the by a switch controlled by the
+
+index  of the minimum distance sum.
+
+Authorized licensed use limited to: UNIVERSITATSBIBLIOTHEK PADERBORN. Downloaded on April 26,2010 at 10:19:51 UTC from IEEE Xplore. Restrictions apply.
+992                                                                           JOURNAL OF LIGHTWAVE TECHNOLOGY, VOL. 27, NO. 8, APRIL 15, 2009
+
+                                                                              control, chromatic dispersion (CD) and polarization mode dis-
+                                                                              persion (PMD) compensation. Both non-decision-aided feed-
+                                                                              forward equalizers based e.g., on the constant modulus algo-
+                                                                              rithm (CMA) [20] or decision-directed equalization as proposed
+                                                                              in [19] can be applied.
+
+                                                                              IV. HARDWARE-EFFICIENT CARRIER RECOVERY
+                                                                                                 IMPLEMENTATION
+
+                                                                              A. Efﬁcient Calculation of Vector Rotations
+
+                                                                              The rotation of a symbol in the complex plane normally re-
+
+                                                                              quires a complex multiplication, consisting of four real-valued
+
+                                                                              multiplications with subsequent summation. This would lead
+
+                                                                              to a large number of multiplications to be executed, while
+
+                                                                              achieving a sufﬁcient resolution for the carrier phase values
+
+                                                                              . The hardware effort would therefore become prohibitive.
+
+                                                                              Applying the CORDIC (coordinate rotation digital computer)
+
+                                                                              algorithm [21], [22] can dramatically reduce the necessary
+
+Fig. 5. 16-QAM bit to symbol assignment: The encircled symbol pairs have a    hardware effort to calculate the rotated test symbols. This
+Hamming distance larger than 1 due to differential encoding of the quadrant.
+                                                                              algorithm can compute vector rotations simply by summation
+diagram is rotationally symmetric by the angle , then must
+be selected as                                                                and shift operations. As for the calculation of the rotated
+
+                                                                       (13)   copies of the input vector intermediate results can be reused
+
+                                                                              for different rotation angles, only             shift and add
+
+                                                                              operations are required to generate the test symbols. For
+
+                                                                              example to generate  rotated copies of the CORDIC
+
+                                                                              algorithm requires only 124 shift and add operations instead of
+
+                                                                              124 real valued multiplications and 62 summations.
+
+For square QAM constellations  [cp. (8)] holds.                               B. Calculation of the Distance to the Closest Constellation
+                                                                              Point
+Without rotational symmetry    must be used.
+                                                                                 To determine the closest constellation point the rotated
+Due to the -fold ambiguity of the recovered phase with                        symbols are fed into a decision circuit. The square distance
+
+     bits should be differentially encoded/decoded,                                   [(9)] can be written as
+
+where is the smallest integer larger than or equal to . (11)
+
+therefore changes to the more general expression
+
+                                                        (14)
+                                                                                                                                       (16)
+
+C. Polarization Division Multiplexing & Equalization                          Implementing this formula literally into hardware would lead to
+                                                                              two multipliers and three adders/subtractors. But a closer exam-
+   If polarization division multiplexing is applied, there are two            ination of (9) and (16) reveals that the results of the subtractions
+possibilities to implement the carrier recovery. One option is to             are relatively small because the distance to the closest constel-
+use two separate carrier recoveries for each polarization, or to              lation point is calculated. Therefore, the most signiﬁcant bits
+have a common carrier recovery for both polarizations as pro-                 (MSBs) of the subtraction result will always be zero and can
+posed in [19]. To realize this option (10) must be modiﬁed as                 be discarded to reduce the hardware effort. Due to the moderate
+follows:                                                                      required resolution for , the squared distance (15) can be de-
+                                                                              termined by a look-up table or basic logic functions more efﬁ-
+                                                                       (15)   ciently than with multipliers.
+
+where is the index of the polarization. Because twice as much                 C. Filter Function
+data is available to determine the carrier phase angle, can be
+halved, increasing the phase noise tolerance roughly by a factor              Highly parallelized systems allow a very resourceful imple-
+of 2 [19].
+                                                                              mentation of the summation of 2      consecutive values. The
+   The presented feedforward carrier recovery algorithm is com-
+patible with all kinds of equalizers proposed for polarization                adders can be arranged in a binary tree structure where interme-
+
+                                                                              diate results from different modules are reused in neighboring
+
+                                                                              modules leading to a moderate hardware effort.
+
+Authorized licensed use limited to: UNIVERSITATSBIBLIOTHEK PADERBORN. Downloaded on April 26,2010 at 10:19:51 UTC from IEEE Xplore. Restrictions apply.
+PFAU et al.: HARDWARE-EFFICIENT COHERENT DIGITAL RECEIVER CONCEPT WITH FEEDFORWARD CARRIER RECOVERY FOR -QAM CONSTELLATIONS 993
+
+D. Overall Hardware Effort
+
+To estimate the overall hardware effort, we compare the
+
+proposed algorithm against the QPSK carrier recovery algo-
+
+rithm proposed in [17]. Both algorithms contain almost the
+
+same functional blocks such as the rotation in the complex
+
+plain, the ﬁlter function or the decision circuit. Both algorithms
+
+also use look-up tables, [17] for calculating the argument
+
+of a complex sample, and the newly proposed algorithm to
+
+calculate  . The only functional block not found in [17]
+
+is the search for the minimum sum of the ﬁlter outputs and the
+
+subsequent switch. Considering that the complex rotation is
+
+more hardware-efﬁcient in the proposed algorithm than in [17],
+
+because the CORDIC algorithm can reuse intermediate results,
+
+the hardware effort for the proposed algorithm is roughly
+
+times higher than the one for QPSK carrier recovery. It may
+
+be viewed as a large increase since is in the range of 16 to
+
+64. But taking into account that the algorithm is designed for
+
+high-order QAM constellations, and that the hardware effort
+
+for chromatic dispersion (CD) compensation, polarization
+
+mode dispersion (PMD) compensation or polarization control
+
+is also many times higher than the hardware effort for [17],
+
+the implementation of the proposed algorithm can be achieved
+
+with reasonable effort.
+
+           V. SQUARE QAM SIMULATION RESULTS
+
+To evaluate the performance of the proposed carrier recovery
+
+algorithm and to determine the required hardware effort,
+
+extensive simulations have been carried out. The considered
+
+constellations are 4-QAM (QPSK), 16-QAM, 64-QAM and
+
+256-QAM with differential encoding/decoding as described in         Fig. 6. Sensitivity penalty for different numbers of test phase values ' (a) for
+
+Section III.A. Our simulations are limited to square constel-       4-QAM and 16-QAM; (b) for 64-QAM and 256-QAM.
+
+lations because they are more straightforward to generate [6],
+
+[7] and optimal in respect of noise immunity in additive white
+
+Gaussian noise (AWGN) dominated transmission systems [18].
+
+The ﬁlter width is always set to       , and each data point is
+
+based on the simulation of 200 000 symbols. The results are
+
+compared against the theoretically achievable sensitivity with
+
+ideal Gray coding. Thus, the sensitivity penalties observed in
+
+the simulations take also the coding penalty due to differential
+
+encoding/decoding into account. The theoretically achievable
+
+sensitivity is calculated with the following formula [18]:
+
+                                                            (17)
+
+where is the average energy per symbol, is the noise
+
+power spectral density, is the number of constellation points       Fig. 7. Receiver tolerance against phase noise for different square QAM
+                                                                    constellations.
+and BER is the target bit error rate.  is referred to as
+
+optical signal to noise ratio (OSNR),
+
+A. Phase Angle Resolution                                           for 4-QAM and 16-QAM. The proposed algorithm and a re-
+                                                                    ceiver with ideal carrier recovery were simulated with different
+   A crucial quantity for the proposed algorithm is the required    resolutions for the carrier phase. Ideal carrier recovery means
+number of the test phase values . If the required resolu-           that the receiver knows the exact carrier phase (which is only
+tion is too large, the realization in hardware becomes unfeasible.  realizable in simulation) and therefore the sensitivity penalty is
+Fig. 6(a) shows the sensitivity penalty at the bit error rate
+
+Authorized licensed use limited to: UNIVERSITATSBIBLIOTHEK PADERBORN. Downloaded on April 26,2010 at 10:19:51 UTC from IEEE Xplore. Restrictions apply.
+994                                                                JOURNAL OF LIGHTWAVE TECHNOLOGY, VOL. 27, NO. 8, APRIL 15, 2009
+
+Fig. 8. Impact of different linewidth times symbol duration products on the receiver sensitivity of coherent QAM receivers.
+
+                                         TABLE I                   transmission systems usually employ DFB lasers, because they
+     LINEWIDTH REQUIREMENTS FOR FEEDFORWARD CARRIER RECOVERY
+                                                                   are cost-efﬁcient and have a small footprint. The linewidth of
+                WITH DIFFERENT SQUARE QAM CONSTELLATIONS
+
+                                                                   such lasers is in the range of 100 kHz                    MHz. As-
+
+                                                                   suming a symbol rate of 10 Gbaud the tolerable sum linewidth
+
+                                                                   times symbol duration product must be
+
+                                                                   .
+
+                                                                   Fig. 7 shows the sensitivity penalty of the proposed carrier
+
+                                                                   recovery algorithm against the linewidth times symbol duration
+
+                                                                   product. Table I lists the maximum tolerable linewidth times
+
+                                                                   symbol duration product for a sensitivity penalty of 1 dB at a
+
+only caused by differential quadrant encoding and quantization     BER of . In a polarization multiplexed system with the
+
+effects.                                                           same common carrier recovery for both polarizations (as de-
+
+4-QAM attains a minimum penalty of 0.5 dB for the ideal            scribed in Section III.C), these values can be approximately
+
+receiver and 0.7 dB for the proposed algorithm. The penalty        doubled.
+
+difference of 0.2 dB is thus the implementation-induced penalty.   In order to evaluate the phase noise tolerance of the algo-
+
+For 16-QAM the minimum penalties decreases (0.4 dB for the         rithm also for lower BER rates, additional long term simula-
+
+ideal receiver, 0.6 dB for the proposed algorithm), because only   tions have been executed for selected values of           , simu-
+
+2 out of 4 transmitted bits are differentially encoded. For all    lating 2 000 000 symbols per data point (Fig. 8). Note that for
+
+4 receivers it can be seen that almost no additional penalty is    BERs below the results become inaccurate due to the low
+
+induced due to the quantization of the carrier phase, provided     number of errors that occurred during simulation. The theoret-
+
+that      . Therefore, in all following simulations for            ical optimum is calculated by inverting (17), which results in the
+
+4-QAM and 16-QAM is set to 32.                                     following equation:
+
+Fig. 6(b) shows the same simulations for 64-QAM and 256-
+
+QAM. The minimum penalty for 64-QAM is 0.3 dB with ideal
+
+carrier recovery and 0.5 dB using the proposed algorithm. For
+
+256-QAM the respective values are 0.35 dB and 0.55 dB. For
+
+both constellations the penalty due to the quantization of the
+
+carrier phase is tolerable only if        . The number of                                                                    (18)
+
+test phase values for 64-QAM and 256-QAM is therefore chosen
+
+to be     in all subsequent simulations.                           It can be seen that for the values of                     causing 1 dB
+
+B. Phase Noise Tolerance                                           of penalty at a BER of , the penalty increases for lower
+
+   Another important property of a carrier recovery in a coherent  BERs, especially for higher order QAM constellations. But if
+receiver is its tolerance against phase noise. Today’s commercial
+                                                                   these values are reduced to one quarter the penalty stays almost
+
+                                                                   constant even for BER rates down to .
+
+Authorized licensed use limited to: UNIVERSITATSBIBLIOTHEK PADERBORN. Downloaded on April 26,2010 at 10:19:51 UTC from IEEE Xplore. Restrictions apply.
+PFAU et al.: HARDWARE-EFFICIENT COHERENT DIGITAL RECEIVER CONCEPT WITH FEEDFORWARD CARRIER RECOVERY FOR -QAM CONSTELLATIONS 995
+
+Fig. 9. Phase estimator mean squared error and efﬁciency e(N ) versus ﬁlter half width N for different square QAM constellations. (The legends apply to both
+ﬁgures of a column.).
+
+C. Carrier Phase Estimator Efﬁciency                               was selected for our simulations, induces a mean squared error
+
+In the following the efﬁciency of the phase estimator is an-       that is always close to this minimum, especially for lower
+
+alyzed. For high OSNR the contribution of AWGN to phase            OSNRs. In principle by optimizing for each parameter set
+
+noise can be considered to be also Gaussian with the variance                        the performance of the receiver could
+
+[23]. Therefore, the efﬁciency                   of the phase      have been improved. But as this is not practical in real systems
+
+estimator depending on the ﬁlter half width is given by            this optimization was omitted in the simulations.
+
+                                                                   A result comparison among the different QAM constellations
+
+                                                                   makes it apparent that the maximum achievable efﬁciency re-
+
+                                                                   duces from 85% for 4-QAM to 60% for 16-QAM and
+
+                                                         (19)      64-QAM to ﬁnally around 30% for 256-QAM. This reduction
+
+                                                                   is mainly caused by the quantization of the carrier phase that
+
+                                                                   limits the minimum achievable mean squared error of the esti-
+
+where the numerator is the Cramér–Rao lower bound (CRLB)           mator. For        (4-QAM, 16-QAM) and
+
+[24], and the denominator is the mean squared error of the phase   (64-QAM, 256-QAM) the minimum mean squared errors are
+
+estimator output. The CRLB is independent of the estimator         rad and           rad , respectively. For 4-QAM the
+
+structure and speciﬁes the lowest possible mean squared error      CRLB is well above the quantization limit, thus quantization
+
+achievable by an unbiased estimator. Thus, the maximum esti-       effects can mostly be neglected. For 16-QAM and 64-QAM the
+
+mator efﬁciency is 1.                                              CRLB is in the range of the quantization limit. Hence, the esti-
+
+Fig. 9 shows the mean squared error together with the theoret-     mator efﬁciency is already reduced, especially for low OSNR.
+
+ical optimum expressed by the CRLB (top row) and the resulting     If the resolution of the carrier phase for 16-QAM is increased
+
+estimator efﬁciency (bottom row) for the proposed carrier          to 6 bit, the estimator efﬁciency improves to 80%. Finally
+
+recovery concept and different square QAM constellations.          for 256-QAM the CRLB is mostly below the 6 bit quantiza-
+
+For all considered constellations in the absence of phase noise    tion limit, which of course severely degrades the estimator ef-
+
+the mean squared error  continuously decreases for                 ﬁciency. Increasing the carrier phase resolution would cause
+
+larger values of . In contrast if phase noise is present a global  an improvement. But as can be seen from Fig. 8 the achieved
+
+minimum emerges that depends on the linewidth times symbol         mean squared errors are already sufﬁcient to reliably recover
+
+duration products the OSNR. It can be seen that  , which           256-QAM symbols.
+
+Authorized licensed use limited to: UNIVERSITATSBIBLIOTHEK PADERBORN. Downloaded on April 26,2010 at 10:19:51 UTC from IEEE Xplore. Restrictions apply.
+996                                                                               JOURNAL OF LIGHTWAVE TECHNOLOGY, VOL. 27, NO. 8, APRIL 15, 2009
+
+                                                                                                                      TABLE II
+                                                                                  ANALOG-TO-DIGITAL CONVERTER REQUIREMENTS FOR POLARIZATION
+
+                                                                                                    MULTIPLEXED 100 GB/S TRANSMISSION
+
+Fig. 10. Receiver sensitivity penalty versus analog-to-digital converter resolu-
+tion for different square QAM constellations.
+
+Another peculiarity is that the efﬁciency for higher order
+
+QAM constellations tends to go to zero for short ﬁlter lengths
+
+and low OSNR. The reason for this effect becomes obvious if
+
+one recalls the carrier recovery algorithm: The squared distance
+
+of the received symbol to the closest constellation point is                      RFieg[.d11.     Im[ ] Receiver sensitivity penalty versus internal resolution for  the  distances
+
+calculated for different carrier phase angles. Looking at the de-                              ]  and d for different square QAM constellations.
+
+veloping of  over the different the algorithm produces
+
+for 4-QAM one distinct minimum even for    . In contrast
+
+for higher order QAM constellations several local minima will
+
+emerge. Therefore, larger ﬁlters are required to identify the
+
+global minimum, especially for lower OSNRs where the signal
+
+is stronger corrupted by noise.
+
+D. Analog-To-Digital Converter Resolution
+
+Next to phase noise tolerance another major obstacle to re-
+
+alize realtime coherent transmission systems with digital car-
+
+rier recovery is based on the required bandwidth and resolution
+
+of the analog-to-digital converter (ADC). Fig. 10 shows the ef-
+
+fect of the ADC resolution on the receiver sensitivity for the
+
+considered QAM constellations. The necessary ADC resolution
+
+increases approximately by 1 bit if the number of constella-
+
+tion points is multiplied by 4. This relation becomes evident by                  Fig. 12. Receiver sensitivity penalty versus internal resolution for the squared
+                                                                                  distance jd j for different square QAM constellations.
+looking again at Fig. 1. It can be seen that increasing the number
+
+of constellations points by a factor of 4 doubles the size of the
+
+constellation diagram in Re- and Im-dimensions. Therefore, to                     parallel blocks per module, the hardware efﬁciency of each
+
+keep the accuracy of the received samples constant, the number                    block is crucial for the practicality of the system.
+
+of ADC quantization steps must also double. Table II summa-                       To ﬁnd an efﬁcient hardware implementation, one important
+
+rizes the ADC requirements for a 100 Gb/s polarization multi-                     goal is to avoid multipliers in the system, since they usually
+
+plexed transmission system. Since commercial systems will also                    utilize a lot of chip area. Fig. 11 shows the receiver sensitivity
+
+contain PMD and CD compensation, which necessitates over-                         penalty against different resolutions of              and                               .
+
+sampling, the values for         sampling are also given.                         The results are similar for all considered constellations and
+
+E. Internal Resolutions                                                           show, that a resolution  bits is sufﬁcient. As for
+
+   Not only the external quantization limited by the ADC reso-                    the penalty for a resolution bits is tolerable (Fig. 12), the
+lution constrains algorithm performance, but also internal res-
+olutions have to be considered. Therefore, an optimal compro-                     -operation in (16) can be realized with a small look-up table
+mise must be found between performance degradation and hard-
+ware efﬁciency. Especially because the proposed algorithm uses                    (4 bit input, 4 bit output) or simple logic functions.
+
+                                                                                  The reason for the similar results for all simulated constella-
+
+                                                                                  tions is that the distance to the closest constellation point is in-
+
+                                                                                  dependent of the number of constellation points. This fact was
+
+Authorized licensed use limited to: UNIVERSITATSBIBLIOTHEK PADERBORN. Downloaded on April 26,2010 at 10:19:51 UTC from IEEE Xplore. Restrictions apply.
+PFAU et al.: HARDWARE-EFFICIENT COHERENT DIGITAL RECEIVER CONCEPT WITH FEEDFORWARD CARRIER RECOVERY FOR -QAM CONSTELLATIONS 997
+
+1 = 4 1 10 1 = 4 0 10 Fig. 13. 4-QAM constellation diagram at the receiver before and after carrier Fig. 15. 64-QAM constellation diagram at the receiver before and after carrier
+recovery for f 1 T  :1  .                                         recovery for f 1 T  :1              .
+
+1 = 1 4 10 1 = 8 0 10 Fig. 14. 16-QAM constellation diagram at the receiver before and after carrier
+recovery for f 1 T  :1  .                                         Fig. 16. 256-QAM constellation diagram at the receiver before and after carrier
+
+                                                                  recovery for f 1 T  :1              .
+
+already mentioned in Section IV.B and shows that the hardware
+
+effort to implement the proposed algorithm only increases         for future commercialization. Furthermore, the growth of trans-
+                                                                  mission bandwidth in existing optical ﬁber systems will only
+moderately for higher order QAM constellations. The needed        be viable by increasing the spectral efﬁciency using advanced
+                                                                  modulation formats. Therefore, QAM will play an important
+internal resolutions for calculation of  and consequently         role for systems supporting 100 Gb/s, 400 Gb/s, or even higher
+                                                                  data rates.
+also for the subsequent ﬁlter function is always the same.
+                                                                     There are two main technological barriers remaining to suc-
+Therefore, the proposed feedforward carrier recovery algorithm    cessfully develop a high-order QAM transceiver. The ﬁrst one is
+                                                                  the availability of low-cost low linewidth DFB lasers. But the re-
+becomes hardware-efﬁcient especially for high order QAM           sults in Table I show that the requirements for the laser linewidth
+                                                                  are not as stringent as one would expect. DFB lasers with a
+constellations.                                                   linewidth of 10 kHz are available today [25], consequently al-
+                                                                  lowing even an implementation of 256-QAM.
+                           VI. DISCUSSION
+                                                                     The second technological barrier is the requisite ADC band-
+   To demonstrate the feasibility of optical high-order QAM       width and resolution. Table II showed corresponding values
+transmission Figs. 13–16 depict the constellation diagrams at     required for the realization of a coherent polarization-mul-
+the receiver before and after carrier recovery for the investi-   tiplexed 100 Gb/s system. State-of-the-art ADCs already
+gated square QAM formats. The OSNRs are the same as in            accomplish sampling rates above 10 GS/s [26]–[28], enabling
+Section V.C. The ﬁgures show that the carrier phase can be reli-
+ably recovered by the proposed feedforward algorithm, even for
+high order QAM constellations.
+
+   A potential implementation of such transmission systems
+with cost-effective DFB lasers will make them very attractive
+
+Authorized licensed use limited to: UNIVERSITATSBIBLIOTHEK PADERBORN. Downloaded on April 26,2010 at 10:19:51 UTC from IEEE Xplore. Restrictions apply.
+998                                                                                   JOURNAL OF LIGHTWAVE TECHNOLOGY, VOL. 27, NO. 8, APRIL 15, 2009
+
+realtime 10 Gbaud 4-QAM (QPSK) systems [29]. But the                                      [13] U.-V. Koc, “PLL-free quadrature-amplitude modulation in coherent
+effective resolution is limited to 5 bits and ADCs with the                                     optical communication,” in Proc. ISCAS’07, New Orleans, LA, May
+required higher resolutions are limited to lower sampling rates                                 27–30, 2007, pp. 2299–2302.
+[30], [31], therefore inhibiting the implementation of 64-QAM
+or even 256-QAM. However, further developments in ADC                                     [14] F. Munier, E. Alpman, T. Eriksson, A. Svensson, and H. Zirath, “Es-
+design [32] and device technology will enable the realization                                   timation of phase noise for QPSK modulation over AWGN channels,”
+of these high-order QAM modulation formats in optical trans-                                    in Proc. GigaHertz 2003 Symp., Linköping, Sweden, Nov. 4–5, 2003.
+mission systems in the near future.
+                                                                                          [15] E. Cacciamani and C. Wolejsza, “Phase-ambiguity resolution in a four-
+     VII. SUMMARY                                                                               phase PSK communications system,” IEEE Trans. Commun. Techn.,
+                                                                                                vol. 19, no. 6, pp. 1200–1210, Dec. 1971.
+In this paper a novel phase noise tolerant feedforward carrier
+                                                                                          [16] W. Weber, “Differential encoding for multiple amplitude and phase
+recovery concept for arbitrary -QAM constellations was                                          shift keying systems,” IEEE Trans. Commun., vol. 26, no. 3, pp.
+                                                                                                385–391, Mar. 1978.
+presented and a hardware-efﬁcient implementation of the
+                                                                                          [17] R. Noé, “PLL-free synchronous QPSK polarization multiplex/diversity
+algorithm was proposed. A tolerance against linewidth times                                     receiver concept with digital I&Q baseband processing,” IEEE Photon.
+                                                                                                Technol. Lett., vol. 17, no. 4, pp. 887–889, Apr. 2005.
+symbol rate products of                 , and
+                                                                                          [18] W. Webb and L. Hanzo, Modern Quadrature Amplitude Modulation.
+     for a penalty of 1 dB at a BER of  for square                                              London, U.K.: Pentech Press, 1994.
+
+4-QAM, 16-QAM, 64-QAM and 256-QAM, respectively, was                                      [19] R. Noé, “Phase noise tolerant synchronous QPSK/BPSK baseband-
+                                                                                                type intradyne receiver concept with feedforward carrier recovery,” J.
+determined by Monte Carlo simulation.                                                           Lightw. Technol., vol. 23, no. 2, pp. 802–808, Feb. 2005.
+
+                                REFERENCES                                                [20] K. Kikuchi, “Polarization-demultiplexing algorithm in the digital
+                                                                                                coherent receiver,” in Proc. SUM’08, Acapulco, Mexico, Jul. 21–23,
+      [1] E. Ip, A. Lau, D. Barros, and J. Kahn, “Coherent detection in optical                 2008, MC2.2.
+           ﬁber systems,” Opt. Exp., vol. 16, no. 2, pp. 753–791, Jan. 09, 2008.
+                                                                                          [21] J. Volder, “The CORDIC trigonometric computing technique,” IRE
+      [2] G. Charlet, J. Renaudier, H. Mardoyan, P. Tran, O. Pardo, F. Verluise,                Trans. on Electron. Comp., vol. EC-8, no. 3, pp. 330–334, 1959.
+           M. Achouche, A. Boutin, F. Blache, J. Dupuy, and S. Bigo, “Trans-
+           mission of 16.4 Tbit/s capacity over 2 550 km using PDM QPSK mod-              [22] J. Walther, “A uniﬁed algorithm for elementary functions,” in Proc.
+           ulation format and coherent receiver,” in Proc. OFC/NFOEC’08, San                    Spring Joint Comp. Conf., Atlantic City, NJ, May 18–20, 1971, pp.
+           Diego, CA, Feb. 24–28, 2008, PDP3.                                                   379–385.
+
+      [3] T. Pfau, R. Peveling, J. Hauden, N. Grossard, H. Porte, Y. Achiam, S.           [23] S. Tretter, “Estimating the frequency of a noisy sinusoid by linear re-
+           Hoffmann, S. Ibrahim, O. Adamczyk, S. Bhandare, D. Sandel, M. Por-                   gression,” IEEE Trans. Inf. Theory, vol. 31, no. 6, pp. 832–835, Nov.
+           rmann, and R. Noé, “Coherent digital polarization diversity receiver for             1985.
+           real-time polarization-multiplexed QPSK transmission at 2.8 Gbit/s,”
+           IEEE Photon. Technol. Lett., vol. 19, no. 24, pp. 1988–1990, Dec. 15,          [24] H. Cramér, Mathematical Methods of Statistics. : Princeton Univer-
+           2007.                                                                                sity Press, Mar. 23, 1999.
+
+      [4] A. Leven, N. Kaneda, and Y. Chen, “Real-time CMA-based 10 Gb/s                  [25] Sabeus Precision Advantage™ AG-1 Source Laser Datasheet. Cal-
+           polarization demultiplexing coherent receiver implemented in an                      abasas, CA: Sabeus Inc., 2006.
+           FPGA,” in Proc. OFC/NFOEC’08, San Diego, CA, USA, Feb. 24–28,
+           2008, OTuO2.                                                                   [26] K. Poulton, R. Neff, B. Setterberg, B. Wuppermann, T. Kopley, R.
+                                                                                                Jewett, J. Pernillo, C. Tan, and A. Montijo, “A 20 GS/s 8b ADC with a
+      [5] L. Nelson, S. Woodward, M. Feuer, X. Zhou, P. Magill, S. Foo,
+           D. Hanson, D. McGhan, H. Sun, M. Moyer, and M. O’Sullivan,                         1 MB memory in 0.18 m CMOS,” in Proc. ISSCC’03, San Francisco,
+           “Performance of a 46-Gbps dual-polarization QPSK transceiver in a
+           high-PMD ﬁber transmission experiment,” in Proc. OFC/NFOEC’08,                       CA, Feb. 9–13, 2003, 18.1.
+           San Diego, CA, Feb. 24–28, 2008, PDP9.                                         [27] H. Nosaka, M. Nakamura, K. Sano, M. Ida, K. Kurishima, T. Shibata,
+
+      [6] T. Sakamoto, A. Chiba, and T. Kawanishi, “50-Gb/s 16 QAM by a                         M. Tokumitsu, and M. Muraguchi, “A 24-Gsps 3-bit nyquist ADC
+           quad-parallel mach-zehnder modulator,” in Proc. ECOC’07, Berlin,                     using InP HBTs for DSP-based electronic dispersion compensation,”
+           Germany, Sep. 16–20, 2007, PD 2.8.                                                   IEICE Trans. Electron., vol. E88-C, no. 6, pp. 1125–1232, Jun. 2005.
+                                                                                          [28] O. Adamczyk and R. Noé, “13 Gsamples/s 5-bit analogue-to-digital
+      [7] C. Doerr, P. Winzer, L. Zhang, L. Buhl, and N. Sauer, “Monolithic InP                 converter for coherent optical QPSK receiver,” Electron. Lett., vol. 44,
+           16-QAM modulator,” in Proc. OFC/NFOEC’08, San Diego, CA, Feb.                        pp. 895–896, 2008.
+           24–28, 2008, PDP20.                                                            [29] H. Sun, K. Wu, and K. Roberts, “Real-time measurements of a 40 Gb/s
+                                                                                                coherent system,” Opt. Exp., vol. 16, no. 2, pp. 873–879, Jan. 2008.
+      [8] H. Goto, K. Kasai, M. Yoshida, and M. Nakazawa, “Polarization-mul-              [30] F. Boré, S. Bruel, and M. Wingender, “A 10-bit 2.2 Gsps ADC op-
+           tiplexed 1 Gsymbol/s, 128 QAM (14 Gbit/s) coherent optical trans-                    erating over ﬁrst and second nyquist zones,” Atmel Appl., no. 6, pp.
+           mission over 160 km using a 1.4 GHz nyquist ﬁlter,” in Proc. OFC/                    43–48, Winter 2006.
+           NFOEC’08 , San Diego, CA, Feb. 24–28, 2008, JThA45.                            [31] B. Chan, B. Oyama, C. Monier, and A. Gutierrez, “An ultra-wideband
+                                                                                                7-bit 5 Gsps ADC implemented in submicron InP HBT technology,” in
+      [9] A. Tarighat, R. Hsu, A. Sayed, and B. Jalali, “Digital adaptive phase                 Proc. CSIC’07, Portland, OR, Oct. 14–17, 2007, O.4.
+           noise reduction in coherent optical links,” J. Lightw. Technol., vol. 24,      [32] T. Ellermeyer, J. Mullrich, J. Rupeter, H. Langenhagen, and A. Bielik,
+           no. 3, pp. 1269–1276, Mar. 2006.                                                     “DA and AD converters for 25 GS/s and above,” in Proc. SUM’08,
+                                                                                                Acapulco, Mexico, Jul. 21–23, 2008, TuC3.1.
+     [10] E. Ip and J. Kahn, “Feedforward carrier recovery for coherent optical
+           communication,” J. Lightw. Technol., vol. 25, no. 16, pp. 2675–2692,                                      Timo Pfau (S’08) was born in Stuttgart, Germany, in
+           Sep. 2007.                                                                                                1979. He received the Dipl.-Ing. degree in electrical
+                                                                                                                     engineering and information technology from the
+     [11] H. Louchet, K. Kuzmin, and A. Richter, “Improved DSP algorithms                                            University of Stuttgart, Germany, in 2004. After
+           for coherent 16-QAM transmission,” in Proc. ECOC’08, Brussels, Bel-                                       graduation he was granted a scholarship from the
+           gium, Sep. 21–25, 2008, Tu.1.E.6.                                                                         International Graduate School “Dynamic Intelligent
+                                                                                                                     Systems” of the University of Paderborn, Germany,
+     [12] M. Seimetz, “Laser linewidth limitations for optical systems with high-                                    where he joined the working group “Optical Com-
+           order modulation employing feed forward digital carrier phase estima-                                     munication and High Frequency Engineering” of
+           tion,” in Proc. OFC/NFOEC’08, San Diego, CA, Feb. 24–28, 2008,                                            Prof. Noé. There he is currently working towards
+           OTuM2.                                                                                                    the Dr.-Ing. degree focusing on the development and
+                                                                                      implementation of realtime coherent lightwave systems with DFB lasers.
+                                                                                         Mr. Pfau is a member of the VDE Association for Electrical, Electronic
+                                                                                      & Information Technologies and serves as a reviewer for IEEE PHOTONICS
+                                                                                      TECHNOLOGY LETTERS and IEEE JOURNAL OF LIGHTWAVE TECHNOLOGY.
+
+Authorized licensed use limited to: UNIVERSITATSBIBLIOTHEK PADERBORN. Downloaded on April 26,2010 at 10:19:51 UTC from IEEE Xplore. Restrictions apply.
+PFAU et al.: HARDWARE-EFFICIENT COHERENT DIGITAL RECEIVER CONCEPT WITH FEEDFORWARD CARRIER RECOVERY FOR -QAM CONSTELLATIONS 999
+
+                               Sebastian Hoffmann was born in Bielefeld,                                             Reinhold Noé (M’93) was born in Darmstadt,
+                               Germany, in 1969. He received the Dipl.-Ing.,                                         Germany, in 1960. He received the Dipl.-Ing. and
+                               Dipl.-Wirt.-Ing., and Dr.-Ing. degrees from the                                       Dr.-Ing. degrees in electrical engineering from Tech-
+                               University of Paderborn, Paderborn, Germany, in                                       nische Universität München (Munich), Germany, in
+                               1997, 2000, and 2008, respectively.                                                   1984 and 1987, respectively.
+
+                                  After vocational training as a power electronics                                      At that time, he realized the ﬁrst endless polariza-
+                               technician from 1988 to 1991 at Miele & Cie. KG,                                      tion control systems. Then he spent a postdoctoral
+                               Bielefeld, Germany, he studied electrical engineering                                 year with Bellcore, Red Bank, NJ, where he con-
+                               in Paderborn, Germany and Waterloo, Canada. After                                     tinued to work on coherent optical systems. In 1988
+                               graduation he stayed in the research group of Prof.                                   he joined Siemens Research Laboratories, Munich.
+                               Noé as a postdoctoral researcher. He has contributed                                  In 1992, he implemented the ﬁrst synchronous
+to various projects including microelectronics, high frequency engineering and        optical PSK transmission with normal DFB lasers. Since 1992, he is the Chair
+optical communication.                                                                of Optical Communication and High-Frequency Engineering, University of
+                                                                                      Paderborn, Germany. Most of his recent experiments deal with PMD/CD detec-
+                                                                                      tion and compensation, optical polarization control and realtime synchronous
+                                                                                      QPSK transmission.
+
+Authorized licensed use limited to: UNIVERSITATSBIBLIOTHEK PADERBORN. Downloaded on April 26,2010 at 10:19:51 UTC from IEEE Xplore. Restrictions apply.

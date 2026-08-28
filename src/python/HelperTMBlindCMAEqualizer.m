@@ -132,12 +132,17 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
     end
     enableFadeHold = localLogical(options, ...
         'adaptiveEqualizerEnableFadeHold', true);
-    if contains(modulationName,'QAM') && ~enableQAMWindowHold
-        enableFadeHold = false;
-    end
     fadeHoldDB = localNumber(options, ...
         'adaptiveEqualizerFadeHoldDB', -12);
     fadeHoldPowerRatio = 10^(min(fadeHoldDB,0)/10);
+    fadeRecoverDB = localNumber(options, ...
+        'adaptiveEqualizerFadeRecoverDB', -8);
+    fadeRecoverDB = min(max(fadeRecoverDB,fadeHoldDB),0);
+    fadeRecoverPowerRatio = 10^(fadeRecoverDB/10);
+    fadeDetectorSymbols = max(4, round(localNumber(options, ...
+        'adaptiveEqualizerFadeDetectorSymbols', 32)));
+    fadeRecoverWindows = max(1, round(localNumber(options, ...
+        'adaptiveEqualizerFadeRecoverWindows', 2)));
 
     % A front-end stage (currently the APSK pilot estimator) may observe a
     % fade before envelope normalization hides it.  Accept an exactly
@@ -194,6 +199,8 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
     sideTapEnergyRatio = 0;
     ddHoldWindows = 0;
     ddFadeHoldWindows = 0;
+    ddFadeEnterEvents = 0;
+    ddFadeRecoverEvents = 0;
     ddExternalFadeHoldWindows = 0;
     ddExternalFadeHoldSymbols = 0;
     ddGoodWindows = 0;
@@ -318,19 +325,46 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
         % letting a burst of wrong decisions poison the rest of the block.
         for pass = 1:ddPassesEffective %#ok<NASGU>
             lastGoodW = w;
+            inDDFadeHold = false;
+            fadeGoodWindowCount = 0;
             passStart = valid(1);
             while passStart <= valid(end)
                 passEnd = min(valid(end), passStart + ddWindowSymbols - 1);
                 windowAccepted = 0;
                 windowDecisions = 0;
                 windowW = w;
-                windowPowerRatio = mean(abs(xNorm(passStart:passEnd)).^2) / ...
-                    max(refPower,eps);
-                powerFadeWindow = enableFadeHold && ...
-                    isfinite(windowPowerRatio) && ...
-                    windowPowerRatio < fadeHoldPowerRatio;
+                % Detect fades on short sub-windows.  A mean over the full
+                % DD window can hide a short but destructive fade (for
+                % example 20--40 bad symbols inside a 256-symbol window).
+                % Enter/exit hysteresis prevents state chatter at the
+                % threshold and gives every DD modulation the same HOLD
+                % semantics, independent of its acceptance gate policy.
+                windowPowerRatio = localMinimumBlockPowerRatio( ...
+                    xNorm(passStart:passEnd), refPower, ...
+                    fadeDetectorSymbols);
                 externalFadeWindow = externalFadeMaskLengthMatched && ...
                     any(externalFadeMask(passStart:passEnd));
+                fadeEnterEvidence = enableFadeHold && ...
+                    isfinite(windowPowerRatio) && ...
+                    windowPowerRatio < fadeHoldPowerRatio;
+                if ~inDDFadeHold && fadeEnterEvidence
+                    inDDFadeHold = true;
+                    fadeGoodWindowCount = 0;
+                    ddFadeEnterEvents = ddFadeEnterEvents + 1;
+                elseif inDDFadeHold
+                    if externalFadeWindow || ~isfinite(windowPowerRatio) || ...
+                            windowPowerRatio <= fadeRecoverPowerRatio
+                        fadeGoodWindowCount = 0;
+                    else
+                        fadeGoodWindowCount = fadeGoodWindowCount + 1;
+                        if fadeGoodWindowCount >= fadeRecoverWindows
+                            inDDFadeHold = false;
+                            fadeGoodWindowCount = 0;
+                            ddFadeRecoverEvents = ddFadeRecoverEvents + 1;
+                        end
+                    end
+                end
+                powerFadeWindow = enableFadeHold && inDDFadeHold;
                 if powerFadeWindow || externalFadeWindow
                     w = lastGoodW;
                     ddHoldWindows = ddHoldWindows + 1;
@@ -512,6 +546,8 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
     info.DDGoodWindows = ddGoodWindows;
     info.DDHoldWindows = ddHoldWindows;
     info.DDFadeHoldWindows = ddFadeHoldWindows;
+    info.DDFadeEnterEvents = ddFadeEnterEvents;
+    info.DDFadeRecoverEvents = ddFadeRecoverEvents;
     info.ExternalFadeMaskProvided = logical(externalFadeMaskProvided);
     info.ExternalFadeMaskLengthMatched = ...
         logical(externalFadeMaskLengthMatched);
@@ -521,6 +557,9 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
     info.DDExternalFadeHoldWindows = ddExternalFadeHoldWindows;
     info.DDExternalFadeHoldSymbols = ddExternalFadeHoldSymbols;
     info.FadeHoldDB = fadeHoldDB;
+    info.FadeRecoverDB = fadeRecoverDB;
+    info.FadeDetectorSymbols = fadeDetectorSymbols;
+    info.FadeRecoverWindows = fadeRecoverWindows;
     info.DDHoldReason = ddHoldReason;
     info.InputStructureMSE = inputStructureMSE;
     info.OutputStructureMSE = outputStructureMSE;
@@ -625,6 +664,8 @@ function info = localEmptyInfo()
         'DDGoodWindows',0, ...
         'DDHoldWindows',0, ...
         'DDFadeHoldWindows',0, ...
+        'DDFadeEnterEvents',0, ...
+        'DDFadeRecoverEvents',0, ...
         'ExternalFadeMaskProvided',false, ...
         'ExternalFadeMaskLengthMatched',false, ...
         'ExternalFadeMaskInputLength',0, ...
@@ -633,6 +674,9 @@ function info = localEmptyInfo()
         'DDExternalFadeHoldWindows',0, ...
         'DDExternalFadeHoldSymbols',0, ...
         'FadeHoldDB',NaN, ...
+        'FadeRecoverDB',NaN, ...
+        'FadeDetectorSymbols',0, ...
+        'FadeRecoverWindows',0, ...
         'DDHoldReason','', ...
         'InputStructureMSE',NaN, ...
         'OutputStructureMSE',NaN, ...
@@ -641,6 +685,24 @@ function info = localEmptyInfo()
         'RollbackReason','', ...
         'Converged',false, ...
         'Reason','disabled');
+end
+
+function ratio = localMinimumBlockPowerRatio(symbols, referencePower, blockSymbols)
+    values = abs(symbols(:)).^2;
+    values = values(isfinite(values));
+    if isempty(values)
+        ratio = NaN;
+        return;
+    end
+    blockSymbols = max(1, min(numel(values), round(blockSymbols)));
+    blockCount = ceil(numel(values)/blockSymbols);
+    blockPower = inf(blockCount,1);
+    for k = 1:blockCount
+        first = (k-1)*blockSymbols + 1;
+        last = min(numel(values), k*blockSymbols);
+        blockPower(k) = mean(values(first:last));
+    end
+    ratio = min(blockPower) / max(referencePower,eps);
 end
 
 function value = localNumber(options, name, defaultValue)

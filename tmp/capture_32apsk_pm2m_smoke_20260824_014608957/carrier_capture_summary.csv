@@ -1,0 +1,2 @@
+Scenario,ModType,TestedPoints,PassedPoints,MinimumPassedCFO_Hz,MaximumPassedCFO_Hz,ZeroCFOPassed
+NoH,32APSK,2,0,NaN,NaN,0

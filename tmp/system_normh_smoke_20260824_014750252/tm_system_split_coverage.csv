@@ -1,0 +1,16 @@
+ModType,ImplementedPathCoverage
+QPSK,combined-and-dualIQ
+OQPSK,combined-and-dualIQ
+8PSK,combined-and-dualIQ
+16QAM,combined-and-dualIQ
+32QAM,combined-and-dualIQ
+16APSK,combined-and-dualIQ
+32APSK,combined-and-dualIQ
+UQPSK,combined-and-unequalDualIQ
+4D-8PSK-TCM,combined-only
+PCM/PSK/PM,combined-only
+PCM/PM/biphase-L,combined-only
+BPSK,combined-only
+MSK,combined-only
+GMSK,combined-only
+FM,combined-only

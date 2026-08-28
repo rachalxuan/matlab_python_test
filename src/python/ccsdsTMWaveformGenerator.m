@@ -281,6 +281,12 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
         %   one Q-rail frame. Both rails have independent ASM/FEC state.
         % Randomizer enable/bypass is controlled only by RandomizerEnabled.
         DataPathMode = 'single'
+        % ConvolutionalG1G2Mode Convolutional encoder output convention.
+        %   Supported values are G1G2, G1G2-inverted (device label
+        %   G1G2反), G2G1, and G2G1-inverted (device label G2G1反).
+        %   The default preserves the CCSDS G1/~G2 convention previously
+        %   hard-coded by flipping every second encoded bit.
+        ConvolutionalG1G2Mode = 'auto-ccsds'
         % SplitPathDebug Print TX split-path rail/interleave diagnostics.
         SplitPathDebug = false
         % TPCCodeRate Effective shortened TPC rate.
@@ -450,20 +456,30 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             else
                 switch(obj.ChannelCoding)
                     case {'convolutional','concatenated'}
+                        [convTrellis, canonicalConvMode] = ...
+                            ccsdsTMConvolutionalOutputTrellis( ...
+                            obj.ConvolutionalCodesTrellis, ...
+                            obj.ConvolutionalG1G2Mode, ...
+                            obj.ConvolutionalCodeRate);
+                        if obj.SplitPathDebug
+                            fprintf('[TM convolutional TX] mode=%s rate=%s path=%s\n', ...
+                                canonicalConvMode, char(obj.ConvolutionalCodeRate), ...
+                                char(obj.DataPathMode));
+                        end
                         switch obj.ConvolutionalCodeRate
                             case '1/2'
-                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis);
+                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis);
                             case '2/3'
-                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis,...
+                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
                                     'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1]);
                             case '3/4'
-                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis,...
+                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
                                     'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;1;0]);
                             case '5/6'
-                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis,...
+                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
                                     'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;1;0;0;1;1;0]);
                             otherwise % case '7/8'
-                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis,...
+                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
                                     'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;0;1;0;1;1;0;0;1;1;0]);
                         end
                         temp = obj.pPRNSequenceLength + length(obj.pASM)*obj.HasASM;
@@ -900,6 +916,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             s = saveObjectImpl@satcom.internal.ccsds.tmBase(obj);
             s.RandomizerFECPosition = obj.RandomizerFECPosition;
             s.DataPathMode = obj.DataPathMode;
+            s.ConvolutionalG1G2Mode = obj.ConvolutionalG1G2Mode;
             s.SplitPathDebug = obj.SplitPathDebug;
             s.TPCCodeRate = obj.TPCCodeRate;
             s.TPCBlocksPerTF = obj.TPCBlocksPerTF;
@@ -982,6 +999,9 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             end
             if isfield(s,'DataPathMode')
                 obj.DataPathMode = s.DataPathMode;
+            end
+            if isfield(s,'ConvolutionalG1G2Mode')
+                obj.ConvolutionalG1G2Mode = s.ConvolutionalG1G2Mode;
             end
             if isfield(s,'SplitPathDebug')
                 obj.SplitPathDebug = s.SplitPathDebug;
@@ -1116,6 +1136,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                     flag = false;
                 end
             elseif strcmp(prop,'ConvolutionalCodeRate')
+                flag = ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) || isFACM;
+            elseif strcmp(prop,'ConvolutionalG1G2Mode')
                 flag = ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) || isFACM;
             elseif strcmp(prop,'CodeRate')
                 flag = ~any(strcmp(obj.ChannelCoding,{'turbo','LDPC'})) || isFACM;
@@ -1295,6 +1317,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             encProps = {'ChannelCoding',...
                 'NumBitsInInformationBlock',...
                 'ConvolutionalCodeRate',...
+                'ConvolutionalG1G2Mode',...
                 'CodeRate',...
                 'TPCCodeRate',...
                 'TPCBlocksPerTF',...
@@ -1368,20 +1391,23 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
 
     methods(Access = private)
         function enc = createConvEncoder(obj)
+            convTrellis = ccsdsTMConvolutionalOutputTrellis( ...
+                obj.ConvolutionalCodesTrellis, obj.ConvolutionalG1G2Mode, ...
+                obj.ConvolutionalCodeRate);
             switch obj.ConvolutionalCodeRate
                 case '1/2'
-                    enc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis);
+                    enc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis);
                 case '2/3'
-                    enc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis,...
+                    enc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
                         'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1]);
                 case '3/4'
-                    enc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis,...
+                    enc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
                         'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;1;0]);
                 case '5/6'
-                    enc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis,...
+                    enc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
                         'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;1;0;0;1;1;0]);
                 otherwise % case '7/8'
-                    enc = comm.ConvolutionalEncoder('TrellisStructure',obj.ConvolutionalCodesTrellis,...
+                    enc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
                         'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;0;1;0;1;1;0;0;1;1;0]);
             end
         end
@@ -1533,15 +1559,10 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         end
                         encodedTemp(symIdx(:,iSlice)) = convEncodeForRail(obj,tfullcadu,rail);
                     end
-                    if strcmp(obj.ConvolutionalCodeRate,'1/2')
-                        % Flip the bit on the second line of the
-                        % convolutional encoder as specified in [1] section
-                        % 3.3.2, when the code rate is 1/2.
-                        encoded = encodedTemp(:);
-                        encoded(2:2:end) = int8(~encoded(2:2:end));
-                    else
-                        encoded = encodedTemp(:);
-                    end
+                    % G1/G2 ordering and the optional second-stream
+                    % inversion are embedded in the configured trellis.
+                    % This keeps the convention correct before puncturing.
+                    encoded = encodedTemp(:);
                 case 'concatenated'
                     n = 255;
                     k = obj.pRSParams.k;
@@ -1584,15 +1605,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         end
                         encodedTemp(symIdx(:,iSlice)) = obj.pConvEnc(tfullcadu);
                     end
-                    if strcmp(obj.ConvolutionalCodeRate,'1/2')
-                        % Flip the bit on the second line of the
-                        % convolutional encoder as specified in section
-                        % 3.3.2 of [1] when the code rate is 1/2.
-                        encoded = encodedTemp;
-                        encoded(2:2:end) = int8(~encodedTemp(2:2:end));
-                    else
-                        encoded = encodedTemp;
-                    end
+                    encoded = encodedTemp;
                 case 'turbo'
                     numBitsInCADU = obj.pInverseCodeRate*(tfl+4)+HasASM*length(obj.pASM);
                     encoded = zeros(numBitsInCADU*numTF,1,'int8');

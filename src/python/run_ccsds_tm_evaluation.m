@@ -102,7 +102,7 @@ function varargout = run_ccsds_tm_evaluation(varargin)
 tStart = tic;
 
 [opt, outputMode] = parseEvaluationEntryInputs(varargin{:});
-imagePaths = {};
+imagePaths = '';
 
 try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 =====
     % ======== Single point simulation ========
@@ -130,8 +130,14 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
         end
     end
 
-    % ======== Frontend plot arrays: spectrum / constellation / pipeline ========
-    fe = buildFrontendArrays(ctx, res);
+    % ======== Frontend plot source data ========
+    % Remote mode renders these data to three PNG files.  The arrays are
+    % only copied into the public result when includeRawData=true.
+    includeRawData = getLogicalField(opt, 'includeRawData', false);
+    fe = buildFrontendArrays(ctx, res, includeRawData);
+    if getLogicalField(opt, 'remoteMode', false)
+        imagePaths = createRemoteResultFigures(ctx, fe, res, opt);
+    end
 
     % ======== 编码信息归一化 (码率字符串 → 数值) ========
     realRate = codeRateNum(opt);
@@ -154,6 +160,9 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
 
     % --- 核心指标 (前端 normalize 直接读这些 PascalCase 字段) ---
     frontResult.modType      = res.modType;
+    if isfield(res,'TMDataSource'), frontResult.TMDataSource = res.TMDataSource; end
+    if isfield(res,'TMDataSourceI'), frontResult.TMDataSourceI = res.TMDataSourceI; end
+    if isfield(res,'TMDataSourceQ'), frontResult.TMDataSourceQ = res.TMDataSourceQ; end
     frontResult.BER          = res.BER;
     frontResult.ber          = res.BER;     % 兼容老 main 字段(小写)
     frontResult.EVM_post_pct = res.EVM_post_pct;
@@ -295,12 +304,85 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
             frontResult.(pilotField) = res.(pilotField);
         end
     end
+    pilotlessAPSKFields = { ...
+        'APSKReceiverMode','PilotlessAPSKApplied','PilotlessAPSKReason', ...
+        'PilotlessAPSKFourthPowerCFO_Hz', ...
+        'PilotlessAPSKFourthPowerConfidence_dB', ...
+        'PilotlessAPSKCoarsePowerOrder', ...
+        'PilotlessAPSKNDAResidualCFO_Hz', ...
+        'PilotlessAPSKNDAResidualCFOApplied', ...
+        'PilotlessAPSKMthPowerPhaseTrackerApplied', ...
+        'PilotlessAPSKMthPowerPhaseFinalCorrection_deg', ...
+        'PilotlessAPSKMthPowerPhaseMedianConfidence', ...
+        'PilotlessAPSKBlindPhaseSearchApplied', ...
+        'PilotlessAPSKBlindPhaseSearchReliableRate', ...
+        'PilotlessAPSKBlindPhaseSearchMedianMetric', ...
+        'PilotlessAPSKBlindPhaseSearchFinalCorrection_deg', ...
+        'PilotlessAPSKPreDDGainApplied', ...
+        'PilotlessAPSKPreDDGainAcceptanceRate', ...
+        'PilotlessAPSKPreDDGainHoldFraction', ...
+        'PilotlessAPSKPreDDGainFadeFraction', ...
+        'PilotlessAPSKPreDDGainFinalMagnitude_dB', ...
+        'PilotlessAPSKRingNormalizerApplied', ...
+        'PilotlessAPSKRingEstimatorMode', ...
+        'PilotlessAPSKRingAcceptanceRate', ...
+        'PilotlessAPSKRingHoldFraction', ...
+        'PilotlessAPSKRingFadeFraction', ...
+        'PilotlessAPSKRingFinalAmplitude_dB', ...
+        'PilotlessAPSKCarrierAcceptanceRate', ...
+        'PilotlessAPSKCarrierHoldFraction', ...
+        'PilotlessAPSKCarrierFadeFraction', ...
+        'PilotlessAPSKCarrierPhaseErrorRMS_deg', ...
+        'PilotlessAPSKResidualFrequency_Hz', ...
+        'PilotlessAPSKComplexGainEnabled', ...
+        'PilotlessAPSKGainAcceptanceRate', ...
+        'PilotlessAPSKGainHoldFraction', ...
+        'PilotlessAPSKGainFadeFraction', ...
+        'PilotlessAPSKFinalGainMagnitude_dB', ...
+        'PilotlessAPSKFinalGainPhase_deg', ...
+        'PilotlessAPSKGainRegularization', ...
+        'PilotlessAPSKGainMaxInverseGainDB', ...
+        'PilotlessAPSKGainInverseMaxObserved_dB'};
+    for iPilotlessAPSK = 1:numel(pilotlessAPSKFields)
+        pilotlessField = pilotlessAPSKFields{iPilotlessAPSK};
+        if isfield(res,pilotlessField)
+            frontResult.(pilotlessField) = res.(pilotlessField);
+        end
+    end
+    qamFrontEndFields = { ...
+        'QAMBlindPhaseSearchApplied', ...
+        'QAMBlindPhaseSearchReliableRate', ...
+        'QAMBlindPhaseSearchMedianMetric', ...
+        'QAMBlindPhaseSearchFinalCorrection_deg', ...
+        'QAMBlindPhaseSearchFadeHoldBlocks', ...
+        'QAMBlindPhaseSearchFadeEvents', ...
+        'QAMBlindPhaseSearchFadeRecoveries', ...
+        'QAMBlindPhaseSearchReacquisitions', ...
+        'QAMBlindPhaseSearchInitialFrequencyRadPerSymbol', ...
+        'QAMPowerGainApplied', ...
+        'QAMPowerGainAcceptanceRate', ...
+        'QAMPowerGainRegularization', ...
+        'QAMPowerGainMaxInverseGainDB', ...
+        'QAMPowerGainInverseMaxObserved_dB'};
+    for iQAMFrontEnd = 1:numel(qamFrontEndFields)
+        qamField = qamFrontEndFields{iQAMFrontEnd};
+        if isfield(res,qamField)
+            frontResult.(qamField) = res.(qamField);
+        end
+    end
     if isfield(res,'HasASM'), frontResult.HasASM = res.HasASM; end
     if isfield(res,'ASMLength'), frontResult.ASMLength = res.ASMLength; end
     if isfield(res,'ASMHex'), frontResult.ASMHex = res.ASMHex; end
     if isfield(res,'RandomizerEnabled'), frontResult.RandomizerEnabled = res.RandomizerEnabled; end
     if isfield(res,'RandomizerFECPosition'), frontResult.RandomizerFECPosition = res.RandomizerFECPosition; end
     if isfield(res,'DataPathMode'), frontResult.DataPathMode = res.DataPathMode; end
+    if isfield(res,'ConvolutionalG1G2Mode')
+        frontResult.ConvolutionalG1G2Mode = res.ConvolutionalG1G2Mode;
+    end
+    if isfield(res,'CarrierCaptureRangeConfigured_Hz')
+        frontResult.CarrierCaptureRangeConfigured_Hz = ...
+            res.CarrierCaptureRangeConfigured_Hz;
+    end
     crcResultFields = {'HasFECF','CRCType','CRCCheckedFrames', ...
         'CRCErrorFrames','CRCErrorRate','DemodNoiseVariance'};
     for iCRCResult = 1:numel(crcResultFields)
@@ -338,6 +420,10 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
         'AdaptiveEqualizerDDGoodWindows', ...
         'AdaptiveEqualizerDDHoldWindows', ...
         'AdaptiveEqualizerDDFadeHoldWindows', ...
+        'AdaptiveEqualizerDDFadeEnterEvents', ...
+        'AdaptiveEqualizerDDFadeRecoverEvents', ...
+        'AdaptiveEqualizerFadeRecoverDB', ...
+        'AdaptiveEqualizerFadeDetectorSymbols', ...
         'AdaptiveEqualizerExternalFadeMaskProvided', ...
         'AdaptiveEqualizerExternalFadeMaskLengthMatched', ...
         'AdaptiveEqualizerExternalFadeMaskInputLength', ...
@@ -463,13 +549,17 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     frontResult.ResidualCFO_valid = isfinite(frontResult.ResidualCFO_Hz);
     frontResult.ResidualPhase_valid = isfinite(frontResult.ResidualPhase_deg);
 
-    % --- 前端绘图数据 (这是之前没传, 前端拿不到的) ---
-    frontResult.spectrum             = fe.spectrum;
-    frontResult.channelPower        = fe.channelPower;
-    frontResult.constellation_tx     = fe.constTx;
-    frontResult.constellation_raw    = fe.constRaw;
-    frontResult.constellation_synced = fe.constSync;
-    frontResult.pipeline             = fe.pipeline;   % 4 阶段星座 + 标签
+    % --- 可选完整绘图数组 ---
+    % 远控接口默认关闭，避免频谱、星座和管线数组进入大 JSON。以后如需
+    % 恢复交互式绘图，只需在调用参数中设置 includeRawData=true。
+    if includeRawData
+        frontResult.spectrum             = fe.spectrum;
+        frontResult.channelPower        = fe.channelPower;
+        frontResult.constellation_tx     = fe.constTx;
+        frontResult.constellation_raw    = fe.constRaw;
+        frontResult.constellation_synced = fe.constSync;
+        frontResult.pipeline             = fe.pipeline;
+    end
 
     % --- 编码信息透传 ---
     if isfield(opt,'ConvolutionalCodeRate'), frontResult.ConvolutionalCodeRate = opt.ConvolutionalCodeRate; end
@@ -554,7 +644,6 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
               frontResult.stats.(agcField) = res.(agcField);
           end
       end
-     frontResult.imagePaths = imagePaths;
     varargout = packEvaluationOutputs(frontResult, imagePaths, outputMode, nargout);
 
 catch ME
@@ -618,10 +707,24 @@ function [opt, outputMode] = parseEvaluationEntryInputs(varargin)
         'RandomizerEnabled',false, ...
         'RandomizerFECPosition','afterEncoding', ...
         'DataPathMode','single', ...
+        'TMDataSource','random', ...
+        'TMDataSourceI','', ...
+        'TMDataSourceQ','', ...
+        'TMDataSourcePNInitialState',[], ...
+        'TMDataSourcePNPolynomialExponents',[], ...
+        'TMDataSourcePNInvert',false, ...
+        'TMDataSourceFixedPattern',uint8(hex2dec('55')), ...
+        'TMDataSourceIncrementStart',0, ...
+        'debugTMDataSource',false, ...
+        'ConvolutionalG1G2Mode','auto-ccsds', ...
+        'carrierCaptureRangeHz',[], ...
         'WaveformMode','ordinaryTM', ...
         'hasASM',true,...
         'AGCEnabled',false, ...
         'AGCTimeConstantMs',10, ...
+        'remoteMode',false, ...
+        'includeRawData',false, ...
+        'outputDir','', ...
         'enableAPSKCoarseFrequencyCompensator',true);
 
     if nargin < 1 || isempty(varargin{1})
@@ -650,6 +753,7 @@ function [opt, outputMode] = parseEvaluationEntryInputs(varargin)
     end
 
     opt = parseEvaluationParams(firstArg, defaults);
+    outputMode = "struct";
 end
 % 把用户传入的 JSON 或 struct，统一变成字段完整的 MATLAB struct。
 function opt = parseEvaluationParams(rawParams, defaults)
@@ -778,18 +882,235 @@ function tf = hasNonEmptyField(s, name)
 end
 
 function outs = packEvaluationOutputs(resultStruct, imagePaths, outputMode, requestedOutputs)
-    if requestedOutputs >= 2 || strcmpi(char(outputMode), 'struct')
-        n = max(1, requestedOutputs);
-        outs = cell(1, n);
+    n = max(1, requestedOutputs);
+    outs = cell(1, n);
+    if strcmpi(char(outputMode), 'struct')
         outs{1} = resultStruct;
-        if requestedOutputs >= 2
-            outs{2} = imagePaths;
-        end
-        for k = 3:requestedOutputs
-            outs{k} = [];
-        end
     else
-        outs = {jsonencode(resultStruct)};
+        % JSON callers keep a JSON first output even when requesting the
+        % reference-compatible second output containing image paths.
+        outs{1} = jsonencode(resultStruct);
+    end
+    if requestedOutputs >= 2
+        outs{2} = imagePaths;
+    end
+    for k = 3:requestedOutputs
+        outs{k} = [];
+    end
+end
+
+function imagePaths = createRemoteResultFigures(ctx, fe, res, opt)
+%CREATEREMOTERESULTFIGURES Create the three PNG artifacts used by the
+% reference Vue/Python interface: time domain, spectrum and constellation.
+    outputDir = char(string(getfieldwithdefault(opt, 'outputDir', '')));
+    if isempty(strtrim(outputDir))
+        outputDir = tempname;
+    end
+    if ~isfolder(outputDir)
+        mkdir(outputDir);
+    end
+
+    timePath = fullfile(outputDir, 'TimeDomain.png');
+    spectrumPath = fullfile(outputDir, 'Spectrum.png');
+    constellationPath = fullfile(outputDir, 'Constellation.png');
+
+    if isfield(ctx, 'rxWaveform') && ~isempty(ctx.rxWaveform)
+        timeSignal = ctx.rxWaveform(:);
+    else
+        timeSignal = ctx.channelOutput(:);
+    end
+    sampleCount = min(5000, numel(timeSignal));
+
+    fig = localRemoteFigure('CCSDS TM Time-Domain Power', ...
+        [100 100 1200 620]);
+    if sampleCount > 0
+        timeMs = (0:sampleCount-1).' / double(ctx.Fs) * 1000;
+        timePowerDbm = localCalibratedComplexPowerDbm( ...
+            timeSignal(1:sampleCount), timeSignal, ...
+            getfieldnumeric(res, 'inputLevelDbm', -10));
+        plot(timeMs, timePowerDbm, 'Color', 'b', 'LineWidth', 0.8);
+        powerMaximum = max(timePowerDbm);
+        powerMinimum = min(timePowerDbm);
+        powerRange = max(powerMaximum - powerMinimum, 10);
+        ylim([powerMinimum - 0.05*powerRange, ...
+            powerMaximum + 0.1*powerRange]);
+        xlim([timeMs(1), timeMs(end)]);
+        powerLegend = legend('信道输出瞬时功率', ...
+            'Location', 'northoutside', 'NumColumns', 1, ...
+            'TextColor', 'w');
+        set(powerLegend, 'Color', 'none', 'EdgeColor', 'none');
+    else
+        text(0.5, 0.5, '没有有效的时域功率样本', ...
+            'Color', 'w', 'HorizontalAlignment', 'center');
+    end
+    localStyleRemoteAxes('时间 (ms)', '瞬时功率 (dBm)', ...
+        sprintf('CCSDS TM 信道输出 - 时域功率 | %s', ...
+        char(string(res.modType))));
+    saveas(fig, timePath);
+    close(fig);
+
+    fig = localRemoteFigure('CCSDS TM Spectrum', [100 100 1200 620]);
+    if isfield(ctx, 'channelInput') && ~isempty(ctx.channelInput)
+        spectrumInput = ctx.channelInput(:);
+    else
+        spectrumInput = ctx.txWaveform(:);
+    end
+    if isfield(ctx, 'rxWaveform') && ~isempty(ctx.rxWaveform)
+        spectrumOutput = ctx.rxWaveform(:);
+    else
+        spectrumOutput = ctx.channelOutput(:);
+    end
+    spectrumSampleCount = min([numel(spectrumInput), ...
+        numel(spectrumOutput), 65536]);
+    if spectrumSampleCount > 1
+        fftCount = min(65536, 2^nextpow2(spectrumSampleCount));
+        spectrumInput = spectrumInput(1:spectrumSampleCount);
+        spectrumOutput = spectrumOutput(1:spectrumSampleCount);
+        spectrumWindow = localRaisedCosineWindow(spectrumSampleCount);
+        inputFft = fftshift(fft(spectrumInput .* spectrumWindow, fftCount));
+        outputFft = fftshift(fft(spectrumOutput .* spectrumWindow, fftCount));
+        inputLevelDbm = getfieldnumeric(res, 'inputLevelDbm', -10);
+        inputPsdDbmHz = localCalibratedSpectrumPsdDbmHz( ...
+            inputFft, spectrumWindow, ctx.Fs, spectrumInput, inputLevelDbm);
+        outputPsdDbmHz = localCalibratedSpectrumPsdDbmHz( ...
+            outputFft, spectrumWindow, ctx.Fs, spectrumInput, inputLevelDbm);
+        centerFrequencyMHz = getCenterFrequencyHz(res, 0) / 1e6;
+        basebandFrequencyMHz = (-fftCount/2:fftCount/2-1).' / ...
+            fftCount * double(ctx.Fs) / 1e6;
+        frequencyMHz = centerFrequencyMHz + basebandFrequencyMHz;
+
+        plot(frequencyMHz, inputPsdDbmHz, ...
+            'Color', 'c', 'LineWidth', 1.2);
+        hold on;
+        plot(frequencyMHz, outputPsdDbmHz, ...
+            'Color', 'g', 'LineWidth', 0.8);
+
+        yMaximum = max([inputPsdDbmHz; outputPsdDbmHz]);
+        yMinimum = min([inputPsdDbmHz; outputPsdDbmHz]);
+        yRange = max(yMaximum - yMinimum, 10);
+        ylim([yMinimum - 0.05*yRange, yMaximum + 0.1*yRange]);
+        xlim([frequencyMHz(1), frequencyMHz(end)]);
+        spectrumLegend = legend('信道输入 PSD', '信道输出 PSD', ...
+            'Location', 'northoutside', 'NumColumns', 2, ...
+            'TextColor', 'w');
+        set(spectrumLegend, 'Color', 'none', 'EdgeColor', 'none');
+    else
+        text(0.5, 0.5, 'No spectrum samples', ...
+            'Color', 'w', 'HorizontalAlignment', 'center');
+    end
+    localStyleRemoteAxes('频率 (MHz)', '功率谱密度 (dBm/Hz)', ...
+        sprintf('CCSDS TM 频谱对比（输入 vs 输出）| %s', ...
+        char(string(res.modType))));
+    saveas(fig, spectrumPath);
+    close(fig);
+
+    fig = localRemoteFigure('CCSDS TM Constellation', [100 100 820 760]);
+    if isfield(ctx, 'fineSynced') && ~isempty(ctx.fineSynced)
+        plotSymbols = ctx.fineSynced(:);
+        maxPoints = min(80000, numel(plotSymbols));
+        sampleIndices = round(linspace(1, numel(plotSymbols), maxPoints));
+        plotSymbols = plotSymbols(sampleIndices);
+
+        referenceSymbols = [];
+        if isfield(ctx, 'refConst') && ~isempty(ctx.refConst) && ...
+                ~any(contains(upper(string(res.modType)), ...
+                ["GMSK","MSK","FM"]))
+            referenceSymbols = ctx.refConst(:);
+            referenceRms = sqrt(mean(abs(referenceSymbols).^2));
+            plotRms = sqrt(mean(abs(plotSymbols).^2));
+            if referenceRms > 0 && isfinite(plotRms) && plotRms > 0
+                referenceSymbols = referenceSymbols / referenceRms * plotRms;
+            end
+        end
+
+        plot(real(plotSymbols), imag(plotSymbols), '.', ...
+            'MarkerSize', 1, 'Color', [1.0 0.85 0.1]);
+        hold on;
+        if ~isempty(referenceSymbols)
+            plot(real(referenceSymbols), imag(referenceSymbols), 'o', ...
+                'MarkerSize', 5, 'LineWidth', 1.1, ...
+                'MarkerEdgeColor', [0 0.95 1], ...
+                'MarkerFaceColor', 'none');
+        end
+
+        axisSymbols = plotSymbols;
+        if ~isempty(referenceSymbols)
+            axisSymbols = [axisSymbols(:); referenceSymbols(:)];
+        end
+        axisLimit = max(abs([real(axisSymbols(:)); ...
+            imag(axisSymbols(:))])) * 1.2 + 1e-6;
+        axis([-axisLimit axisLimit -axisLimit axisLimit]);
+        axis square;
+        line([-axisLimit axisLimit], [0 0], 'Color', [0.5 0.5 0.5], ...
+            'LineStyle', '--', 'LineWidth', 0.5);
+        line([0 0], [-axisLimit axisLimit], 'Color', [0.5 0.5 0.5], ...
+            'LineStyle', '--', 'LineWidth', 0.5);
+    else
+        text(0.5, 0.5, '没有有效的同步符号', ...
+            'Color', 'w', 'HorizontalAlignment', 'center');
+    end
+    channelLabel = '高斯白噪声 (AWGN)';
+    if getLogicalField(res, 'HEnabled', false)
+        channelLabel = char(string(getfieldwithdefault(res, ...
+            'HMode', 'H-Matrix')));
+    end
+    localStyleRemoteAxes('同相幅度 (I)', '正交幅度 (Q)', ...
+        sprintf('星座图 | %s | %s | 误码率: %.2e', ...
+        char(string(res.modType)), channelLabel, double(res.BER)));
+    saveas(fig, constellationPath);
+    close(fig);
+
+    imagePaths = char(strjoin(string( ...
+        {timePath, spectrumPath, constellationPath}), ';'));
+end
+
+function fig = localRemoteFigure(figureName, position)
+    fig = figure('Name', figureName, 'NumberTitle', 'off', ...
+        'Visible', 'off', 'Color', 'k', 'Position', position);
+    set(fig, 'InvertHardcopy', 'off');
+end
+
+function localStyleRemoteAxes(xLabelText, yLabelText, titleText)
+    ax = gca;
+    set(ax, 'Color', 'k', 'XColor', 'w', 'YColor', 'w', ...
+        'GridColor', [0.45 0.45 0.45], 'GridAlpha', 0.35);
+    grid(ax, 'on');
+    xlabel(xLabelText, 'Color', 'w');
+    ylabel(yLabelText, 'Color', 'w');
+    title(titleText, 'Color', 'w');
+end
+
+function psdDbmHz = localCalibratedSpectrumPsdDbmHz( ...
+        spectrum, window, sampleRateHz, referenceSignal, totalPowerDbm)
+    windowPower = max(sum(abs(window(:)).^2), eps);
+    relativePsdHz = abs(spectrum(:)).^2 / ...
+        (double(sampleRateHz) * windowPower);
+    referencePower = mean(abs(referenceSignal(:)).^2);
+    if ~isfinite(referencePower) || referencePower <= 0
+        referencePower = 1;
+    end
+    normalizedPsdHz = relativePsdHz / referencePower;
+    psdDbmHz = double(totalPowerDbm) + ...
+        10*log10(max(normalizedPsdHz, realmin));
+end
+
+function powerDbm = localCalibratedComplexPowerDbm( ...
+        samples, referenceSignal, totalPowerDbm)
+    referencePower = mean(abs(referenceSignal(:)).^2);
+    if ~isfinite(referencePower) || referencePower <= 0
+        referencePower = 1;
+    end
+    relativePower = abs(samples(:)).^2 / referencePower;
+    powerDbm = double(totalPowerDbm) + ...
+        10*log10(max(relativePower, realmin));
+end
+
+function window = localRaisedCosineWindow(sampleCount)
+    if sampleCount <= 1
+        window = ones(sampleCount, 1);
+    else
+        sampleIndex = (0:sampleCount-1).';
+        window = 0.5 - 0.5*cos(2*pi*sampleIndex/(sampleCount-1));
     end
 end
 
@@ -879,6 +1200,12 @@ function [res, ctx] = runOneShot(opt)
     end
 
     if isFACMEvaluation(opt, modStr)
+        if ~strcmpi(string(getfieldwithdefault(opt, ...
+                'TMDataSource', 'random')), 'random')
+            error('run_ccsds_tm_evaluation:FACMInternalDataSource', ...
+                ['TMDataSource is currently implemented for ordinaryTM. ', ...
+                 'Use TMDataSource="random" for FACM.']);
+        end
         [res, ctx] = runFACMOneShot(opt, fSym, sps);
         res.RandomizerEnabled = logical(randomizerEnabled);
         res.RandomizerFECPosition = char(randomizerFECPosition);
@@ -911,6 +1238,18 @@ function [res, ctx] = runOneShot(opt)
             rate = char(opt.ConvolutionalCodeRate);
             if ~strcmp(rate,'N/A')
                 args = [args, {'ConvolutionalCodeRate', rate}];
+            end
+        end
+        if any(strcmp(codeKey, ["convolutional", "concatenated"]))
+            [~, canonicalConvMode] = ccsdsTMConvolutionalOutputTrellis( ...
+                poly2trellis(7, [171 133]), opt.ConvolutionalG1G2Mode, ...
+                char(getfieldwithdefault(opt,'ConvolutionalCodeRate','1/2')));
+            opt.ConvolutionalG1G2Mode = canonicalConvMode;
+            args = [args, {'ConvolutionalG1G2Mode', canonicalConvMode}];
+            if getLogicalField(opt, 'debugConvolutionalG1G2', false)
+                fprintf('[TM convolutional config] TX mode=%s rate=%s path=%s\n', ...
+                    canonicalConvMode, char(getfieldwithdefault(opt, ...
+                    'ConvolutionalCodeRate', '1/2')), dataPathMode);
             end
         end
         if contains(codeKey,'tpc')
@@ -1060,6 +1399,32 @@ function [res, ctx] = runOneShot(opt)
     end
     numBytesActualTF = bitsPerFrame / 8;
 
+    % Device-equivalent internal test data are inserted only into the TM
+    % Transfer Frame Data Field.  ASM, primary header, optional OCF/FECF,
+    % randomization, coding, and modulation remain on the existing path.
+    tmSourceSingle = localTMDataSourceType(opt, '');
+    tmSourceI = localTMDataSourceType(opt, 'I');
+    tmSourceQ = localTMDataSourceType(opt, 'Q');
+    tmSourceOptSingle = localTMDataSourceOptions(opt, '');
+    tmSourceOptI = localTMDataSourceOptions(opt, 'I');
+    tmSourceOptQ = localTMDataSourceOptions(opt, 'Q');
+    tmSourceStateSingle = [];
+    tmSourceStateI = [];
+    tmSourceStateQ = [];
+    tmSourceInfoSingle = struct('CanonicalType','');
+    tmSourceInfoI = struct('CanonicalType','');
+    tmSourceInfoQ = struct('CanonicalType','');
+    if isEqualSplitPath || isUnequalSplitPath
+        [~, tmSourceStateI, tmSourceInfoI] = ccsdsTMInternalDataSource( ...
+            0, tmSourceI, tmSourceStateI, tmSourceOptI);
+        [~, tmSourceStateQ, tmSourceInfoQ] = ccsdsTMInternalDataSource( ...
+            0, tmSourceQ, tmSourceStateQ, tmSourceOptQ);
+    else
+        [~, tmSourceStateSingle, tmSourceInfoSingle] = ...
+            ccsdsTMInternalDataSource(0, tmSourceSingle, ...
+            tmSourceStateSingle, tmSourceOptSingle);
+    end
+
     % 发送端输入现在按 CCSDS TM Transfer Frame 生成：
     % Primary Header + Data Field + 可选 Secondary Header/OCF/FECF。
     % 这里不加 ASM，ASM 仍由 ccsdsTMWaveformGenerator 按配置处理。
@@ -1108,8 +1473,17 @@ function [res, ctx] = runOneShot(opt)
             tfOptI = tfOpt;
             tfOptI.MasterChannelFrameCount = mod(2*(i-1), 256);
             tfOptI.VirtualChannelFrameCount = mod(2*(i-1), 256);
-            payloadBytesI = uint8(randi([0 255], 1, numBytesActualTF));
+            sourceBytesI = localTMSourceRequestBytes(tfOptI, ...
+                numBytesActualTF, tmSourceInfoI.CanonicalType);
+            sourceOptI = tmSourceOptI;
+            sourceOptI.Debug = getLogicalField(opt, ...
+                'debugTMDataSource', false) && i == 1;
+            [payloadBytesI, tmSourceStateI, tmSourceInfoI] = ...
+                ccsdsTMInternalDataSource(sourceBytesI, tmSourceI, ...
+                tmSourceStateI, sourceOptI);
             [frameBitsI, frameBytesI, frameInfoI] = make_ccsds_tm_transfer_frame(payloadBytesI, tfOptI);
+            frameInfoI = localAttachTMDataSourceInfo(frameInfoI, ...
+                tmSourceInfoI, 'I');
             currentI = int8(frameBitsI(:));
             if numel(currentI) ~= bitsPerFrame
                 error('run_ccsds_tm_evaluation:TMFrameLengthMismatch', ...
@@ -1120,8 +1494,17 @@ function [res, ctx] = runOneShot(opt)
             tfOptQ = tfOpt;
             tfOptQ.MasterChannelFrameCount = mod(2*(i-1)+1, 256);
             tfOptQ.VirtualChannelFrameCount = mod(2*(i-1)+1, 256);
-            payloadBytesQ = uint8(randi([0 255], 1, numBytesActualTF));
+            sourceBytesQ = localTMSourceRequestBytes(tfOptQ, ...
+                numBytesActualTF, tmSourceInfoQ.CanonicalType);
+            sourceOptQ = tmSourceOptQ;
+            sourceOptQ.Debug = getLogicalField(opt, ...
+                'debugTMDataSource', false) && i == 1;
+            [payloadBytesQ, tmSourceStateQ, tmSourceInfoQ] = ...
+                ccsdsTMInternalDataSource(sourceBytesQ, tmSourceQ, ...
+                tmSourceStateQ, sourceOptQ);
             [frameBitsQ, frameBytesQ, frameInfoQ] = make_ccsds_tm_transfer_frame(payloadBytesQ, tfOptQ);
+            frameInfoQ = localAttachTMDataSourceInfo(frameInfoQ, ...
+                tmSourceInfoQ, 'Q');
             currentQ = int8(frameBitsQ(:));
             if numel(currentQ) ~= bitsPerFrame
                 error('run_ccsds_tm_evaluation:TMFrameLengthMismatch', ...
@@ -1141,25 +1524,51 @@ function [res, ctx] = runOneShot(opt)
             tfOptI1 = tfOpt;
             tfOptI1.MasterChannelFrameCount = mod(2*(i-1), 256);
             tfOptI1.VirtualChannelFrameCount = mod(2*(i-1), 256);
-            payloadBytesI1 = uint8(randi([0 255], 1, numBytesActualTF));
+            sourceBytesI1 = localTMSourceRequestBytes(tfOptI1, ...
+                numBytesActualTF, tmSourceInfoI.CanonicalType);
+            sourceOptI = tmSourceOptI;
+            sourceOptI.Debug = getLogicalField(opt, ...
+                'debugTMDataSource', false) && i == 1;
+            [payloadBytesI1, tmSourceStateI, tmSourceInfoI] = ...
+                ccsdsTMInternalDataSource(sourceBytesI1, tmSourceI, ...
+                tmSourceStateI, sourceOptI);
             [frameBitsI1, frameBytesI1, frameInfoI1] = ...
                 make_ccsds_tm_transfer_frame(payloadBytesI1, tfOptI1);
+            frameInfoI1 = localAttachTMDataSourceInfo(frameInfoI1, ...
+                tmSourceInfoI, 'I');
             currentI1 = int8(frameBitsI1(:));
 
             tfOptI2 = tfOpt;
             tfOptI2.MasterChannelFrameCount = mod(2*(i-1)+1, 256);
             tfOptI2.VirtualChannelFrameCount = mod(2*(i-1)+1, 256);
-            payloadBytesI2 = uint8(randi([0 255], 1, numBytesActualTF));
+            sourceBytesI2 = localTMSourceRequestBytes(tfOptI2, ...
+                numBytesActualTF, tmSourceInfoI.CanonicalType);
+            sourceOptI = tmSourceOptI;
+            sourceOptI.Debug = false;
+            [payloadBytesI2, tmSourceStateI, tmSourceInfoI] = ...
+                ccsdsTMInternalDataSource(sourceBytesI2, tmSourceI, ...
+                tmSourceStateI, sourceOptI);
             [frameBitsI2, frameBytesI2, frameInfoI2] = ...
                 make_ccsds_tm_transfer_frame(payloadBytesI2, tfOptI2);
+            frameInfoI2 = localAttachTMDataSourceInfo(frameInfoI2, ...
+                tmSourceInfoI, 'I');
             currentI2 = int8(frameBitsI2(:));
 
             tfOptQ = tfOpt;
             tfOptQ.MasterChannelFrameCount = mod(i-1, 256);
             tfOptQ.VirtualChannelFrameCount = mod(i-1, 256);
-            payloadBytesQ = uint8(randi([0 255], 1, numBytesActualTF));
+            sourceBytesQ = localTMSourceRequestBytes(tfOptQ, ...
+                numBytesActualTF, tmSourceInfoQ.CanonicalType);
+            sourceOptQ = tmSourceOptQ;
+            sourceOptQ.Debug = getLogicalField(opt, ...
+                'debugTMDataSource', false) && i == 1;
+            [payloadBytesQ, tmSourceStateQ, tmSourceInfoQ] = ...
+                ccsdsTMInternalDataSource(sourceBytesQ, tmSourceQ, ...
+                tmSourceStateQ, sourceOptQ);
             [frameBitsQ, frameBytesQ, frameInfoQ] = ...
                 make_ccsds_tm_transfer_frame(payloadBytesQ, tfOptQ);
+            frameInfoQ = localAttachTMDataSourceInfo(frameInfoQ, ...
+                tmSourceInfoQ, 'Q');
             currentQ = int8(frameBitsQ(:));
 
             if any([numel(currentI1), numel(currentI2), ...
@@ -1187,8 +1596,17 @@ function [res, ctx] = runOneShot(opt)
             validTxFrameBytes{refBase+2} = frameBytesI2;
             validTxFrameBytes{refBase+3} = frameBytesQ;
         else
-            payloadBytes = uint8(randi([0 255], 1, numBytesActualTF));
+            sourceBytes = localTMSourceRequestBytes(tfOpt, ...
+                numBytesActualTF, tmSourceInfoSingle.CanonicalType);
+            sourceOptSingle = tmSourceOptSingle;
+            sourceOptSingle.Debug = getLogicalField(opt, ...
+                'debugTMDataSource', false) && i == 1;
+            [payloadBytes, tmSourceStateSingle, tmSourceInfoSingle] = ...
+                ccsdsTMInternalDataSource(sourceBytes, tmSourceSingle, ...
+                tmSourceStateSingle, sourceOptSingle);
             [frameBits, frameBytes, frameInfo] = make_ccsds_tm_transfer_frame(payloadBytes, tfOpt);
+            frameInfo = localAttachTMDataSourceInfo(frameInfo, ...
+                tmSourceInfoSingle, 'single');
             currentFrame = int8(frameBits(:));
             if numel(currentFrame) ~= bitsPerFrame
                 error('run_ccsds_tm_evaluation:TMFrameLengthMismatch', ...
@@ -1281,7 +1699,11 @@ function [res, ctx] = runOneShot(opt)
     cfo_est = NaN;
 
     if cfo_val~=0 || phase_val~=0
-        pfo = comm.PhaseFrequencyOffset('FrequencyOffset',cfo_val,'PhaseOffset',phase_val,'SampleRate',Fs);
+        % comm.PhaseFrequencyOffset.PhaseOffset is specified in DEGREES.
+        % Keep phase_val in radians for the evaluator's internal metrics,
+        % but pass the original user-facing degree value to the object.
+        pfo = comm.PhaseFrequencyOffset('FrequencyOffset',cfo_val, ...
+            'PhaseOffset',rad2deg(phase_val),'SampleRate',Fs);
         txWithCFO = pfo(txWaveform);
     else
         txWithCFO = txWaveform;
@@ -1499,6 +1921,43 @@ function [res, ctx] = runOneShot(opt)
 %% ===== 接收链路 =====
     adaptiveEqMode = lower(getOptionString( ...
         opt, {'equalizerMode','channelEqualizerMode'}, "off"));
+    apskReceiverMode = lower(strtrim(getOptionString( ...
+        opt, {'APSKReceiverMode','apskReceiverMode'}, "pilotless")));
+    usePilotlessAPSKFrontEnd = contains(upper(string(modStr)),'APSK') && ...
+        any(apskReceiverMode == ["pilotless","pilotless-apsk", ...
+        "pilotless-x4-nda-dd","pilotless-xm-nda-dd"]);
+    if usePilotlessAPSKFrontEnd && ...
+            getLogicalField(opt,'HasTMAPSKPilots',false)
+        error('run_ccsds_tm_evaluation:PilotlessAPSKHasPilots', ...
+            ['APSKReceiverMode="pilotless" requires HasTMAPSKPilots=false. ', ...
+             'The experimental front end must not depend on custom pilots.']);
+    end
+    pilotlessAPSKInfo = struct( ...
+        'Applied',false,'Mode','legacy','Reason','not requested', ...
+        'FourthPowerCFO_Hz',NaN,'FourthPowerConfidence_dB',NaN, ...
+        'CoarsePowerOrder',NaN,'NDAResidualCFO_Hz',NaN, ...
+        'NDAResidualCFOApplied',false, ...
+        'MthPowerPhaseTrackerApplied',false, ...
+        'MthPowerPhaseFinalCorrection_deg',NaN, ...
+        'MthPowerPhaseMedianConfidence',NaN, ...
+        'BlindPhaseSearchApplied',false, ...
+        'BlindPhaseSearchReliableFraction',NaN, ...
+        'BlindPhaseSearchMedianMetric',NaN, ...
+        'BlindPhaseSearchFinalCorrection_deg',NaN, ...
+        'PreDDGainTrackerApplied',false, ...
+        'PreDDGainAcceptanceRate',NaN,'PreDDGainHoldFraction',NaN, ...
+        'PreDDGainFadeFraction',NaN,'PreDDGainFinalMagnitude_dB',NaN, ...
+        'RingNormalizerApplied',false,'RingEstimatorMode','off', ...
+        'RingAcceptanceRate',NaN,'RingHoldFraction',NaN, ...
+        'RingFadeFraction',NaN,'RingFinalAmplitude_dB',NaN, ...
+        'CarrierAcceptanceRate',NaN,'CarrierHoldFraction',NaN, ...
+        'CarrierFadeFraction',NaN,'CarrierPhaseErrorRMS_deg',NaN, ...
+        'FinalResidualFrequency_Hz',NaN, ...
+        'ComplexGainEnabled',false,'GainAcceptanceRate',NaN, ...
+        'GainHoldFraction',NaN,'GainFadeFraction',NaN, ...
+        'FinalGainMagnitude_dB',NaN,'FinalGainPhase_deg',NaN, ...
+        'GainRegularization',NaN,'GainMaxInverseGainDB',NaN, ...
+        'GainInverseMaxObserved_dB',NaN);
     syncDebugRequested = getLogicalField(opt, 'debugSynchronizationChain', ...
         getLogicalField(opt, 'debugSyncChain', false));
     syncDebugStages = struct( ...
@@ -1531,6 +1990,61 @@ function [res, ctx] = runOneShot(opt)
     useFastEnvelopePath = false;
     useFastComplexPath = false;
     useFastPhasePath = false;
+    qamBlindPhaseSearchRequested = contains(upper(string(modStr)),'QAM') && ...
+        getLogicalField(opt,'enableQAMBlindPhaseSearch', ...
+        getLogicalField(opt,'enableHChannel',false));
+    isTPCQAM = contains(upper(string(modStr)),'QAM') && ...
+        strcmpi(string(codeStr),'TPC');
+    % A TPC transfer frame contains long, highly structured row/column
+    % product-code sequences.  The generic decision-directed QAM BPS cost
+    % can mistake that data structure for a carrier trajectory and rotate an
+    % otherwise correct stream (including NoH) away from its ASM.  The normal
+    % QAM carrier loop plus the common adaptive equalizer is reliable for this
+    % path, so keep BPS out of TPC unless an explicit diagnostic override is
+    % requested.
+    qamBlindPhaseSearchEnabled = qamBlindPhaseSearchRequested && ...
+        (~isTPCQAM || getLogicalField(opt, ...
+        'enableQAMBlindPhaseSearchForTPC',false));
+    isSplitQAM = contains(upper(string(modStr)),'QAM') && ...
+        any(strcmpi(string(getfieldwithdefault(opt,'DataPathMode','single')), ...
+        ["dualIQ","unequalDualIQ"]));
+    qamBlindPhaseSearchEnabled = qamBlindPhaseSearchEnabled && ...
+        (~isSplitQAM || getLogicalField(opt, ...
+        'enableQAMBlindPhaseSearchForSplit',false));
+    if qamBlindPhaseSearchRequested && isTPCQAM && ...
+            ~qamBlindPhaseSearchEnabled && ...
+            (getLogicalField(opt,'debugAdaptiveEqualizer',false) || ...
+             getLogicalField(opt,'debugSynchronizationChain',false) || ...
+             getLogicalField(opt,'debugCodedBoundary',false))
+        fprintf(['   [TM QAM BPS routing] disabled for TPC; using the ', ...
+            'normal QAM carrier loop and adaptive equalizer.\n']);
+    end
+    if qamBlindPhaseSearchRequested && isSplitQAM && ...
+            ~qamBlindPhaseSearchEnabled && ...
+            (getLogicalField(opt,'debugAdaptiveEqualizer',false) || ...
+             getLogicalField(opt,'debugSynchronizationChain',false) || ...
+             getLogicalField(opt,'debugCodedBoundary',false))
+        fprintf(['   [TM QAM BPS routing] disabled for split I/Q; ', ...
+            'using the normal QAM carrier loop.  Set ', ...
+            'enableQAMBlindPhaseSearchForSplit=true only for diagnosis.\n']);
+    end
+    % computeBER receives OPT rather than this local routing state. Record
+    % the actual decision so sparse ASM phase anchoring is enabled only when
+    % BPS really processed this stream.
+    opt.QAMBlindPhaseSearchActive = qamBlindPhaseSearchEnabled;
+    qamPostBPSAdaptiveEqualizerEnabled = getLogicalField(opt, ...
+        'enableQAMPostBPSAdaptiveEqualizer',false);
+    pilotlessAPSKPostFrontEndAdaptiveEqualizerEnabled = getLogicalField( ...
+        opt,'enablePilotlessAPSKPostFrontEndAdaptiveEqualizer',false);
+    qamBlindPhaseInfo = struct('Applied',false, ...
+        'ReliableFraction',NaN,'MedianBestMetric',NaN, ...
+        'FinalCorrection_deg',NaN,'FadeHoldBlocks',0, ...
+        'FadeEvents',0,'FadeRecoveries',0,'Reacquisitions',0, ...
+        'InitialFrequencyRadPerSymbol',NaN);
+    qamPowerGainInfo = struct('Applied',false, ...
+        'AcceptanceRate',NaN,'FinalGainMagnitude_dB',NaN, ...
+        'InverseGainMaxObserved_dB',NaN,'Regularization',NaN, ...
+        'MaxInverseGainDB',NaN);
     isPCMPhaseMod = HelperCCSDSTMPCMDemodulator.supports(modStr);
 
     if isPCMPhaseMod
@@ -1792,12 +2306,16 @@ function [res, ctx] = runOneShot(opt)
             % the dedicated carrier loop and high-rate phase tracker remain
             % the normal acquisition path.
             enableUQPSKFFTCoarseCFO = getLogicalField(opt, ...
-                'enableUQPSKFFTCoarseCFO', false);
+                'enableUQPSKFFTCoarseCFO', true);
             if isfield(opt,'enableUQPSKFFTCoarseCFO') && ~isempty(opt.enableUQPSKFFTCoarseCFO)
                 enableUQPSKFFTCoarseCFO = logical(opt.enableUQPSKFFTCoarseCFO);
             end
 
             uqpskMaxCFOHz = 0.05 * fSym;   % default search: +/-5% symbol rate
+            if isfield(opt,'carrierCaptureRangeHz') && ...
+                    ~isempty(opt.carrierCaptureRangeHz)
+                uqpskMaxCFOHz = double(opt.carrierCaptureRangeHz);
+            end
             if isfield(opt,'uqpskMaxCFOHz') && ~isempty(opt.uqpskMaxCFOHz)
                 uqpskMaxCFOHz = double(opt.uqpskMaxCFOHz);
             end
@@ -2087,8 +2605,14 @@ function [res, ctx] = runOneShot(opt)
             % estimator; the option remains explicit for A/B debugging.
             useCoarseFreqSync = true;
             if contains(modStr,'APSK')
+                if usePilotlessAPSKFrontEnd
+                    % The pilotless adapter owns x^4 coarse acquisition.
+                    % Do not pre-rotate it with the generic QAM estimator.
+                    useCoarseFreqSync = false;
+                end
                 if isfield(opt,'enableAPSKCoarseFrequencyCompensator') && ...
-                        ~isempty(opt.enableAPSKCoarseFrequencyCompensator)
+                        ~isempty(opt.enableAPSKCoarseFrequencyCompensator) && ...
+                        ~usePilotlessAPSKFrontEnd
                     useCoarseFreqSync = localFlagValue(opt.enableAPSKCoarseFrequencyCompensator);
                 end
             end
@@ -2133,13 +2657,16 @@ function [res, ctx] = runOneShot(opt)
             useFastEnvelopePath = getLogicalField(opt,'enableHChannel',false) && ...
                 localIsAdaptiveEqualizerMode(adaptiveEqMode) && ...
                 localSupportsTMBlindAdaptiveModulation(modStr) && ...
-                getLogicalField(opt,'enableAdaptiveFastEnvelopeTracker',true);
+                getLogicalField(opt,'enableAdaptiveFastEnvelopeTracker',true) && ...
+                ~usePilotlessAPSKFrontEnd && ...
+                ~qamBlindPhaseSearchEnabled;
             useConstantEnvelopePath = useFastEnvelopePath && ...
                 any(strcmpi(string(modStr),["BPSK","QPSK","8PSK"]));
             useFastComplexPath = useConstantEnvelopePath;
             useFastPhasePath = useFastEnvelopePath && ...
                 ~useConstantEnvelopePath && ...
-                getLogicalField(opt,'enableAdaptiveFastPhaseTracker',true);
+                getLogicalField(opt,'enableAdaptiveFastPhaseTracker',true) && ...
+                ~qamBlindPhaseSearchEnabled;
             if useFastEnvelopePath
                 defaultEnvelopeTauSymbols = 64;
                 % Keep production/release behaviour unchanged.  The new
@@ -2298,31 +2825,46 @@ function [res, ctx] = runOneShot(opt)
                     'DampingFactor',1/sqrt(2), ...
                     'NormalizedLoopBandwidth',fineLoopBW);
             elseif contains(modStr,'APSK')
-                useAPSKQAMCarrierSync = abs(getf(opt,'cfo',0)) > 0 || ...
-                    abs(getf(opt,'phaseOffset',0)) > 0 || ...
-                    (getLogicalField(opt,'enableHChannel',false) && ...
-                     localIsAdaptiveEqualizerMode(adaptiveEqMode));
-                if strcmpi(char(codeStr), 'RS')
-                    useAPSKQAMCarrierSync = false;
+                if usePilotlessAPSKFrontEnd
+                    % External pilotless adapter runs immediately after
+                    % Gardner and returns the symbol stream to the main
+                    % demapper/FEC boundary.
+                    carrierSync = [];
+                else
+                    useAPSKQAMCarrierSync = abs(getf(opt,'cfo',0)) > 0 || ...
+                        abs(getf(opt,'phaseOffset',0)) > 0 || ...
+                        (getLogicalField(opt,'enableHChannel',false) && ...
+                         localIsAdaptiveEqualizerMode(adaptiveEqMode));
+                    if strcmpi(char(codeStr), 'RS')
+                        useAPSKQAMCarrierSync = false;
+                    end
+                    if isfield(opt,'enableAPSKQAMCarrierSync') && ~isempty(opt.enableAPSKQAMCarrierSync)
+                        useAPSKQAMCarrierSync = localFlagValue(opt.enableAPSKQAMCarrierSync);
+                    end
+                    if useAPSKQAMCarrierSync
+                        carrierSync = comm.CarrierSynchronizer( ...
+                            'Modulation','QAM', ...
+                            'SamplesPerSymbol',1, ...
+                            'DampingFactor',1/sqrt(2), ...
+                            'NormalizedLoopBandwidth',fineLoopBW);
+                    else
+                        carrierSync = [];
+                    end
                 end
-                if isfield(opt,'enableAPSKQAMCarrierSync') && ~isempty(opt.enableAPSKQAMCarrierSync)
-                    useAPSKQAMCarrierSync = localFlagValue(opt.enableAPSKQAMCarrierSync);
-                end
-                if useAPSKQAMCarrierSync
+            elseif contains(modStr,'QAM')
+                if qamBlindPhaseSearchEnabled
+                    % The feed-forward BPS stage below owns fine carrier
+                    % phase.  Do not cascade a decision-directed QAM PLL
+                    % before it, because quadrant slips are invisible to a
+                    % pi/2-symmetric blind estimator after the fact.
+                    carrierSync = [];
+                else
                     carrierSync = comm.CarrierSynchronizer( ...
                         'Modulation','QAM', ...
                         'SamplesPerSymbol',1, ...
                         'DampingFactor',1/sqrt(2), ...
                         'NormalizedLoopBandwidth',fineLoopBW);
-                else
-                    carrierSync = [];
                 end
-            elseif contains(modStr,'QAM')
-                carrierSync = comm.CarrierSynchronizer( ...
-                    'Modulation','QAM', ...
-                    'SamplesPerSymbol',1, ...
-                    'DampingFactor',1/sqrt(2), ...
-                    'NormalizedLoopBandwidth',fineLoopBW);
             else
                 carrierSync = comm.CarrierSynchronizer( ...
                     'Modulation',char(modStr), ...
@@ -2335,6 +2877,103 @@ function [res, ctx] = runOneShot(opt)
                 fineSynced = TimeSynced;
             else
                 fineSynced = carrierSync(TimeSynced);
+            end
+            if usePilotlessAPSKFrontEnd
+                [fineSynced,pilotlessAPSKInfo] = ...
+                    HelperTMAPSKPilotlessFrontEnd( ...
+                    fineSynced,char(modStr),opt);
+            end
+            if qamBlindPhaseSearchEnabled
+                qamBPSOpt = struct( ...
+                    'NumTestPhases',61, ...
+                    'WindowSymbols',33, ...
+                    'HopSymbols',4, ...
+                    'MetricPowerWindowSymbols',33, ...
+                    'MinConfidence',0.02, ...
+                    'FadeThresholdDB',-22, ...
+                    'EnableFadeHold',true, ...
+                    'FadeEnterDB',-10, ...
+                    'FadeExitDB',-7, ...
+                    'FadeEnterBlocks',2, ...
+                    'FadeRecoverBlocks',4, ...
+                    'FadeArmReliableBlocks',4, ...
+                    'TrajectoryAlpha',0.85, ...
+                    'FrequencyAlpha',0.20, ...
+                    'MaxInnovationRad',deg2rad(35), ...
+                    'ReacquireReliableBlocks',4, ...
+                    'EnableInitialFrequencyEstimate',true, ...
+                    'InitialFrequencyBlocks',64, ...
+                    'PreserveFrequencyOnReacquire',true, ...
+                    'ReacquirePhaseAlpha',0.25, ...
+                    'PreserveInitialPhase',false, ...
+                    'MaxFrequencyRadPerSymbol',0.05);
+                if isfield(opt,'QAMBlindPhaseSearch') && ...
+                        isstruct(opt.QAMBlindPhaseSearch)
+                    qamNames = fieldnames(opt.QAMBlindPhaseSearch);
+                    for qamFieldIndex = 1:numel(qamNames)
+                        qamBPSOpt.(qamNames{qamFieldIndex}) = ...
+                            opt.QAMBlindPhaseSearch.(qamNames{qamFieldIndex});
+                    end
+                end
+                qamBPSOpt.Debug = getLogicalField(opt, ...
+                    'debugAdaptiveEqualizer',false);
+                [fineSynced,~,qamBlindPhaseInfo] = ...
+                    HelperTMFeedforwardBlindPhaseSearch( ...
+                    fineSynced,getReferenceConstellation(modStr),qamBPSOpt);
+            end
+            % Scalar QAM magnitude tracking is independent of BPS.  In
+            % particular, TPC intentionally disables BPS because its highly
+            % structured product-code stream can bias the phase metric.  The
+            % old nesting also disabled the unrelated magnitude tracker and
+            % left the large radial EVM seen in normalized-H TPC sweeps.
+            if contains(upper(string(modStr)),'QAM') && ...
+                    getLogicalField(opt,'enableQAMPowerGainTracker',true)
+                % QAM has intrinsic multi-level amplitude.  A short raw-power
+                % window mistakes a structured TPC symbol sequence for channel
+                % fading (even in NoH).  Use gated nearest-symbol amplitude
+                % observations; the independent envelope tracker remains
+                % responsible for decision-free fade acquisition.
+                qamGainOpt = struct( ...
+                    'MagnitudeEstimationMode','decision', ...
+                    'UpdatePowerReference',false, ...
+                    'FadePowerTauSymbols',16, ...
+                    'FadeReferenceTauSymbols',4096, ...
+                    'EnableFadeHold',true, ...
+                    'FadeEnterDB',-10, ...
+                    'FadeExitDB',-6, ...
+                    'HoldEnterBadSymbols',8, ...
+                    'RecoverGoodSymbols',4, ...
+                    'Regularization',0, ...
+                    'MaxInverseGainDB',40, ...
+                    'PowerReference',1, ...
+                    'NormalizeInputPower',true, ...
+                    'TrackMagnitude',true, ...
+                    'TrackPhase',false);
+                if isfield(opt,'QAMPowerGainTracker') && ...
+                        isstruct(opt.QAMPowerGainTracker)
+                    qamNames = fieldnames(opt.QAMPowerGainTracker);
+                    for qamFieldIndex = 1:numel(qamNames)
+                        qamGainOpt.(qamNames{qamFieldIndex}) = ...
+                            opt.QAMPowerGainTracker.(qamNames{qamFieldIndex});
+                    end
+                end
+                qamGainOpt.Debug = getLogicalField(opt, ...
+                    'debugAdaptiveEqualizer',false);
+                [fineSynced,~,qamPowerGainInfo] = ...
+                    HelperTMComplexGainTracker( ...
+                    fineSynced,getReferenceConstellation(modStr),qamGainOpt);
+            end
+            if contains(upper(string(modStr)),'QAM') && ...
+                    getLogicalField(opt,'debugAdaptiveEqualizer',false)
+                fprintf(['   [TM QAM front-end] BPS=%d reliable=%.2f%% ', ...
+                    'metric=%.5g finalPhase=%+.2f deg ', ...
+                    'powerGain=%d inverseMax=%+.2f dB\n'], ...
+                    qamBlindPhaseInfo.Applied, ...
+                    100*qamBlindPhaseInfo.ReliableFraction, ...
+                    qamBlindPhaseInfo.MedianBestMetric, ...
+                    qamBlindPhaseInfo.FinalCorrection_deg, ...
+                    qamPowerGainInfo.Applied, ...
+                    qamPowerGainInfo.InverseGainMaxObserved_dB);
             end
             if syncDebugRequested
                 syncDebugStages.Carrier = fineSynced;
@@ -2455,6 +3094,10 @@ function [res, ctx] = runOneShot(opt)
         elseif localSupportsTMBlindAdaptiveModulation(modStr) && ...
                 (~contains(upper(string(modStr)),'UQPSK') || ...
                  uqpskPostCarrierEQEnabled) && ...
+                (~qamBlindPhaseSearchEnabled || ...
+                 qamPostBPSAdaptiveEqualizerEnabled) && ...
+                (~usePilotlessAPSKFrontEnd || ...
+                 pilotlessAPSKPostFrontEndAdaptiveEqualizerEnabled) && ...
                 exist('fineSynced','var') && ~isempty(fineSynced)
             adaptiveRefConst = getReferenceConstellation(modStr);
 
@@ -2514,7 +3157,8 @@ function [res, ctx] = runOneShot(opt)
                 fprintf(['   [TM adaptive EQ] mode=%s taps=%d CMA=%d ', ...
                     ['DD decisions=%d passes=%d/%d ', ...
                      'qualified=%d outputAccepted=%d structure=%s ', ...
-                     'sideRatio=%.4f hold=%d/%d externalHold=%d ', ...
+                     'sideRatio=%.4f hold=%d/%d fadeHold=%d ', ...
+                     'enter/recover=%d/%d externalHold=%d ', ...
                      'externalMask=%d/%d ', ...
                      'accept=%.1f%% CMA-MSE=%.4g DD-MSE=%.4g\n']], ...
                     adaptiveEqInfo.Mode, adaptiveEqInfo.NumTaps, ...
@@ -2529,6 +3173,9 @@ function [res, ctx] = runOneShot(opt)
                         'SideTapEnergyRatio',NaN), ...
                     getfieldnumeric(adaptiveEqInfo,'DDHoldWindows',0), ...
                     getfieldnumeric(adaptiveEqInfo,'DDWindowCount',0), ...
+                    getfieldnumeric(adaptiveEqInfo,'DDFadeHoldWindows',0), ...
+                    getfieldnumeric(adaptiveEqInfo,'DDFadeEnterEvents',0), ...
+                    getfieldnumeric(adaptiveEqInfo,'DDFadeRecoverEvents',0), ...
                     getfieldnumeric(adaptiveEqInfo, ...
                         'DDExternalFadeHoldWindows',0), ...
                     getfieldnumeric(adaptiveEqInfo, ...
@@ -2830,6 +3477,22 @@ function [res, ctx] = runOneShot(opt)
     res.RandomizerEnabled = logical(randomizerEnabled);
     res.RandomizerFECPosition = char(randomizerFECPosition);
     res.DataPathMode = char(dataPathMode);
+    if isEqualSplitPath || isUnequalSplitPath
+        res.TMDataSource = 'split';
+        res.TMDataSourceI = char(tmSourceInfoI.CanonicalType);
+        res.TMDataSourceQ = char(tmSourceInfoQ.CanonicalType);
+        res.TMDataSourcePolynomialI = localTMSourcePolynomial(tmSourceInfoI);
+        res.TMDataSourcePolynomialQ = localTMSourcePolynomial(tmSourceInfoQ);
+    else
+        res.TMDataSource = char(tmSourceInfoSingle.CanonicalType);
+        res.TMDataSourceI = '';
+        res.TMDataSourceQ = '';
+        res.TMDataSourcePolynomial = localTMSourcePolynomial(tmSourceInfoSingle);
+    end
+    res.ConvolutionalG1G2Mode = char(getfieldwithdefault(opt, ...
+        'ConvolutionalG1G2Mode', 'not-applicable'));
+    res.CarrierCaptureRangeConfigured_Hz = getfieldnumeric(opt, ...
+        'carrierCaptureRangeHz', NaN);
     res.WaveformMode = char(opt.WaveformMode);
     if isUnequalSplitPath
         res.UQPSKRRatio = 2;
@@ -2958,6 +3621,14 @@ function [res, ctx] = runOneShot(opt)
         adaptiveEqInfo, 'DDHoldWindows', 0);
     res.AdaptiveEqualizerDDFadeHoldWindows = getfieldnumeric( ...
         adaptiveEqInfo, 'DDFadeHoldWindows', 0);
+    res.AdaptiveEqualizerDDFadeEnterEvents = getfieldnumeric( ...
+        adaptiveEqInfo, 'DDFadeEnterEvents', 0);
+    res.AdaptiveEqualizerDDFadeRecoverEvents = getfieldnumeric( ...
+        adaptiveEqInfo, 'DDFadeRecoverEvents', 0);
+    res.AdaptiveEqualizerFadeRecoverDB = getfieldnumeric( ...
+        adaptiveEqInfo, 'FadeRecoverDB', NaN);
+    res.AdaptiveEqualizerFadeDetectorSymbols = getfieldnumeric( ...
+        adaptiveEqInfo, 'FadeDetectorSymbols', 0);
     res.AdaptiveEqualizerExternalFadeMaskProvided = getLogicalField( ...
         adaptiveEqInfo, 'ExternalFadeMaskProvided', false);
     res.AdaptiveEqualizerExternalFadeMaskLengthMatched = getLogicalField( ...
@@ -3158,6 +3829,105 @@ function [res, ctx] = runOneShot(opt)
     res.TMAPSKPilotMaxAppliedGain_dB = tmAPSKPilotInfo.MaxAppliedGain_dB;
     res.TMAPSKPilotRegularization = tmAPSKPilotInfo.Regularization;
     res.TMAPSKPilotNoiseVariance = tmAPSKPilotInfo.PilotNoiseVariance;
+    res.APSKReceiverMode = char(apskReceiverMode);
+    res.PilotlessAPSKApplied = pilotlessAPSKInfo.Applied;
+    res.PilotlessAPSKReason = pilotlessAPSKInfo.Reason;
+    res.PilotlessAPSKFourthPowerCFO_Hz = ...
+        pilotlessAPSKInfo.FourthPowerCFO_Hz;
+    res.PilotlessAPSKFourthPowerConfidence_dB = ...
+        pilotlessAPSKInfo.FourthPowerConfidence_dB;
+    res.PilotlessAPSKCoarsePowerOrder = ...
+        pilotlessAPSKInfo.CoarsePowerOrder;
+    res.PilotlessAPSKNDAResidualCFO_Hz = ...
+        pilotlessAPSKInfo.NDAResidualCFO_Hz;
+    res.PilotlessAPSKNDAResidualCFOApplied = ...
+        pilotlessAPSKInfo.NDAResidualCFOApplied;
+    res.PilotlessAPSKMthPowerPhaseTrackerApplied = ...
+        pilotlessAPSKInfo.MthPowerPhaseTrackerApplied;
+    res.PilotlessAPSKMthPowerPhaseFinalCorrection_deg = ...
+        pilotlessAPSKInfo.MthPowerPhaseFinalCorrection_deg;
+    res.PilotlessAPSKMthPowerPhaseMedianConfidence = ...
+        pilotlessAPSKInfo.MthPowerPhaseMedianConfidence;
+    res.PilotlessAPSKBlindPhaseSearchApplied = ...
+        pilotlessAPSKInfo.BlindPhaseSearchApplied;
+    res.PilotlessAPSKBlindPhaseSearchReliableRate = ...
+        pilotlessAPSKInfo.BlindPhaseSearchReliableFraction;
+    res.PilotlessAPSKBlindPhaseSearchMedianMetric = ...
+        pilotlessAPSKInfo.BlindPhaseSearchMedianMetric;
+    res.PilotlessAPSKBlindPhaseSearchFinalCorrection_deg = ...
+        pilotlessAPSKInfo.BlindPhaseSearchFinalCorrection_deg;
+    res.PilotlessAPSKPreDDGainApplied = ...
+        pilotlessAPSKInfo.PreDDGainTrackerApplied;
+    res.PilotlessAPSKPreDDGainAcceptanceRate = ...
+        pilotlessAPSKInfo.PreDDGainAcceptanceRate;
+    res.PilotlessAPSKPreDDGainHoldFraction = ...
+        pilotlessAPSKInfo.PreDDGainHoldFraction;
+    res.PilotlessAPSKPreDDGainFadeFraction = ...
+        pilotlessAPSKInfo.PreDDGainFadeFraction;
+    res.PilotlessAPSKPreDDGainFinalMagnitude_dB = ...
+        pilotlessAPSKInfo.PreDDGainFinalMagnitude_dB;
+    res.PilotlessAPSKRingNormalizerApplied = ...
+        pilotlessAPSKInfo.RingNormalizerApplied;
+    res.PilotlessAPSKRingEstimatorMode = ...
+        pilotlessAPSKInfo.RingEstimatorMode;
+    res.PilotlessAPSKRingAcceptanceRate = ...
+        pilotlessAPSKInfo.RingAcceptanceRate;
+    res.PilotlessAPSKRingHoldFraction = ...
+        pilotlessAPSKInfo.RingHoldFraction;
+    res.PilotlessAPSKRingFadeFraction = ...
+        pilotlessAPSKInfo.RingFadeFraction;
+    res.PilotlessAPSKRingFinalAmplitude_dB = ...
+        pilotlessAPSKInfo.RingFinalAmplitude_dB;
+    res.PilotlessAPSKCarrierAcceptanceRate = ...
+        pilotlessAPSKInfo.CarrierAcceptanceRate;
+    res.PilotlessAPSKCarrierHoldFraction = ...
+        pilotlessAPSKInfo.CarrierHoldFraction;
+    res.PilotlessAPSKCarrierFadeFraction = ...
+        pilotlessAPSKInfo.CarrierFadeFraction;
+    res.PilotlessAPSKCarrierPhaseErrorRMS_deg = ...
+        pilotlessAPSKInfo.CarrierPhaseErrorRMS_deg;
+    res.PilotlessAPSKResidualFrequency_Hz = ...
+        pilotlessAPSKInfo.FinalResidualFrequency_Hz;
+    res.PilotlessAPSKComplexGainEnabled = ...
+        pilotlessAPSKInfo.ComplexGainEnabled;
+    res.PilotlessAPSKGainAcceptanceRate = ...
+        pilotlessAPSKInfo.GainAcceptanceRate;
+    res.PilotlessAPSKGainHoldFraction = ...
+        pilotlessAPSKInfo.GainHoldFraction;
+    res.PilotlessAPSKGainFadeFraction = ...
+        pilotlessAPSKInfo.GainFadeFraction;
+    res.PilotlessAPSKFinalGainMagnitude_dB = ...
+        pilotlessAPSKInfo.FinalGainMagnitude_dB;
+    res.PilotlessAPSKFinalGainPhase_deg = ...
+        pilotlessAPSKInfo.FinalGainPhase_deg;
+    res.PilotlessAPSKGainRegularization = ...
+        pilotlessAPSKInfo.GainRegularization;
+    res.PilotlessAPSKGainMaxInverseGainDB = ...
+        pilotlessAPSKInfo.GainMaxInverseGainDB;
+    res.PilotlessAPSKGainInverseMaxObserved_dB = ...
+        pilotlessAPSKInfo.GainInverseMaxObserved_dB;
+    res.QAMBlindPhaseSearchApplied = qamBlindPhaseInfo.Applied;
+    res.QAMBlindPhaseSearchReliableRate = ...
+        qamBlindPhaseInfo.ReliableFraction;
+    res.QAMBlindPhaseSearchMedianMetric = ...
+        qamBlindPhaseInfo.MedianBestMetric;
+    res.QAMBlindPhaseSearchFinalCorrection_deg = ...
+        qamBlindPhaseInfo.FinalCorrection_deg;
+    res.QAMBlindPhaseSearchFadeHoldBlocks = ...
+        qamBlindPhaseInfo.FadeHoldBlocks;
+    res.QAMBlindPhaseSearchFadeEvents = qamBlindPhaseInfo.FadeEvents;
+    res.QAMBlindPhaseSearchFadeRecoveries = ...
+        qamBlindPhaseInfo.FadeRecoveries;
+    res.QAMBlindPhaseSearchReacquisitions = ...
+        qamBlindPhaseInfo.Reacquisitions;
+    res.QAMBlindPhaseSearchInitialFrequencyRadPerSymbol = ...
+        qamBlindPhaseInfo.InitialFrequencyRadPerSymbol;
+    res.QAMPowerGainApplied = qamPowerGainInfo.Applied;
+    res.QAMPowerGainAcceptanceRate = qamPowerGainInfo.AcceptanceRate;
+    res.QAMPowerGainRegularization = qamPowerGainInfo.Regularization;
+    res.QAMPowerGainMaxInverseGainDB = qamPowerGainInfo.MaxInverseGainDB;
+    res.QAMPowerGainInverseMaxObserved_dB = ...
+        qamPowerGainInfo.InverseGainMaxObserved_dB;
     res.Fs          = Fs;
     res.HEnabled    = hInfo.Enabled;
     res.HMode       = char(hInfo.Mode);
@@ -3207,6 +3977,85 @@ end
 % =========================================================
 function v = getf(s, name, defv)
     if isfield(s,name) && ~isempty(s.(name)), v = double(s.(name)); else, v = defv; end
+end
+
+function sourceType = localTMDataSourceType(opt, rail)
+%LOCALTMDATASOURCETYPE Resolve the common or per-I/Q source selection.
+    sourceType = char(string(getfieldwithdefault(opt, ...
+        'TMDataSource', 'random')));
+    rail = upper(char(string(rail)));
+    if ~isempty(rail)
+        railField = ['TMDataSource', rail];
+        if isfield(opt, railField) && ~isempty(opt.(railField))
+            sourceType = char(string(opt.(railField)));
+        end
+    end
+end
+
+function sourceOpt = localTMDataSourceOptions(opt, rail)
+%LOCALTMDATASOURCEOPTIONS Translate public options to the reusable source.
+    sourceOpt = struct();
+    mappings = { ...
+        'TMDataSourcePNInitialState', 'PNInitialState'; ...
+        'TMDataSourcePNPolynomialExponents', 'PNPolynomialExponents'; ...
+        'TMDataSourcePNInvert', 'PNInvertOutput'; ...
+        'TMDataSourceFixedPattern', 'FixedPattern'; ...
+        'TMDataSourceIncrementStart', 'IncrementStart'};
+    rail = upper(char(string(rail)));
+    for k = 1:size(mappings,1)
+        publicName = mappings{k,1};
+        helperName = mappings{k,2};
+        if isfield(opt, publicName) && ~isempty(opt.(publicName))
+            sourceOpt.(helperName) = opt.(publicName);
+        end
+        if ~isempty(rail)
+            railName = [publicName, rail];
+            if isfield(opt, railName) && ~isempty(opt.(railName))
+                sourceOpt.(helperName) = opt.(railName);
+            end
+        end
+    end
+    sourceOpt.Debug = false;
+end
+
+function numBytes = localTMSourceRequestBytes(tfOpt, fullFrameBytes, sourceType)
+% Preserve the historical random-data RNG consumption exactly.  Patterned
+% sources advance only through the bytes that are actually placed in the TM
+% data field, matching a continuous equipment test-pattern generator.
+    if strcmpi(string(sourceType), 'random')
+        numBytes = double(fullFrameBytes);
+        return;
+    end
+    secondaryLength = 0;
+    if isfield(tfOpt, 'HasSecondaryHeader') && logical(tfOpt.HasSecondaryHeader) && ...
+            isfield(tfOpt, 'SecondaryHeader')
+        secondaryLength = numel(tfOpt.SecondaryHeader);
+    end
+    ocfLength = 4 * double(isfield(tfOpt, 'HasOCF') && logical(tfOpt.HasOCF));
+    fecfLength = 2 * double(isfield(tfOpt, 'HasFECF') && logical(tfOpt.HasFECF));
+    numBytes = double(tfOpt.FrameLengthBytes) - 6 - secondaryLength - ...
+        ocfLength - fecfLength;
+    if numBytes < 1
+        error('run_ccsds_tm_evaluation:TMDataSourceFieldTooShort', ...
+            'TM frame has no data-field bytes available for TMDataSource.');
+    end
+end
+
+function fields = localAttachTMDataSourceInfo(fields, sourceInfo, rail)
+    fields.TMDataSource = char(sourceInfo.CanonicalType);
+    fields.TMDataSourceRail = char(string(rail));
+    fields.TMDataSourcePolynomial = localTMSourcePolynomial(sourceInfo);
+    if isfield(sourceInfo, 'FixedPatternHex')
+        fields.TMDataSourceFixedPatternHex = sourceInfo.FixedPatternHex;
+    end
+end
+
+function polynomial = localTMSourcePolynomial(sourceInfo)
+    polynomial = '';
+    if isstruct(sourceInfo) && isfield(sourceInfo, 'Polynomial') && ...
+            ~isempty(sourceInfo.Polynomial)
+        polynomial = char(sourceInfo.Polynomial);
+    end
 end
 
 function v = getfieldnumeric(s, name, defv)
@@ -4627,7 +5476,11 @@ function info = localEmptyTMAdaptiveEqualizerInfo()
         'DDGoodWindows',0, ...
         'DDHoldWindows',0, ...
         'DDFadeHoldWindows',0, ...
+        'DDFadeEnterEvents',0, ...
+        'DDFadeRecoverEvents',0, ...
         'FadeHoldDB',NaN, ...
+        'FadeRecoverDB',NaN, ...
+        'FadeDetectorSymbols',0, ...
         'DDHoldReason','', ...
         'InputStructureMSE',NaN, ...
         'OutputStructureMSE',NaN, ...
@@ -5141,13 +5994,27 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
         asmFramePhaseCorrectionInfo = localEmptyASMFramePhaseCorrectionInfo();
         if phaseResolveMode ~= "ber"
             asmResolveOpt = opt;
-            % Keep this conservative rescue path QPSK-only.  Periodic ASM
-            % frame boundaries can be ambiguous for high-order mappings and
-            % previously corrupted otherwise clean QAM/APSK cases.
-            supportsFramePhaseCorrection = strcmpi(strtrim(tmMod), 'QPSK');
+            % The generic legacy APSK path remains excluded: its historical
+            % pilot/equalizer combinations can make a per-frame ASM decision
+            % ambiguous.  The pilotless APSK receiver, however, deliberately
+            % leaves the residual 90-degree ambiguity to ASM and therefore
+            % needs this sparse phase anchor after a carrier cycle slip.
+            receiverModeForASM = lower(strtrim(string( ...
+                getfieldwithdefault(opt,'APSKReceiverMode','legacy'))));
+            pilotlessAPSKForASM = contains(upper(string(tmMod)),'APSK') && ...
+                any(receiverModeForASM == ["pilotless","pilotless-apsk", ...
+                "pilotless-x4-nda-dd","pilotless-xm-nda-dd"]);
+            qamBPSForASM = contains(upper(string(tmMod)),'QAM') && ...
+                getLogicalField(opt,'QAMBlindPhaseSearchActive',false);
+            supportsFramePhaseCorrection = ...
+                strcmpi(strtrim(tmMod),'QPSK') || pilotlessAPSKForASM || ...
+                qamBPSForASM;
+            defaultFramePhaseCorrection = ...
+                (pilotlessAPSKForASM || qamBPSForASM) && ...
+                getLogicalField(opt,'enableHChannel',false);
             requestFramePhaseCorrection = ...
                 getLogicalField(opt,'enableASMFramePhaseCorrection', ...
-                    false) && ...
+                    defaultFramePhaseCorrection) && ...
                 supportsFramePhaseCorrection && ...
                 strcmpi(string(getfieldwithdefault(opt,'DataPathMode','single')), ...
                     "single") && hasASM;
@@ -6098,9 +6965,15 @@ function [berVal, lockRate, errs, bitsComp, stats, perFrameBER] = ...
 
     errs = errsI + errsQ;
     bitsComp = bitsI + bitsQ;
-    if bitsComp > 0
+    bothRailsMeasured = bitsI > 0 && bitsQ > 0 && ...
+        statsI.CountedFrames > 0 && statsQ.CountedFrames > 0;
+    if bothRailsMeasured
         berVal = errs / bitsComp;
     else
+        % A dual-I/Q result is not valid when only one rail acquires.  The
+        % historical aggregate silently divided by the surviving rail and
+        % could therefore report BER=0/PASS while the other rail had no
+        % decoded frames at all.
         berVal = 0.5;
     end
 
@@ -6124,7 +6997,7 @@ function [berVal, lockRate, errs, bitsComp, stats, perFrameBER] = ...
     stats.AcquisitionTime_s = localAcquisitionTimeSeconds( ...
         stats.AcquisitionFrames, bitsPerFrame, tmMod, tmCode, opt);
 
-    if stats.CountedFrames == 0
+    if ~bothRailsMeasured
         lockRate = 0;
     elseif stats.NumRxFrames >= 3
         lockRate = min(1, stats.MatchedFrames / stats.NumRxFrames);
@@ -6239,7 +7112,9 @@ function [berVal, lockRate, errs, bitsComp, stats, perFrameBER] = ...
 
     errs = errsI + errsQ;
     bitsComp = bitsI + bitsQ;
-    if bitsComp > 0
+    bothRailsMeasured = bitsI > 0 && bitsQ > 0 && ...
+        statsI.CountedFrames > 0 && statsQ.CountedFrames > 0;
+    if bothRailsMeasured
         berVal = errs / bitsComp;
     else
         berVal = 0.5;
@@ -6265,7 +7140,7 @@ function [berVal, lockRate, errs, bitsComp, stats, perFrameBER] = ...
     stats.AcquisitionTime_s = localAcquisitionTimeSeconds( ...
         stats.AcquisitionFrames, bitsPerFrame, tmMod, tmCode, opt);
 
-    if stats.CountedFrames == 0
+    if ~bothRailsMeasured
         lockRate = 0;
     elseif stats.NumRxFrames >= 3
         lockRate = min(1, stats.MatchedFrames / stats.NumRxFrames);
@@ -7580,9 +8455,27 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     if measurePredecoderStats && ...
             evalin('base','exist(''debugTMEncodedBits'',''var'')')
         txEnc = evalin('base','debugTMEncodedBits');
+        demodForPredecoderStats = demodData;
+        predecoderASMAligned = false;
+        predecoderASMTrim = 0;
+        if hasASM && strcmpi(string(dataPathMode), "single")
+            % The matched-filter/timing path can discard the beginning of
+            % the first transmitted frame.  Comparing that stream directly
+            % with txEncodedBits(1) therefore reports about 0.5 BER even
+            % when the later decoder produces error-free frames.  Align a
+            % diagnostic copy to a periodic ASM first; do not alter the
+            % actual decoder input here.
+            [demodForPredecoderStats,predecoderASMTrim, ...
+                predecoderASMAligned] = localTrimDemodToPeriodicASM( ...
+                demodData,tmMod,tmCode,opt);
+        end
         predecoderContext = struct( ...
             'NumTxFrames', numel(validTxFrames), ...
-            'WarmUpFrames', max(0, round(double(numWarmUp))));
+            'WarmUpFrames', max(0, round(double(numWarmUp))), ...
+            'ASMAligned', predecoderASMAligned, ...
+            'ASMTrimBits', predecoderASMTrim, ...
+            'MaxBurstFrames', max(1, round(getfieldnumeric(opt, ...
+                'debugPredecoderMaxBurstFrames', 12))));
         if ~strcmpi(string(dataPathMode), "single")
             % A packed split stream does not have one contiguous encoded
             % frame per validTxFrames entry.  Keep the global metric but do
@@ -7590,7 +8483,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             predecoderContext.NumTxFrames = 0;
         end
         predecoderStats = localMeasureEncodedBoundaryStats( ...
-            demodData, txEnc, tmMod, ...
+            demodForPredecoderStats, txEnc, tmMod, ...
             debugCodedBoundary, ...
             getfieldnumeric(opt, 'predecoderMaxOffsetBits', 256), ...
             predecoderContext);
@@ -7704,6 +8597,14 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             if ~strcmp(rate,'N/A'), decArgs=[decArgs,{'ConvolutionalCodeRate',rate}]; end
         else
             decArgs=[decArgs,{'ConvolutionalCodeRate','1/2'}];
+        end
+        convMode = char(getfieldwithdefault(opt, ...
+            'ConvolutionalG1G2Mode', 'auto-ccsds'));
+        decArgs = [decArgs, {'ConvolutionalG1G2Mode', convMode}];
+        if getLogicalField(opt, 'debugConvolutionalG1G2', false)
+            fprintf('[TM convolutional config] RX mode=%s rate=%s path=%s\n', ...
+                convMode, char(getfieldwithdefault(opt, ...
+                'ConvolutionalCodeRate', '1/2')), dataPathMode);
         end
     end
     if contains(lower(string(tmCode)), {'turbo','ldpc'})
@@ -7948,6 +8849,17 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         for iqPhase = iqPhaseList
             if iqPhase >= numel(demodData)
                 continue;
+            end
+
+            % Debug only: each carrier/IQ hypothesis may instantiate two
+            % independent rail decoders.  Without resetting the shared print
+            % counter, early wrong carrier rotations can consume the entire
+            % frame-sync log budget and hide the later correct hypothesis.
+            % This switch changes diagnostics only; it never changes decoder
+            % state, thresholds, candidate scoring, or selected data.
+            if splitDebug && getLogicalField(opt, ...
+                    'debugResetCodedFrameSyncPerSplitCandidate', false)
+                assignin('base', 'debugCodedFrameSyncPrintCount', 0);
             end
 
             if useSplitReceiverCoordinator
@@ -8245,24 +9157,23 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     end
 
     if strcmpi(string(tmCode), "TPC") && length(decodedBits) >= bitsPerFrame
-        maxShift = min(bitsPerFrame-1, max(0, length(decodedBits)-bitsPerFrame));
-        bestShift = 0;
-        bestMatched = -1;
-        bestRun = -1;
-        for sh = 0:maxShift
-            [matchedNow, runNow] = scoreFrameIds(decodedBits(sh+1:end), bitsPerFrame, txMap);
-            if matchedNow > bestMatched || (matchedNow == bestMatched && runNow > bestRun)
-                bestMatched = matchedNow;
-                bestRun = runNow;
-                bestShift = sh;
-            end
-        end
-        if bestShift > 0 && bestMatched > 0
-            decodedBits = decodedBits(bestShift+1:end);
-        end
-        if isfield(opt,'debugTPC') && logical(opt.debugTPC)
-            fprintf('   [TPC DEBUG] decoded bit-align shift=%d, matched=%d, run=%d\n', ...
-                bestShift, bestMatched, bestRun);
+        validFrameIds = cell2mat(keys(txMap));
+        minConsecutive = max(2, round(getfieldnumeric(opt, ...
+            'tpcDecodedAlignMinConsecutiveFrames', 3)));
+        minCandidateConsecutive = max(minConsecutive, round( ...
+            getfieldnumeric(opt, ...
+            'tpcDecodedAlignMinCandidateConsecutiveFrames', 8)));
+        alignDebug = getLogicalField(opt, 'debugTPC', false) || ...
+            getLogicalField(opt, 'debugCodedBoundary', false);
+        [decodedBits, tpcAlignInfo] = HelperTMTPCDecodedFrameAligner( ...
+            decodedBits, bitsPerFrame, validFrameIds, ...
+            'MinConsecutiveFrames', minConsecutive, ...
+            'MinCandidateConsecutiveFrames', minCandidateConsecutive, ...
+            'Debug', alignDebug);
+        if alignDebug && ~tpcAlignInfo.Applied && ...
+                tpcAlignInfo.BaselineMaxRun < minConsecutive
+            fprintf(['   [TPC ALIGN] no verified replacement; keeping decoder ', ...
+                'boundary rather than applying an unconfirmed bit shift.\n']);
         end
     end
 
@@ -8498,31 +9409,6 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     end
 end
 
-
-function [matched, maxRun] = scoreFrameIds(bits, bitsPerFrame, txMap)
-    matched = 0;
-    maxRun = 0;
-    runLen = 0;
-    lastId = [];
-    numRx = floor(length(bits) / bitsPerFrame);
-    for j = 1:numRx
-        rxFr = double(bits((j-1)*bitsPerFrame+1:j*bitsPerFrame));
-        rxId = localTMFrameID(rxFr);
-        if isKey(txMap, rxId)
-            matched = matched + 1;
-            if isempty(lastId) || rxId == mod(lastId + 1, 256)
-                runLen = runLen + 1;
-            else
-                runLen = 1;
-            end
-            maxRun = max(maxRun, runLen);
-            lastId = rxId;
-        else
-            runLen = 0;
-            lastId = [];
-        end
-    end
-end
 
 function shifts = localCodedPhaseShiftList(rateStr)
     switch char(string(rateStr))
@@ -9055,28 +9941,69 @@ function stats = localMeasureEncodedBoundaryStats( ...
         return;
     end
 
-    maxOffset = min(max(0, round(double(maxOffsetBits))), ...
-        max(0, numel(rxHard0)-1));
-    best = struct('err', inf, 'offset', 0, 'polarity', 1, 'len', 0);
-    for offset = 0:maxOffset
-        L = min(numel(txBits), numel(rxHard0)-offset);
-        if L <= 0
-            continue;
+    maxOffset = max(0,round(double(maxOffsetBits)));
+    numTxFrames = max(0,round(getfieldnumeric(context,'NumTxFrames',0)));
+    frameLength = 0;
+    if numTxFrames > 0 && mod(numel(txBits),numTxFrames) == 0
+        frameLength = numel(txBits)/numTxFrames;
+    end
+
+    % Search both directions.  Positive offset drops RX bits; negative
+    % offset drops TX bits.  When an ASM has established a frame boundary,
+    % also search which transmitted frame is the first surviving frame.
+    % A short probe chooses the hypothesis, then BER is evaluated over the
+    % full common interval.  This keeps a 300-frame debug run inexpensive.
+    if frameLength > 0 && getLogicalField(context,'ASMAligned',false)
+        maxFrameShift = min(numTxFrames-1,max(64, ...
+            round(getfieldnumeric(context,'WarmUpFrames',0))+16));
+        frameShifts = 0:maxFrameShift;
+        % localTrimDemodToPeriodicASM has already established an exact bit
+        % boundary, so only the surviving TX frame index remains unknown.
+        signedOffsets = 0;
+    else
+        frameShifts = 0;
+        signedOffsets = -maxOffset:maxOffset;
+    end
+    probeLength = min(16384,min(numel(rxHard0),numel(txBits)));
+    best = struct('err',inf,'probeErr',inf,'offset',0, ...
+        'rxStart',1,'txStart',1,'txFrameOffset',0, ...
+        'polarity',1,'len',0);
+    for frameShift = frameShifts
+        txFrameStart = 1 + frameShift*frameLength;
+        for offset = signedOffsets
+            rxStart = 1 + max(offset,0);
+            txStart = txFrameStart + max(-offset,0);
+            Lprobe = min([probeLength, ...
+                numel(rxHard0)-rxStart+1,numel(txBits)-txStart+1]);
+            if Lprobe <= 0
+                continue;
+            end
+            errNormal = nnz(rxHard0(rxStart:rxStart+Lprobe-1) ~= ...
+                txBits(txStart:txStart+Lprobe-1));
+            probeErr = min(errNormal,Lprobe-errNormal);
+            if probeErr < best.probeErr
+                best.probeErr = probeErr;
+                best.offset = offset;
+                best.rxStart = rxStart;
+                best.txStart = txStart;
+                best.txFrameOffset = frameShift;
+            end
         end
-        errNormal = nnz(rxHard0(offset+1:offset+L) ~= txBits(1:L));
+    end
+
+    L = min(numel(rxHard0)-best.rxStart+1, ...
+        numel(txBits)-best.txStart+1);
+    if L > 0
+        errNormal = nnz(rxHard0(best.rxStart:best.rxStart+L-1) ~= ...
+            txBits(best.txStart:best.txStart+L-1));
         if errNormal <= L-errNormal
-            err = errNormal;
-            polarity = 1;
+            best.err = errNormal;
+            best.polarity = 1;
         else
-            err = L-errNormal;
-            polarity = -1;
+            best.err = L-errNormal;
+            best.polarity = -1;
         end
-        if err < best.err
-            best.err = err;
-            best.offset = offset;
-            best.polarity = polarity;
-            best.len = L;
-        end
+        best.len = L;
     end
 
     if best.len > 0
@@ -9084,14 +10011,20 @@ function stats = localMeasureEncodedBoundaryStats( ...
         assignin('base', 'debugTPC_demodBestPolarity', best.polarity);
         stats.PredecoderBER = best.err / best.len;
         stats.PredecoderOffset = best.offset;
+        stats.PredecoderTxFrameOffset = best.txFrameOffset;
+        stats.PredecoderASMAligned = getLogicalField(context, ...
+            'ASMAligned',false);
         stats.PredecoderPolarity = best.polarity;
         stats.PredecoderBitErrors = best.err;
         stats.PredecoderBitsCompared = best.len;
         stats = localAttachPredecoderFrameStats( ...
             stats, rxHard0, txBits, best, context);
         if printDebug
-            fprintf('   [Coded DEBUG] demod-vs-encoded (%s): bestOffset=%d bits, polarity=%+d, hardBER=%.6g (%d/%d)\n', ...
-                char(tmMod), best.offset, best.polarity, ...
+            fprintf(['   [Coded DEBUG] demod-vs-encoded (%s): ', ...
+                'ASMAligned=%d, rx/txOffset=%+d bits, txFrameOffset=%d, ', ...
+                'polarity=%+d, hardBER=%.6g (%d/%d)\n'], ...
+                char(tmMod),stats.PredecoderASMAligned,best.offset, ...
+                best.txFrameOffset,best.polarity, ...
                 stats.PredecoderBER, best.err, best.len);
             if isfinite(stats.PredecoderSteadyBER)
                 fprintf(['   [Coded DEBUG] steady hardBER=%.6g ', ...
@@ -9104,6 +10037,8 @@ function stats = localMeasureEncodedBoundaryStats( ...
                     stats.PredecoderFrameBERMax);
             end
             localTPCPrintBitPlaneDebug(demodData, txBits, tmMod, best);
+            localPrintPredecoderBurstDebug( ...
+                demodData, txBits, tmMod, best, context);
         end
     end
 end
@@ -9331,11 +10266,11 @@ function stats = localAttachPredecoderFrameStats( ...
         return;
     end
 
-    rxAligned = rxHard0(best.offset + (1:numFrames*frameLength));
+    rxAligned = rxHard0(best.rxStart - 1 + (1:numFrames*frameLength));
     if best.polarity < 0
         rxAligned = int8(~logical(rxAligned));
     end
-    txAligned = txBits(1:numFrames*frameLength);
+    txAligned = txBits(best.txStart - 1 + (1:numFrames*frameLength));
     frameErrors = sum(reshape( ...
         rxAligned ~= txAligned, frameLength, numFrames), 1);
     frameBER = double(frameErrors(:)) / frameLength;
@@ -9358,6 +10293,109 @@ function stats = localAttachPredecoderFrameStats( ...
     stats.PredecoderFrameBERMax = max(sortedBER);
 end
 
+function localPrintPredecoderBurstDebug( ...
+        demodData, txBits, tmMod, best, context)
+%LOCALPRINTPREDECODERBURSTDEBUG Locate and characterize coded-boundary bursts.
+% A global BER cannot distinguish a persistent synchronization error from one
+% channel transient that destroys a single FEC frame.  This diagnostic uses
+% the already verified ASM/TX alignment and never changes decoder data.
+    numTxFrames = round(getfieldnumeric(context, 'NumTxFrames', 0));
+    warmUpFrames = max(0, round(getfieldnumeric( ...
+        context, 'WarmUpFrames', 0)));
+    maxFramesToPrint = max(1, round(getfieldnumeric( ...
+        context, 'MaxBurstFrames', 12)));
+    if numTxFrames < 1 || mod(numel(txBits),numTxFrames) ~= 0 || ...
+            best.len <= 0
+        return;
+    end
+
+    frameLength = numel(txBits)/numTxFrames;
+    numFrames = min(numTxFrames,floor(best.len/frameLength));
+    if numFrames < 1
+        return;
+    end
+
+    rxSoft = double(demodData(:));
+    rxSoft = rxSoft(best.rxStart-1+(1:numFrames*frameLength));
+    if best.polarity < 0
+        rxSoft = -rxSoft;
+    end
+    txAligned = int8(txBits(best.txStart-1+(1:numFrames*frameLength)));
+    rxHard = int8(rxSoft > 0);
+
+    errorMatrix = reshape(rxHard ~= txAligned,frameLength,numFrames);
+    frameErrors = sum(errorMatrix,1);
+    firstSteadyFrame = min(numFrames+1,warmUpFrames+1);
+    burstFrames = find(frameErrors > 0 & ...
+        (1:numFrames) >= firstSteadyFrame);
+    if isempty(burstFrames)
+        fprintf('   [Coded burst DEBUG] no nonzero steady frames.\n');
+        return;
+    end
+
+    [worstErrors,worstPosition] = max(frameErrors(burstFrames));
+    worstFrame = burstFrames(worstPosition);
+    fprintf(['   [Coded burst DEBUG] nonzero steady frames=%d/%d, ', ...
+        'first=%d worst=%d (%d/%d, BER=%.6g)\n'], ...
+        numel(burstFrames),numFrames-firstSteadyFrame+1, ...
+        burstFrames(1),worstFrame,worstErrors,frameLength, ...
+        worstErrors/frameLength);
+
+    selectedFrames = burstFrames(1:min(maxFramesToPrint,numel(burstFrames)));
+    if ~ismember(worstFrame,selectedFrames)
+        selectedFrames(end) = worstFrame;
+        selectedFrames = sort(unique(selectedFrames));
+    end
+    bitsPerSymbol = localBitsPerSymbolForDebug(tmMod);
+    for iFrame = selectedFrames(:).'
+        frameRange = (iFrame-1)*frameLength+(1:frameLength);
+        errorMask = errorMatrix(:,iFrame);
+        errorPositions = find(errorMask);
+        edge = diff([false; errorMask; false]);
+        runStarts = find(edge == 1);
+        runStops = find(edge == -1)-1;
+        if isempty(runStarts)
+            longestRun = 0;
+            numRuns = 0;
+            firstError = NaN;
+            lastError = NaN;
+            medianWrongLLR = NaN;
+        else
+            longestRun = max(runStops-runStarts+1);
+            numRuns = numel(runStarts);
+            firstError = errorPositions(1);
+            lastError = errorPositions(end);
+            medianWrongLLR = median(abs(rxSoft(frameRange(errorMask))));
+        end
+        correctMask = ~errorMask;
+        if any(correctMask)
+            medianCorrectLLR = median(abs(rxSoft(frameRange(correctMask))));
+        else
+            medianCorrectLLR = NaN;
+        end
+        txFrameIndex = best.txFrameOffset+iFrame-1;
+        fprintf(['      rxFrame=%03d txFrame=%03d err=%5d BER=%.6g ', ...
+            'span=%g:%g runs=%d longest=%d |LLR| wrong/correct=%.3g/%.3g'], ...
+            iFrame,txFrameIndex,frameErrors(iFrame), ...
+            frameErrors(iFrame)/frameLength,firstError,lastError, ...
+            numRuns,longestRun,medianWrongLLR,medianCorrectLLR);
+        if bitsPerSymbol > 1
+            fprintf(' planeBER=[');
+            for iPlane = 1:bitsPerSymbol
+                planeMask = false(frameLength,1);
+                planeMask(iPlane:bitsPerSymbol:end) = true;
+                if iPlane > 1
+                    fprintf(',');
+                end
+                fprintf('%.4g', ...
+                    nnz(errorMask & planeMask)/nnz(planeMask));
+            end
+            fprintf(']');
+        end
+        fprintf('\n');
+    end
+end
+
 function localTPCPrintBitPlaneDebug(demodData, txBits, tmMod, best)
     bitsPerSym = localBitsPerSymbolForDebug(tmMod);
     if bitsPerSym <= 1 || best.len <= 0
@@ -9365,12 +10403,12 @@ function localTPCPrintBitPlaneDebug(demodData, txBits, tmMod, best)
     end
 
     rxSoft = double(demodData(:));
-    rxSoft = rxSoft(best.offset+1:best.offset+best.len);
+    rxSoft = rxSoft(best.rxStart:best.rxStart+best.len-1);
     if best.polarity < 0
         rxSoft = -rxSoft;
     end
     rxHard = int8(rxSoft > 0);
-    txAlign = int8(txBits(1:best.len));
+    txAlign = int8(txBits(best.txStart:best.txStart+best.len-1));
 
     fprintf('   [TPC DEBUG] bit-plane hardBER/soft | ');
     for iPlane = 1:bitsPerSym
@@ -9425,6 +10463,7 @@ end
 function names = localPredecoderResultFields()
     names = { ...
         'PredecoderBER','PredecoderOffset','PredecoderPolarity', ...
+        'PredecoderTxFrameOffset','PredecoderASMAligned', ...
         'PredecoderBitErrors','PredecoderBitsCompared', ...
         'PredecoderSteadyBER','PredecoderSteadyBitErrors', ...
         'PredecoderSteadyBitsCompared','PredecoderFramesCompared', ...
@@ -10161,6 +11200,15 @@ function localPrintTMFrameInfo(fields, frameBytes, frameIndex)
         fields.FrameLengthBytes, fields.PrimaryHeaderLengthBytes, ...
         fields.SecondaryHeaderLengthBytes, fields.TransferFrameDataFieldLengthBytes, ...
         fields.OperationalControlFieldLengthBytes, fields.FrameErrorControlFieldLengthBytes);
+    if isfield(fields, 'TMDataSource')
+        fprintf('  Data source: %s (%s rail)', ...
+            fields.TMDataSource, fields.TMDataSourceRail);
+        if isfield(fields, 'TMDataSourcePolynomial') && ...
+                ~isempty(fields.TMDataSourcePolynomial)
+            fprintf(', polynomial=%s', fields.TMDataSourcePolynomial);
+        end
+        fprintf('\n');
+    end
 end
 
 function printMetrics(res, opt)
@@ -10207,6 +11255,14 @@ function printMetrics(res, opt)
     if isfield(res,'GMSKDetectorUsed') && ...
             ~strcmpi(char(res.GMSKDetectorUsed), 'not-applicable')
         fprintf(' GMSK detector: %s\n', char(res.GMSKDetectorUsed));
+    end
+    if isfield(res,'TMDataSource')
+        if strcmpi(char(res.TMDataSource), 'split')
+            fprintf(' TM data source: I=%s, Q=%s\n', ...
+                char(res.TMDataSourceI), char(res.TMDataSourceQ));
+        else
+            fprintf(' TM data source: %s\n', char(res.TMDataSource));
+        end
     end
     fprintf(' --------------------------------\n');
     fprintf(' BER          : %.6f\n', res.BER);
@@ -10282,7 +11338,10 @@ function printMetrics(res, opt)
     fprintf('==================================\n\n');
 end
 
-function fe = buildFrontendArrays(ctx, res) %#ok<INUSD>
+function fe = buildFrontendArrays(ctx, res, includeRawData) %#ok<INUSD>
+    if nargin < 3
+        includeRawData = false;
+    end
     Fs = ctx.Fs; sps = ctx.sps;
     isGMSKMod = contains(upper(string(res.modType)),'GMSK');
 
@@ -10297,18 +11356,26 @@ function fe = buildFrontendArrays(ctx, res) %#ok<INUSD>
         'p_cfo',reshape(10*log10(Pxx_cfo), 1, []), ...
         'centerFrequencyHz', getCenterFrequencyHz(res, 0), ...
         'IFHz', getCenterFrequencyHz(res, 0));
-    fe.spectrum.cfo_estimator = buildCFOEstimatorSpectrum(ctx, res);
+    if includeRawData
+        fe.spectrum.cfo_estimator = buildCFOEstimatorSpectrum(ctx, res);
+    else
+        fe.spectrum.cfo_estimator = struct('valid', false);
+    end
 
     % --- 信道功率轨迹（前端使用；仅传抽样曲线，不改变评估链路） ---
-    if isfield(ctx,'channelInput') && ~isempty(ctx.channelInput)
+    if includeRawData && isfield(ctx,'channelInput') && ~isempty(ctx.channelInput)
         channelIn = ctx.channelInput(:);
-    else
+    elseif includeRawData
         channelIn = ctx.txWaveform(:);
-    end
-    if isfield(ctx,'channelOutput') && ~isempty(ctx.channelOutput)
-        channelOut = ctx.channelOutput(:);
     else
+        channelIn = [];
+    end
+    if includeRawData && isfield(ctx,'channelOutput') && ~isempty(ctx.channelOutput)
+        channelOut = ctx.channelOutput(:);
+    elseif includeRawData
         channelOut = ctx.rxWaveform(:);
+    else
+        channelOut = [];
     end
     if ~isempty(channelIn) && ~isempty(channelOut)
         sampleCount = min([5000, numel(channelIn), numel(channelOut)]);
@@ -10339,32 +11406,35 @@ function fe = buildFrontendArrays(ctx, res) %#ok<INUSD>
     % --- 星座: 修复后 (载波同步对齐到参考相位) ---
     fe.constSync = sampleConst(ctx.fineSynced, 1500);
 
-    % --- 4 阶段管线星座 (供前端做"损伤逐级被吃掉"的展示) ---
-    s1 = normPwr(ctx.rxWaveform(1:sps:end));     % ① 信道损伤后
-    s2 = normPwr(ctx.coarseSynced(1:sps:end));   % ② 粗频偏后
-    s3 = normPwr(ctx.TimeSynced);                % ③ 定时同步后
-    s4 = ctx.fineSynced;                         % ④ 载波同步后(终态)
+    % --- 4 阶段管线星座仅在完整数据模式下计算 ---
+    if includeRawData
+        s1 = normPwr(ctx.rxWaveform(1:sps:end));
+        s2 = normPwr(ctx.coarseSynced(1:sps:end));
+        s3 = normPwr(ctx.TimeSynced);
+        s4 = ctx.fineSynced;
 
-    % 各阶段 EVM (相对参考星座)
-    if isGMSKMod
-        [evm1,~] = computeGMSKIQRoughMetrics(s1);
-        [evm2,~] = computeGMSKIQRoughMetrics(s2);
-        [evm3,~] = computeGMSKIQRoughMetrics(s3);
-        [evm4,~] = computeGMSKIQRoughMetrics(s4);
+        if isGMSKMod
+            [evm1,~] = computeGMSKIQRoughMetrics(s1);
+            [evm2,~] = computeGMSKIQRoughMetrics(s2);
+            [evm3,~] = computeGMSKIQRoughMetrics(s3);
+            [evm4,~] = computeGMSKIQRoughMetrics(s4);
+        else
+            [evm1,~] = computeEVM(s1, ctx.refConst);
+            [evm2,~] = computeEVM(s2, ctx.refConst);
+            [evm3,~] = computeEVM(s3, ctx.refConst);
+            [evm4,~] = computeEVM(s4, ctx.refConst);
+        end
+
+        fe.pipeline = struct( ...
+            'stage1',     sampleConst(s1, 800), ...
+            'stage2',     sampleConst(s2, 800), ...
+            'stage3',     sampleConst(s3, 800), ...
+            'stage4',     sampleConst(s4, 800), ...
+            'evms',       [evm1, evm2, evm3, evm4], ...
+            'labels',     {{'信道损伤后','粗频偏后','定时同步后','载波同步后'}});
     else
-        [evm1,~] = computeEVM(s1, ctx.refConst);
-        [evm2,~] = computeEVM(s2, ctx.refConst);
-        [evm3,~] = computeEVM(s3, ctx.refConst);
-        [evm4,~] = computeEVM(s4, ctx.refConst);
+        fe.pipeline = struct();
     end
-
-    fe.pipeline = struct( ...
-        'stage1',     sampleConst(s1, 800), ...
-        'stage2',     sampleConst(s2, 800), ...
-        'stage3',     sampleConst(s3, 800), ...
-        'stage4',     sampleConst(s4, 800), ...
-        'evms',       [evm1, evm2, evm3, evm4], ...
-        'labels',     {{'信道损伤后','粗频偏后','定时同步后','载波同步后'}});
 
     % --- 残余 CFO / 相偏 (决策导向: 剥掉数据相位再线性回归) ---
     fe.residCFO = getfieldnumeric(res, 'ResidualCFO_Hz', NaN);

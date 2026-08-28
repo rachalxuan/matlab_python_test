@@ -94,10 +94,11 @@ classdef HelperCCSDSTMSplitReceiver < handle
             [demodIForDecoder, demodQForDecoder, decArgsI, decArgsQ, alignment] = ...
                 obj.localPrepareRSPeriodicASMAlignment(demodI, demodQ);
 
-            decoderI = HelperCCSDSTMDecoder(decArgsI{:});
-            decoderQ = HelperCCSDSTMDecoder(decArgsQ{:});
-            decodedI = decoderI(demodIForDecoder);
-            decodedQ = decoderQ(demodQForDecoder);
+            [decArgsI, decArgsQ] = ...
+                obj.localPrepareSplitConvolutionalFrameSync(decArgsI, decArgsQ);
+            [decodedI, decodedQ, railPolarityI, railPolarityQ, polarityEvidence] = ...
+                obj.localDecodeRailsWithPolarity( ...
+                    demodIForDecoder, demodQForDecoder, decArgsI, decArgsQ);
 
             result.DemodI = demodI;
             result.DemodQ = demodQ;
@@ -108,6 +109,9 @@ classdef HelperCCSDSTMSplitReceiver < handle
             result.DecoderArgsQ = decArgsQ;
             result.DecodedI = int8(decodedI(:));
             result.DecodedQ = int8(decodedQ(:));
+            result.RailPolarityI = railPolarityI;
+            result.RailPolarityQ = railPolarityQ;
+            result.RailPolarityEvidence = polarityEvidence;
             result.RSASMAlignment = alignment;
 
             if strcmpi(obj.DataPathMode, 'dualIQ')
@@ -121,10 +125,12 @@ classdef HelperCCSDSTMSplitReceiver < handle
 
             if obj.Debug
                 fprintf(['[SplitReceiver] path=%s phase=%d demod I/Q=%d/%d ', ...
-                    'decoded I/Q=%d/%d droppedTail=%d rsAligned=%d\n'], ...
+                    'decoded I/Q=%d/%d polarity I/Q=%+d/%+d ', ...
+                    'droppedTail=%d rsAligned=%d\n'], ...
                     char(obj.DataPathMode), obj.IQPhase, ...
                     numel(result.DemodI), numel(result.DemodQ), ...
                     numel(result.DecodedI), numel(result.DecodedQ), ...
+                    result.RailPolarityI, result.RailPolarityQ, ...
                     result.DroppedTailBits, alignment.BothFound);
                 obj.localPrintRSASMAlignment('receiver', obj.IQPhase, alignment);
             end
@@ -176,8 +182,113 @@ classdef HelperCCSDSTMSplitReceiver < handle
                 'DecoderArgsQ',{{}}, ...
                 'DecodedI',zeros(0,1,'int8'), ...
                 'DecodedQ',zeros(0,1,'int8'), ...
+                'RailPolarityI',1, ...
+                'RailPolarityQ',1, ...
+                'RailPolarityEvidence',struct(), ...
                 'DecodedBits',zeros(0,1,'int8'), ...
                 'RSASMAlignment',HelperCCSDSTMSplitReceiver.localEmptyRSASMAlignment());
+        end
+
+        function enabled = localUseSplitConvolutionalPolaritySearch(obj)
+            coding = lower(string(obj.ChannelCoding));
+            enabled = strcmpi(obj.DataPathMode, 'dualIQ') && logical(obj.HasASM) && ...
+                any(coding == ["convolutional", "concatenated"]);
+            raw = HelperCCSDSTMSplitReceiver.localOption(obj.Options, ...
+                {'enableSplitConvolutionalRailPolaritySearch', ...
+                 'EnableSplitConvolutionalRailPolaritySearch'}, []);
+            if ~isempty(raw)
+                enabled = enabled && logical(raw);
+            end
+        end
+
+        function [decArgsI, decArgsQ] = ...
+                localPrepareSplitConvolutionalFrameSync(obj, decArgsI, decArgsQ)
+            % The rate-1/2 encoded ASM has only 52 state-independent coded
+            % bits after the decoder drops the trellis-dependent prefix.
+            % In a split QAM path the residual demapper errors are commonly
+            % concentrated at that boundary.  Seven allowed errors preserve a
+            % wide margin from wrong-polarity peaks while avoiding rejection
+            % of an otherwise clean rail.  An explicit caller override always
+            % wins, and no single-stream/non-convolutional decoder is touched.
+            if ~obj.localUseSplitConvolutionalPolaritySearch()
+                return;
+            end
+            if ~HelperCCSDSTMSplitReceiver.localHasNameValue( ...
+                    decArgsI, 'FrameSyncASMErrorThreshold')
+                threshold = HelperCCSDSTMSplitReceiver.localNumericOption( ...
+                    obj.Options, ...
+                    {'SplitConvolutionalFrameSyncASMErrorThreshold'}, 7);
+                decArgsI = HelperCCSDSTMSplitReceiver.localSetNameValue( ...
+                    decArgsI, 'FrameSyncASMErrorThreshold', threshold);
+                decArgsQ = HelperCCSDSTMSplitReceiver.localSetNameValue( ...
+                    decArgsQ, 'FrameSyncASMErrorThreshold', threshold);
+            end
+        end
+
+        function [decodedI, decodedQ, polarityI, polarityQ, bestEvidence] = ...
+                localDecodeRailsWithPolarity(obj, demodI, demodQ, decArgsI, decArgsQ)
+            polarityList = 1;
+            if obj.localUseSplitConvolutionalPolaritySearch()
+                polarityList = [1 -1];
+            end
+
+            decodedICandidates = cell(size(polarityList));
+            decodedQCandidates = cell(size(polarityList));
+            for k = 1:numel(polarityList)
+                decoderI = HelperCCSDSTMDecoder(decArgsI{:});
+                decoderQ = HelperCCSDSTMDecoder(decArgsQ{:});
+                decodedICandidates{k} = int8(decoderI( ...
+                    polarityList(k) .* demodI));
+                decodedQCandidates{k} = int8(decoderQ( ...
+                    polarityList(k) .* demodQ));
+            end
+
+            bestI = 1;
+            bestQ = 1;
+            bestEvidence = struct('Available',false,'SelectionScore',-inf, ...
+                'BothRailsStructured',false);
+            bestNegativeCount = inf;
+            for i = 1:numel(polarityList)
+                for q = 1:numel(polarityList)
+                    evidence = HelperCCSDSTMSplitReceiver.scoreDecodedTMStructure( ...
+                        decodedICandidates{i}, decodedQCandidates{q}, ...
+                        obj.BitsPerFrame, obj.Options, obj.DataPathMode);
+                    negativeCount = double(polarityList(i) < 0) + ...
+                        double(polarityList(q) < 0);
+                    isBetter = evidence.BothRailsStructured && ...
+                        ~bestEvidence.BothRailsStructured;
+                    if evidence.BothRailsStructured == bestEvidence.BothRailsStructured
+                        if evidence.SelectionScore > bestEvidence.SelectionScore
+                            isBetter = true;
+                        elseif evidence.SelectionScore == bestEvidence.SelectionScore && ...
+                                negativeCount < bestNegativeCount
+                            isBetter = true;
+                        end
+                    end
+                    if isBetter
+                        bestI = i;
+                        bestQ = q;
+                        bestEvidence = evidence;
+                        bestNegativeCount = negativeCount;
+                    end
+                end
+            end
+
+            decodedI = decodedICandidates{bestI};
+            decodedQ = decodedQCandidates{bestQ};
+            polarityI = polarityList(bestI);
+            polarityQ = polarityList(bestQ);
+            if obj.Debug || HelperCCSDSTMSplitReceiver.localLogicalOption( ...
+                    obj.Options, {'splitPathDebug'}, false)
+                fprintf(['[SplitReceiver rail polarity] coding=%s ', ...
+                    'I/Q=%+d/%+d structured=%d score=%.0f ', ...
+                    'decodedFrames=%d/%d\n'], ...
+                    char(string(obj.ChannelCoding)), polarityI, polarityQ, ...
+                    bestEvidence.BothRailsStructured, ...
+                    bestEvidence.SelectionScore, ...
+                    floor(numel(decodedI)/obj.BitsPerFrame), ...
+                    floor(numel(decodedQ)/obj.BitsPerFrame));
+            end
         end
 
         function [demodIOut, demodQOut, decArgsI, decArgsQ, alignment] = ...
@@ -650,6 +761,16 @@ classdef HelperCCSDSTMSplitReceiver < handle
                 end
             end
             args = [args, {name, value}];
+        end
+
+        function found = localHasNameValue(args, name)
+            found = false;
+            for k = 1:2:numel(args)-1
+                if strcmpi(string(args{k}), string(name))
+                    found = true;
+                    return;
+                end
+            end
         end
 
         function value = localOption(opt, names, defaultValue)

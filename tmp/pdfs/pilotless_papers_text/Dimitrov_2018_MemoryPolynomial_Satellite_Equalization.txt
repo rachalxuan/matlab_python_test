@@ -1,0 +1,686 @@
+INTERNATIONAL JOURNAL OF SATELLITE COMMUNICATIONS AND NETWORKING
+Int. J. Satell. Commun. Network. 2018; 00:1–16
+Published online in Wiley InterScience (www.interscience.wiley.com). DOI: 10.1002/sat
+
+    Estimation and Cancellation of Transponder Distortions in
+        Satellite Forward Links Using Memory Polynomials§
+
+                                           Svilen Dimitrov∗
+
+                German Aerospace Center (DLR), Satellite Networks Department, 82234 Wessling, Germany
+
+                                                         SUMMARY
+In this paper, a practical realization of a non-linear equalizer with distortion cancellation at a satellite receiver
+is studied, using a memory polynomial model for channel estimation and distortion cancellation. Varying
+the memory depth and the non-linear order of the memory polynomial model, the packet-error rate (PER)
+performance of this non-linear equalizer is compared to the standard fractionally-spaced linear adaptive
+equalizer, as well as to a setup of the non-linear equalizer with ideal channel knowledge at the receiver.
+In a single-carrier transponder setup similar to the direct-to-home (DTH) broadcast DVB-S2X reference
+scenario, the improved receiver with linear and non-linear equalization and practical channel estimation is
+shown to consistently approach the PER performance of the setup with ideal channel knowledge when
+increasing the memory depth and the non-linear order. The improved receiver demonstrates superior
+performance as compared to the standard fractionally-spaced linear adaptive equalizer with up to 5.48-dB
+energy efﬁciency gain for 64-APSK for a practical memory polynomial setup. Furthermore, it enables the
+use of high-order modulation up to 256-APSK in this scenario, improving signiﬁcantly the spectral efﬁciency
+of the air interface. Copyright ⃝c 2018 John Wiley & Sons, Ltd.
+
+Received . . .
+
+KEY WORDS: Satellite communications; non-linear distortion; equalization; memory polynomial; high-
+                     order modulation; energy efﬁciency.
+
+                                              1. INTRODUCTION
+
+With the extension of the second-generation digital video broadcasting system for satellite
+broadcasting and unicasting (DVB-S2X) standard [1], high-throughput-satellite (HTS) systems
+advance towards more bandwidth-demanding applications and services, e.g., direct-to-home (DTH)
+4K television broadcasting or broadband interactive Internet protocol (IP) services for very-small-
+aperture terminals (VSATs), emerging markets for mobile satellite platforms, such as broadband
+connectivity on airplanes, cruise ships and trains, as well as professional applications. Transmission
+
+∗Correspondence to: German Aerospace Center (DLR), Satellite Networks Department, 82234 Wessling, Germany. E-
+mail: svilen.dimitrov@dlr.de
+§This is the pre-peer reviewed version of the following article: Dimitrov S., Estimation and Cancellation of Transponder
+Distortions in Satellite Forward Links Using Memory Polynomials, Int. J. Satellite Commun. Netw., Apr. 2018, which
+has been published in ﬁnal form at http://dx.doi.org/10.1002/sat.1239. This article may be used for non-
+commercial purposes in accordance with Wiley Terms and Conditions for Self-Archiving.
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.
+Prepared using satauth.cls [Version: 2010/05/13 v2.00]
+2                                          S. DIMITROV
+
+over satellite is known to suffer from linear and non-linear signal distortions due to limitations
+of the onboard satellite transponder. In the forward-link, for example, in order to maximize the
+spectral efﬁciency, state-of-the-art satellite communication systems resort to using a very low carrier
+roll-off and high symbol baud rates close to the maximum transponder bandwidth [2]. Due to
+imperfect magnitude and group-delay responses of the input-multiplexing (IMUX) and output-
+multiplexing (OMUX) onboard ﬁlters, however, linear distortion is introduced in the form of inter-
+symbol interference (ISI). In addition, due to the power limitation of the satellite and operation
+of the travelling wave tube ampliﬁer (TWTA) close to saturation, waveforms with higher-order
+modulation and multiple amplitude rings, e.g., 256-APSK, suffer from non-linear distortion in the
+form of constellation warping and clustering at the receiver demodulator. Without adequate channel
+compensation techniques, these adverse effects can reduce the spectral efﬁciency gains in the air
+interface expected with the application of tighter roll-off factors, higher symbol rates, and higher
+modulation orders.
+
+  Non-linear compensation schemes include a number of pre-distortion techniques at the trans-
+mitter, such as signal pre-distortion [3], [4], [5] and data pre-distortion [3], [6], [7], [8], [9], [10].
+Signal pre-distortion [3] is commonly used for ampliﬁer linearization. A solution against spectral
+regrowth is band-limited signal pre-distortion [4], [5] which applies digital ﬁlters to the out-of-
+band components and compensates the effect of the non-linear device on the in-band portion of the
+signal. Data pre-distortion [3], [6], [7], [8], [9], [10] is applied to the constellation symbols prior to
+pulse shaping, and it preserves the signal spectrum. Static data pre-distortion [2], [3], [6], [9] is the
+state-of-the-art solution in DVB-S2X. It accounts for static nonlinearities in the channel, whereby
+the transmitted constellation is modiﬁed such that the received centroids are close to the original
+transmitted constellation. Dynamic data pre-distortion [6], [7], [8], [9], [10] compensates in addition
+the memory effects in the channel. It takes into account the current symbol, as well as symbols
+preceding and succeeding each symbol. A common approach to handle the ISI is equalization at
+the receiver [3], where knowledge of the channel, obtained for instance by channel estimation, is
+used to minimize the ISI. A fractionally-spaced adaptive linear equalizer has been introduced in the
+DVB-S2X receiver [2].
+
+  Pre-distortion at the transmitter has been shown to be an effective channel compensation
+technique for a multi-carrier transponder in [10]. However, in a single-carrier transponder, symbol-
+based equalization with non-linear distortion cancellation at the receiver has shown signiﬁcantly
+better results [11]. Decision-directed equalization [12] applied at the receiver is known to provide
+very good performance in channels with memory. A turbo equalizer using soft information exchange
+with the low-density parity check (LDPC) decoder has been proposed for application over non-linear
+satellite channels in [13]. A novel symbol-based equalizer with non-linear distortion cancellation,
+introduced in [14], reduces the complexity of the receiver by using maximum likelihood (ML)
+demodulation with hard decision in the cancellation loop with only marginal degradation of packet-
+error rate (PER) performance [11] in the single-carrier satellite forward link. Both approaches
+assume perfect channel knowledge at the receiver for estimation and cancellation of the non-linear
+distortion. In [11], knowledge of the transponder characteristics is assumed at the receiver, i.e.,
+measured magnitude and group delay responses of the IMUX/OMUX ﬁlters, as well as the input
+amplitude/output amplitude (AM/AM) and input amplitude/output phase (AM/PM) characteristics
+of the TWTA. While such information can be obtained before the commission of the satellite, diurnal
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.               Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                                         DOI: 10.1002/sat
+EST. AND CANC. OF TRANSP. DISTORT. IN SAT. FORW. LINKS U. MEM. POLYN.  3
+
+changes in the responses of the analog ﬁlters and variation of the output back-off (OBO) in the
+satellite transponder require channel estimation at the receiver.
+
+  In this paper, symbol-based equalization with non-linear distortion cancellation is studied
+for application in the satellite receiver, using practical channel estimation based on a memory
+polynomial model. The PER performance of the receiver is evaluated for the single-carrier
+transponder setup similar to the DTH reference scenario speciﬁed in the DVB-S2X implementation
+guidelines [2] for a high baud rate of 34 MBaud and a low carrier roll-off factor of 5% in a 36-
+MHz transponder. Modulation orders of 16-APSK, 32-APSK, 64-APSK, 128-APSK, and 256-APSK
+are simulated with a 3/4-rate LDPC code. A number of memory polynomial setups are evaluated,
+varying the memory depth and the non-linear order, to show the trade-off between PER performance
+and complexity. The PER performance of the standard fractionally-spaced adaptive linear equalizer
+is also simulated to provide reference for the improvements. In addition, the ideal performance of
+the non-linear equalizer is also included, assuming knowledge of the exact characteristics of the
+IMUX/OMUX ﬁlters and the TWTA at the receiver. The practical channel estimation based on
+the memory polynomial model is shown to consistently approach the PER performance of ideal
+channel knowledge at the receiver with the increase of the memory depth and the non-linear order.
+As compared to standard linear equalization, the non-linear equalizer enables the use of the higher
+modulation orders of 128-APSK and 256-APSK, and shows signiﬁcant energy efﬁciency gains of,
+e.g., 5.48 dB for 64-APSK, using a memory polynomial model with memory depth of 10 and non-
+linear order of 5. The non-linear equalizer is particularly suitable for application in waveforms
+with higher-order modulation, low roll-off factors and high symbol rates close to the limits of the
+transponder bandwidth, improving the spectral efﬁciency of the air interface.
+
+  The rest of the paper is organized as follows. Section 2 describes the satellite system model,
+including the transmission chain and the channel modelling. Section 3 describes the studied channel
+compensation algorithms at the receiver. Section 4 presents the performance evaluation results.
+Finally, Section 5 concludes the paper.
+
+                                      2. SATELLITE SYSTEM MODEL
+
+In a satellite communication system, a gateway relays message signals designated to user terminals
+over a satellite. In this section, the satellite transmission chain in the forward link and the satellite
+channel model are presented.
+
+2.1. Satellite Transmission Chain
+
+The block diagram of the satellite transmission chain is presented in Fig. 1. At the gateway
+transmitter, a stream of data packets with 1504 bits per packet are encoded by means of a
+forward error correction (FEC) scheme, and modulated for transmission. In DVB-S2X [1], ﬁrst,
+a Bose-Chaudhuri-Hocquenghem (BCH) encoder is applied, followed by an LDPC encoder and bit
+interleaver. The resulting FEC frame with length of up to 64800 bits is mapped to symbols, using
+APSK modulation with constellations up to 256-APSK at the modulator. The modulated symbols
+are grouped in physical-layer (PL) frames with up to 67920 symbols per PL frame.
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.  Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                            DOI: 10.1002/sat
+4                                          S. DIMITROV
+
+   Figure 1. Block diagram of the satellite transmission chain in the forward link.
+
+  The DVB-S2X transmitter employs static data pre-distortion [2], [3], [6], [9] to compensate
+constellation warping effects due to non-linear distortion at the satellite transponder. The symbols
+are pulse shaped by means of a square root raised cosine ﬁlter (SRRCF), in order to ensure spectrum
+integrity of the waveform for RF transmission over the feeder link. In the analog front-end, after
+digital-to-analog conversion (DAC), the baseband signal is up-converted to the carrier frequency,
+e.g., in the Ka band. Finally, the signal is ampliﬁed by means of a high-power ampliﬁer (HPA) at
+the gateway, and is transmitted over the feeder link through the uplink atmospheric channel.
+
+  At the transponder onboard the satellite, the signal is passed through an IMUX ﬁlter, is ampliﬁed
+by a TWTA, and is passed through an OMUX ﬁlter in order to guarantee spectrum integrity
+for transmission over the user link. Here, the imperfect frequency responses of the IMUX and
+OMUX ﬁlters introduce linear distortion in the form of ISI, while the TWTA introduces non-linear
+distortion. The signal is then transmitted over the downlink atmospheric channel.
+
+  At the user terminal receiver, the signal is ampliﬁed by means of an LNA, and is down-converted
+to baseband. Next, an analog-to-digital converter (ADC) and a matched SRRCF are applied. After
+timing, frame synchronization and channel estimation, the symbols are passed through a linear
+equalizer to counter the linear distortion. A fractionally-spaced adaptive linear equalizer with 42
+complex-valued taps is applied, working at twice the symbol rate. The symbols are then down-
+sampled to the Nyquist rate. Finally, the demodulator and the decoder recover the received data
+packets. Here, a soft demapper generates log-likelihood ratios (LLRs), which after deinterleaving
+are provided as input to the decoding stages, i.e., an LDPC decoder, followed by a BCH decoder.
+
+  A number of simpliﬁcations of the satellite transmission chain in the forward link can be
+considered, preserving all key aspects that affect the physical layer performance. The free-space
+signal propagation can be characterized as a slow-fading process due to rainy weather, and is handled
+by means of adaptive coding and modulation (ACM), as well as a fading margin in the link budget.
+The ﬂat gain of the atmospheric satellite channel is also a factor in the link budget, included in the
+calculation of the available SNR at the receiver. Since the physical layer performance is evaluated
+as a function of the SNR, unity atmospheric channel gain is considered in the simulations presented
+in Section 4. Since the HPA at the gateway is operated in the linear regime, the nonlinearity in the
+satellite channel is introduced primarily by the TWTA. The transmitter and receiver are assumed
+to be ﬁne synchronized, i.e., genie-aided synchronization is performed based on correlation with
+the transmitted signal, ideally assumed to be known. In general, the signal is also distorted by phase
+noise at the receiver due to local oscillator instabilities during frequency conversion. However, since
+ﬁne phase compensation for higher-order modulation is still an open issue [2], [6], and the focus of
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.               Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                                         DOI: 10.1002/sat
+EST. AND CANC. OF TRANSP. DISTORT. IN SAT. FORW. LINKS U. MEM. POLYN.                     5
+
+this paper is on compensation of the linear and non-linear distortions of the satellite transponder,
+
+phase noise is not considered in the channel modeling.
+
+As a result, the received PL frame at the input of the demodulator at the user terminal receiver
+
+can be expressed as:
+
+x(0)  =     {         ∗  [                 ∗  F  (       ∗  hSRRCF  ∗      { })  +    ]}  (1)
+         Eq hSRRCF        hOMUX                   hIMUX                Pre x        w,
+
+where x is the transmitted symbol vector in baseband, Pre {·} is the applied static pre-distortion
+operator, hSRRCF is the impulse response vector of the SRRCF ﬁlter, and hIMUX is the impulse
+response of the IMUX ﬁlter. The non-linear transfer function of the TWTA is denoted as F (·),
+hOMUX is the impulse response of the OMUX ﬁlter, w is a vector with samples of additive white
+Gaussian noise (AWGN), and Eq {·} is the linear equalizer operator. In this baseband model, the
+transmitted signal x has an average energy per symbol of Es, and the AWGN w has a power
+spectral density of N0. In addition, the responses of the SRRCFs and the IMUX/OMUX ﬁlters
+are normalized for unity average power. The same applies for the pre-distorter and the equalizer.
+Finally, the ampliﬁer function is normalized for unity peak power.
+
+2.2. Satellite Channel Modelling
+
+In the satellite forward link, the main sources of distortion are the imperfect characteristics of the
+IMUX and OMUX ﬁlters and the non-linear TWTA response. Measured magnitude and group-
+delay responses of the IMUX and OMUX ﬁlters in the satellite transponder have been provided
+as a reference in the DVB-S2X implementation guidelines [2], as shown in Fig. 2. While the
+guidelines only specify the set of characteristics of a 36-MHz transponder, the ﬁlter responses are
+equally applicable to a 225-MHz transponder by using appropriately speciﬁed scaling factors for the
+frequency axis. The IMUX/OMUX ﬁlters introduce linear distortion in the form of memory effects
+due to frequency selectivity at high baud rates, which corrupts the matched ﬁltering at the receiver
+and ampliﬁes the AWGN.
+
+  In this study, a not-linearized TWTA is considered to evaluate the performance of the non-
+linear equalizer in a highly non-linear channel. This is similar to the DTH scenario speciﬁed
+in the DVB-S2X implementation guidelines [2]. The AM/AM and AM/PM characteristics are
+presented in Fig. 3, and are denoted as A(·) and ϕ(·), respectively. They only depend on the
+signal amplitude. [As a result, the o]utput signal after the TWTA, F (s), can be expressed as
+F (s) = A(|s|) exp jϕ(|s|) + j arg(s) , where s is the input signal.
+
+  In order to facilitate an efﬁcient energy consumption onboard the satellite, it is desirable to
+operate the TWTA close to saturation. In this non-linear regime, signals from higher-order APSK
+constellations are known to suffer from non-linear distortions. Therefore, an OBO is applied to shift
+the power transfer towards the linear regime at the cost of a penalty in the energy efﬁciency. The
+OBO is deﬁned as the ratio between the peak output power of the ampliﬁer and the average output
+power of the signal in the linear domain [14]. The non-linear distortion introduced by the TWTA
+can be described as constellation warping and symbol clustering at the input of the demodulator at
+the receiver [6]. The interfering component is dependent on the signal waveform, and therefore
+contains useful information. In single-carrier digital transmission schemes, as well as in multi-
+carrier transmission with a small number of carriers, the interfering component is correlated with
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.                   Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                                             DOI: 10.1002/sat
+6                                          S. DIMITROV
+
+               (a) Magnitude and group delay responses of IMUX ﬁlter.
+
+              (b) Magnitude and group delay responses of OMUX ﬁlter.
+   Figure 2. Filter characteristics of a 36-MHz satellite transponder in the forward link.
+
+   Figure 3. AM/AM and AM/PM transfer characteristics of a not-linearized TWTA.
+
+the transmitted symbols. The received symbols can be decomposed in an attenuated and rotated
+replica of the transmitted symbols plus non-linear distortion noise. Each received centroid can
+be individually warped, i.e., it is scaled by a complex-valued factor relative to the transmitted
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.               Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                                         DOI: 10.1002/sat
+EST. AND CANC. OF TRANSP. DISTORT. IN SAT. FORW. LINKS U. MEM. POLYN.  7
+
+constellation point. There is no general assumption on the distribution of the non-linear distortion
+noise.
+
+                 3. RECEIVER ALGORITHMS FOR CHANNEL COMPENSATION
+
+In this section, the state-of-the-art channel compensation algorithms at the receiver are discussed. A
+non-linear symbol-based equalizer performing distortion estimation and cancellation by means of
+a memory polynomial model is proposed as an addition to the fractionally-spaced adaptive linear
+equalizer speciﬁed in the DVB-S2X implementation guidelines [2]. The building blocks of the non-
+linear equalizer, including the channel estimation and training blocks, are deﬁned.
+
+3.1. State of the Art
+
+In literature, the non-linear compensation solutions include a variety of pre-distortion techniques
+at the transmitter, such as signal pre-distortion [3], band-limited signal pre-distortion [4], [5], and
+data pre-distortion [3], [6], [7], [8], [9]. In scenarios, where measured models of the transponder
+characteristics are unavailable or change over time, the pre-distorter function can be computed
+adaptively using indirect learning [7], [8] or direct learning algorithms [8]. For this purpose,
+a model for the non-linear channel with memory is required, e.g., a Volterra series [15] or a
+memory polynomial model [7], [8], [16]. In data pre-distortion algorithms, these models include
+the linear and non-linear blocks along the chain, e.g., the pulse shaping SRRCF at the transmitter,
+the IMUX/OMUX ﬁlters, the TWTA, and the matched SRRCF at the receiver.
+
+  In order to compensate the linear distortion introduced by the imperfect magnitude and group
+delay responses of the IMUX/OMUX ﬁlters onboard the satellite, a fractionally-spaced adaptive
+linear equalizer with 42 taps working at twice the symbol rate has been introduced in DVB-S2X [2].
+In order to also compensate non-linear distortions, decision-directed detection by means of turbo
+equalization has been proposed for application in non-linear satellite channels in [13]. A channel
+model based on Volterra series is assumed, and minimum mean-squared error (MMSE) ﬁlters are
+computed to cancel the non-linear terms in an iterative fashion, using soft information exchange with
+the LDPC decoder. In [14], the symbol-based iterative equalization scheme has been introduced
+which reduces the complexity of the receiver by means of a simpliﬁed model for the received
+symbols after the non-linear device, and by using ML demodulation with hard decision in the
+cancellation loop. Instead of computing MMSE ﬁlters for every component in the Volterra series,
+a simple procedure can be applied to reconstruct and cancel the non-linear noise component. At
+the heart of the simpliﬁcation is a ﬁrst-order decomposition of the received symbols at the input of
+the demodulator, based on a symbol scaling factor representing the warping effect and a non-linear
+noise component containing the higher non-linear orders. In addition to non-linear compensation,
+memory effects in the form of ISI are also taken into account in the reconstruction and cancellation
+of the interfering component due to the fact that the equalizer operates on a large block of symbols,
+e.g., a PL frame. This equalizer has been shown to be an effective technique to compensate non-
+linear distortions in the satellite channel, and to signiﬁcantly reduce the SNR penalty with respect
+to the linear channel [14], [17], [18], [11].
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.  Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                            DOI: 10.1002/sat
+8                                             S. DIMITROV
+
+  In previous work [14], [17], [18], [11], known measured models for the distortion sources have
+been used in the estimation and cancellation of the non-linear noise performed by the symbol-based
+equalizer. These include the linear and non-linear distortions in the satellite transponder due to the
+IMUX ﬁlter, TWTA, and OMUX ﬁlter, such as the measured AM/AM and AM/PM characteristics
+of the TWTA and the measured magnitude and group delay responses of the IMUX and OMUX
+ﬁlters, obtained before the commission of each satellite. In this paper, the application of a memory
+polynomial model [7], [8], [16] is considered at the receiver, in order to estimate the non-linear
+channel with memory. As a result, the non-linear equalizer can compensate the slow time-variant
+changes in the transponder characteristics, such as diurnal changes in the responses of the analog
+ﬁlters or variations in the OBO.
+
+  The proposed equalizer estimates and cancels the interference in the non-linear channel with
+memory based on detection of the symbols at the receiver. In the satellite forward link, user terminal
+normally receives the signal on a single carrier, unless multiple tuners are assumed. As a result, it
+can only compensate the self-interference within that carrier, in the form of ISI, caused during the
+transmission over the non-linear channel with memory. Therefore, the proposed equalizer is best
+suitable for single-carrier scenarios in the satellite forward link. It can also be applied in a multi-
+carrier scenario in combination with a pre-distortion technique at the transmitter that compensates
+the IMI. In this case, the proposed equalizer can further minimize the residual self-interference
+within the received carrier.
+
+3.2. Fractionally-spaced Adaptive Linear Equalizer
+
+In order to compensate the memory effects in the channel, an adaptive linear equalizer is applied
+at twice the symbol rate. The symbol column vector at the output of the linear equalizer can
+be expressed as x(0) = Eq {y} = y ∗ eT , where Eq {·} is the equalizer operator, ∗ is the linear
+convolution operator, (·)T is the transpose operator, y is the symbol column vector at the input of
+the linear equalizer, and e is the row vector with the equalizer taps. These taps are updated in a
+data-aided manner, e.g., by using the following adaptive recursive algorithm [12]:
+
+                                  el+1     =  el  −  µ  (    ylT  −    )  yl∗,              (2)
+                                                         el          xl
+
+w[ here el+1 is th]e updated equalizer tap vector after the l-th training symbol xl, el =
+ e0, e1, ..., eNEQ−1 contains NEQ taps, initialized as the zero vector e0 = [0, ..., 0]. The window
+
+row v[ector containing N] EQ =    42 samples of the          received symbol vector         y is denoted as
+yl = yl, yl−1, ..., yl−NEQ , and  is initialized as y0       = [y0, 0, ..., 0]. Here, (·)∗  denotes complex
+
+conjugation. With values between 0 and 1, the step size µ represents a trade-off between convergence
+
+speed and stability, e.g., µ = 0.001.
+
+3.3. Non-linear Equalizer with Distortion Cancellation Using a Memory Polynomial Model
+
+In order to improve the performance of the receiver, a non-linear equalizer performing estimation
+and cancellation of the transponder distortions is added after the fractionally-spaced adaptive linear
+equalizer. The block diagram of the improved receiver is presented in Fig. 4. The symbols at the
+output of the linear equalizer, downsampled to the Nyquist rate, are provided as input to the iterative
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.                                       Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                                                                 DOI: 10.1002/sat
+               EST. AND CANC. OF TRANSP. DISTORT. IN SAT. FORW. LINKS U. MEM. POLYN.                        9
+
+Figure 4. Block diagram of the proposed receiver using a symbol-based equalizer with non-linear distortion
+                                        cancellation in the satellite forward link.
+
+non-linear equalizer. At this point, a set of received symbols, e.g., a received PL frame x(0), is
+buffered.
+
+  As a ﬁrst step of the processing, detection is performed. The received symbols are ML
+demodulated by means of a hard decision using the received constellation centroids as a[ referen]ce.
+The vector of detected symbols used in the i-th iteration is denoted as x(i−1) = Demod x(i−1) .
+
+  The estimate of the interfering component is obtained through subtraction of two terms. To obtain
+the ﬁrst term, the detected symbols are scaled by individual attenuation factors, Kcm, according to
+the respective detected constellation point cm, m = 1, ..., M , with M being the modulation order, to
+obtain x¯(i−1), where x¯(cim−1) = Kcm xc(im−1). This is essential to account for the constellation warping
+effects. The individual scaling factors represent the ratio of a received centroid to the corresponding
+transmitted constellation point.
+
+  To obtain the second term, the detected symbols x(i−1) are used to estimate the distorted received
+symbols using the memory polynomial model [7], [8], [16]:
+
+                                  {}          ∑ K  ∑ Q                          q)|k−1,
+                               M x(n)
+                      y(n)  =              =            akq  x(n  −  q)|x(n  −                              (3)
+
+                                              k=1 q=0
+
+where x(n) is the input sequence with length of N symbols, n = 0, ..., N − 1, y(n) is the output
+
+sequence, K is the non-linear order, Q is the memory depth, and akq is the complex-valued
+
+coefﬁcient associated with the term with non-linear order k, k = 1, ..., K, at time q, q = 0, ..., Q.
+
+In practice, only the odd non-linear orders are sufﬁcient to describe the nonlinearity. Similarly to
+
+the fractionally-spaced adaptive linear equalizer, the memory polynomial model is trained at twice
+
+the symbol rate.The training can be performed, e.g., by solving the indirect learning problem [7] for
+
+the vector a:
+
+                                              y = Ua ,                                                      (4)
+
+where           [     ...,[y(N − 1)]T ,    (aN=−[a11)0],T..,.a, nadK0u,k.q..(,na)1Qis,d..e.ﬁ, anKedQa]Ts:,  U = [u10, ..., uK0, ...,
+u1Q, ...,  y = y(0),  = ukq(0), ..., ukq
+           uKQ], ukq
+
+                               ukq(n) = x(n − q)|x(n − q)|k−1.                                              (5)
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.                            Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                                                      DOI: 10.1002/sat
+10                                            S. DIMITROV
+
+The least squares (LS) solution is given as:
+
+                                           a = (UH U)−1UH y ,             (6)
+
+and it can be used to deﬁne:
+
+                                           M{x} = Ua ,                    (7)
+
+After application of the already trained equalizer operator, the estimate of the received symbols
+
+can be expressed as:                          {{                 }}
+
+                              xe(is−t 1) = Eq M x(i−1) .                  (8)
+
+  The scaled symbols are subtracted from the estimate of the received symbols to reconstruct an
+estimate of the non-linear distortion noise as:
+
+                                           d(i) = x(eis−t 1) − x¯(i−1) .  (9)
+
+  This estimate of the interfering component is subtracted from the buffered symbols to obtain a
+new set of the received symbols as output of the ﬁrst iteration of non-linear distortion cancellation.
+In the second iteration, the newly obtained received symbols are detected and used to better estimate
+the interfering component, which is again subtracted from the originally buffered received symbols.
+The improved vector of received symbols after the i-th iteration can be expressed as:
+
+                                           x(i) = x(0) − d(i) .           (10)
+
+  The output of this process are the newly obtained received symbols after a number of iterations.
+Finally, the buffer is released and a new frame of received symbols is processed. As the iterative
+symbol-based equalizer outputs symbols with reduced interference, more reliable LLRs can be
+computed at the subsequently applied soft demapper, improving the performance of the decoder.
+
+                              4. PERFORMANCE EVALUATION
+
+In this section, PER performance of the non-linear equalizer applied at the receiver is studied for
+application in the satellite forward link. The satellite channel model consists of the IMUX/OMUX
+ﬁlter responses and the transfer characteristic of the TWTA given in Section 2.2. A single-
+carrier scenario is considered as representative of state-of-the-art satellite broadcast DTH networks,
+speciﬁed as one of the four reference scenarios in the DVB-S2X implementation guidelines [2].
+Constellations of 16-APSK, 32-APSK, 64-APSK, 128-APSK, and 256-APSK are simulated,
+whereby one modulation order is applied per PL frame, in conjunction with a 3/4-rate LDPC code.
+A carrier symbol rate of 34 MBaud with 5% roll-off factor is considered as an example of high
+carrier symbol rate with low roll-off factor in the transponder bandwidth of 36 MHz, as used in
+the DTH performance evaluation in [2]. In addition, non-linear distortion is added by operating the
+TWTA at low OBO settings. The optimum OBO values of 1.6 dB and 2.3 dB for 16-APSK and
+32-APSK, respectively, are borrowed from the single-carrier DTH scenario in [2], and expanded as
+3 dB, 3.7 dB, and 4.5 dB for 64-APSK, 128-APSK, and 256-APSK, respectively.
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.                                 Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                                                           DOI: 10.1002/sat
+EST. AND CANC. OF TRANSP. DISTORT. IN SAT. FORW. LINKS U. MEM. POLYN.  11
+
+  The PER performance of the fractionally-spaced adaptive linear equalizer, applied as a standard
+feature of the DVB-S2X receiver, is presented as a reference scenario. The proposed non-linear
+equalizer is applied immediately after the linear equalizer. For estimation of the non-linear channel
+with memory, the memory polynomial model is applied with a number of combinations of memory
+and non-linear order parameters: 1) highest non-linear order of K = 3 and memory of Q = 4
+taps, 2) K = 5 and Q = 6, 3) K = 5 and Q = 10, 4) K = 7 and Q = 20. Here, only the odd
+non-linear orders are used in the memory polynomial model. In addition, the ideal performance
+of the non-linear equalizer is simulated assuming knowledge of the exact characteristics of the
+IMUX/OMUX ﬁlters and the TWTA at the receiver. These scenarios exhibit the trade-offs between
+PER performance, complexity, and practicality. While more practical, channel estimation by means
+of a memory polynomial model has inferior PER performance as compared to perfect channel
+knowledge at the receiver. In addition, the considered scenarios for memory depth and non-
+linear order of the memory polynomial models reveal the trade-off between PER performance and
+complexity of the channel estimation. The PER performance of the non-linear equalizer is evaluated
+for 2 iterations of non-linear distortion cancellation, shown to be provide sufﬁcient convergence
+in [11].
+
+  The performance of the channel compensation techniques at the receiver is evaluated by means
+of a Monte Carlo simulation of the PER in the satellite forward link. The PER is evaluated as a
+function of the SNR deﬁned as Psat/N , i.e., the ratio of the onboard TWTA saturation power to the
+noise power, which can be related to the Es/N0 ratio in the linear domain as follows [2]:
+
+                                           Psat = Es Rs OBO ,          (11)
+                                           N  N0 Wref
+
+where Rs is the symbol rate and Wref is the transponder bandwidth in single-carrier mode. A high
+number of long PL frames are simulated, e.g., up to 106 packets per simulation point, resulting in
+sufﬁcient convergence of the statistics down to a PER of 10−3.
+
+  The PER performance results are presented in Figs. 5, 6, 7, 8, and 9 for the respective
+modulation orders. In addition, the SNR requirements at PER of 10−3 are summarized in TABLE I.
+The presented results of the reference linear equalizer in this paper are comparable with the results
+reported in [2] in the single-carrier DTH scenario with 34-Mbaud symbol rate and 5% roll-off
+for 3/4-rate 16-APSK and 32-APSK. The standard linear equalizer is unable to compensate the
+transponder distortions for the higher modulation orders of 128-APSK and 256-APSK, and the
+PER performance saturates. The ideal performance of the non-linear equalizer reveals SNR gains
+of up to 1.79 dB for 16-APSK, 3.19 dB for 32-APSK, and 8.45 dB for 64-APSK. In addition, the
+128-APSK and 256-APSK are enabled for practically achievable SNRs of 17.37 dB and 19.7 dB,
+respectively. The use of the memory polynomial model for channel estimation is shown to approach
+the PER performance of perfect channel knowledge at the receiver with the increase of the model
+complexity, consistently across all modulation orders. While a non-linear order of up to K = 5
+shows to provide sufﬁcient representation of the nonlinearity in the channel, a higher memory depth
+of up to Q = 10 is required to obtain a sweet spot between PER performance and complexity. The
+memory polynomial models with lower memory depths of Q = 4 and Q = 6 show considerable
+improvements of the SNR requirement of up to 4.31 dB for 64-APSK, and they manage to enable
+128-APSK at 26.64 dB and 25.82 dB, respectively. Using a memory depth of Q = 10 increases the
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.                      Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                                                DOI: 10.1002/sat
+12                                         S. DIMITROV
+
+Figure 5. PER of 16-APSK modulation with 3/4-rate LDPC code in a single-carrier 34-Mbaud 5%-roll-off
+signal in 36-MHz forward link transponder. Standard linear equalization is compared with 2 iterations of
+
+                                                  non-linear equalization.
+
+3/4-rate  Lin.  Non- Non-lin.                           Non-lin.  Non-lin.  Non-lin.
+
+MODCODs EQ [2]  lin. EQ EQ (K = 3, EQ (K = 5, EQ (K = 5, EQ (K = 7,
+
+                (ideal) Q = 4)                          Q = 6)    Q = 10)   Q = 20)
+
+16-APSK 12.68   10.89 12.06                             12.04     11.79     11.52
+
+32-APSK 15.77   12.58 14.68                             14.58     14.07     13.67
+
+64-APSK 23.41   14.96 19.31                             19.1      17.93     17.06
+
+128-APSK Saturates 17.37 26.64                          25.82     22.29     20.49
+
+256-APSK Saturates 19.7 Saturates Saturates 30.68                           24.69
+
+Table I. Required Psat/N [dB] at 10−3 PER of the standard linear equalizer [2] in comparison to the
+additional non-linear equalizer with distortion cancellation at the receiver in a single-carrier satellite forward
+
+                                                   link at practical OBO.
+
+gain for 64-APSK to 5.48 dB. Furthermore, this setup reduces the SNR requirement of 128-APSK
+to 22.29 dB, and even enables 256-APSK at 30.68 dB. The presented considerable improvements in
+energy efﬁciency and the enabled use of higher-order modulation with high symbol rates close to
+the limits of the transponder bandwidth, as well as very low roll-off factors, show that the proposed
+non-linear equalizer is a practical solution to increase the spectral efﬁciency of the air interface,
+which translates into increased user data rates and satellite system capacity.
+
+  Considering the computational complexity of the receiver, the training of the memory polynomial
+model requires the inversion of a matrix in (6) with size of (Q + 1)(K + 1)/2 × (Q + 1)(K + 1)/2,
+using only the odd non-linear orders. This training, however, is only performed sporadically, since
+the channel characteristics change only slowly over time, and therefore it can be performed ofﬂine.
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.                         Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                                                   DOI: 10.1002/sat
+EST. AND CANC. OF TRANSP. DISTORT. IN SAT. FORW. LINKS U. MEM. POLYN.  13
+
+Figure 6. PER of 32-APSK with 3/4-rate LDPC code in a single-carrier 34-Mbaud 5%-roll-off signal in
+36-MHz forward link transponder. Standard linear equalization is compared with 2 iterations of non-linear
+
+                                                         equalization.
+
+Figure 7. PER of 64-APSK with 3/4-rate LDPC code in a single-carrier 34-Mbaud 5%-roll-off signal in
+36-MHz forward link transponder. Standard linear equalization is compared with 2 iterations of non-linear
+
+                                                         equalization.
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.  Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                            DOI: 10.1002/sat
+14                                         S. DIMITROV
+
+Figure 8. PER of 128-APSK with 3/4-rate LDPC code in a single-carrier 34-Mbaud 5%-roll-off signal in
+36-MHz forward link transponder. Standard linear equalization is compared with 2 iterations of non-linear
+
+                                                         equalization.
+
+Figure 9. PER of 256-APSK with 3/4-rate LDPC code in a single-carrier 34-Mbaud 5%-roll-off signal in
+36-MHz forward link transponder. Standard linear equalization is compared with 2 iterations of non-linear
+
+                                                         equalization.
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.               Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                                         DOI: 10.1002/sat
+EST. AND CANC. OF TRANSP. DISTORT. IN SAT. FORW. LINKS U. MEM. POLYN.  15
+
+Therefore, the computational complexity of the non-linear equalizer using the memory polynomial
+model for channel estimation and distortion cancellation is dominated by (8). Therefore, the receiver
+complexity remains linear with the size of the model, (Q + 1)(K + 1)/2, for a given number of
+iterations [11]. Given the fact that a small-size memory polynomial model with Q = 10 and K = 5
+already provides sufﬁcient performance in the non-linear channel with memory, this implementation
+of the non-linear equalizer further reduces the complexity in comparison to the implementation with
+perfect channel knowledge at the receiver. As a result, low-cost receiver devices.
+
+                                                5. CONCLUSION
+
+In this paper, the symbol-based equalizer with non-linear distortion cancellation has been analyzed
+in a practical setup, including channel estimation at the receiver by means of a memory polynomial
+model. The improved receiver is particularly suitable for application with wide-band carriers, low
+roll-off factors, high symbol baud rates, and high-order modulations. The PER performance of the
+receiver has been assessed for a single-carrier 36-MHz transponder with 34-MBaud symbol rate
+and 5% roll-off, similar to DTH broadcasting, using a 3/4-rate LDPC code and modulation orders
+of 16-APSK, 32-APSK, 64-APSK, 128-APSK, and 256-APSK. Varying the memory depth and the
+non-linear order of the memory polynomial model, the PER performance of the non-linear equalizer
+is studied against the standard fractionally-space adaptive linear equalizer, as well as to a setup of
+the non-linear equalizer with knowledge of the characteristics of the IMUX/OMUX ﬁlters and the
+TWTA at the receiver, in order to evaluate the trade-off between PER performance and complexity.
+The practical receiver is shown to consistently approach the PER performance of the setup with ideal
+channel knowledge when increasing the memory depth and the non-linear order. While the standard
+fractionally-spaced adaptive linear equalizer saturates the PER performance beyond 64-APSK, the
+non-linear equalizer not only achieves signiﬁcant energy efﬁciency gains up to 5.48 dB for 64-
+APSK, but also enables the use of higher-order modulation like 128-APSK and 256-APSK, using
+a memory polynomial model with memory depth of 10 and non-linear order of 5. The signiﬁcant
+energy and spectral efﬁciency gains promote the proposed equalizer as an effective solution at the
+receiver in the non-linear satellite channel with memory, enabling the increase of both user rates and
+system capacity.
+
+                                                        ACKNOWLEDGEMENT
+
+This work has been supported by the German Federal Ministry for Education and Research under contract
+16KIS0740. Responsibility for the contents of this publication lies with the author. (Das diesem Bericht
+zugrundeliegende Vorhaben wurde mit Mitteln des Bundesministeriums fu¨r Bildung und Forschung unter
+dem Fo¨rderkennzeichen 16KIS0740 gefo¨rdert. Die Verantwortung fu¨r den Inhalt dieser Vero¨ffentlichung
+liegt beim Autor.)
+
+                                                            REFERENCES
+
+1. Second generation framing structure, channel coding and modulation systems for broadcasting, interactive services,
+   news gathering and other broadband satellite applications; part ii: S2-extensions (dvb-s2x) Oct 2014.
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.  Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                            DOI: 10.1002/sat
+16                                         S. DIMITROV
+
+ 2. Implementation guidelines for the second generation system for broadcasting, interactive services, news gathering
+     and other broadband satellite applications; part ii: S2-extensions (dvb-s2x) Mar 2015.
+
+ 3. Karam G, Sari H. Analysis of predistortion, equalization, and ISI cancellation techniques in digital radio systems
+     with nonlinear transmit ampliﬁers. IEEE Trans. Commun. Dec 1989; 37(12):1245–1253.
+
+ 4. Yu C, Guan L, Zhu E, Zhu A. Band-limited Volterra series-based digital predistortion for wideband RF power
+     ampliﬁers. IEEE Trans. Microw. Theory Techn. Dec 2012; 60(12):4198–4208.
+
+ 5. Kelly N, Allegue-Martinez M, Arapoglou PD, Zhu A. Bandwidth-constrained digital pre-distortion technique for
+     multi-carrier satellite communications. Int. J. Satellite Commun. Netw. Apr 2015; .
+
+ 6. Casini E, De Gaudenzi R, Ginesi A. DVB-S2 modem algorithms design and performance over typical satellite
+     channels. Int. J. Satellite Commun. Netw. Jun 2004; 22:281–318.
+
+ 7. Ding L, Zhou GT, Morgan DR, Ma Z, Kenney JS, Kim J, Giardina CR. A robust digital baseband predistorter
+     constructed using memory polynomials. IEEE Trans. Commun. Jan 2004; 52(1):159–165.
+
+ 8. Zhou D, DeBrunner VE. Novel adaptive nonlinear predistorters based on the direct learning algorithm. IEEE Trans.
+     on Signal Proces. Jan 2007; 55(1):120–133.
+
+ 9. Karam G, Sari H. A data pre-distortion technique with memory for QAM radio systems. IEEE Trans. Commun.
+     Aug 1991; 39(2):336–344.
+
+10. Piazza R, Bhavani Shankar MR, Ottersten B. Data Predistortion for Multicarrier Satellite Channels Based on Direct
+     Learning. IEEE Trans. Signal Proces. Nov 2014; 62(22):5868–5880.
+
+11. Dimitrov S. Non-Linear Distortion Cancellation and Symbol-Based Equalization in Satellite Forward Links. IEEE
+     Trans. Wireless Commun. 2017; 16(7):4489–4502.
+
+12. Proakis J. Digital Communications. 4th edn., McGraw Hill, 2000.
+13. Ampeliotis D, Rontogiannis AA, Berberidis K, Papaleo M, Corazza GE. Turbo equalization of non-linear
+
+     satellite channels using soft interference cancellation. Proc. 4th Advanced Satellite Mobile Systems Conference
+     (ASMS2008), Bologna, Italy, 2008; 289–292.
+14. Dimitrov S. Iterative cancellation of non-linear distortion noise in digital communication systems. IEEE Trans.
+     Commun. Jun 2015; 63(6):2325–2336.
+15. Biglieri E, Barberis S, Catena M. Analysis and compensation of nonlinearities in digital transmission systems. IEEE
+     J. Sel. Areas Commun. Jan 1988; 6(1):42–51.
+16. Kim J, Konstantinou K. Digital predistortion of wideband signals based on power ampliﬁer model with memory.
+     Electron. Lett. Nov 2001; 37:1417–1418.
+17. Dimitrov S. Non-linear distortion noise cancellation for satellite return links. Proc. IEEE International Conference
+     on Communications (IEEE ICC 2016), Kuala Lumpur, Malaysia, 2016.
+18. Dimitrov S. Non-linear distortion noise cancellation for satellite forward links. Proc. 8th Advanced Satellite
+     Multimedia Systems Conference (ASMS2016), Palma de Mallorca, Spain, 2016.
+
+Copyright ⃝c 2018 John Wiley & Sons, Ltd.               Int. J. Satell. Commun. Network. (2018)
+Prepared using satauth.cls                                                         DOI: 10.1002/sat
