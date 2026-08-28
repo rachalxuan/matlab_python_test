@@ -1,0 +1,49 @@
+clearvars;
+clear classes;
+rehash;
+addpath('E:/web_code/react/fft_project/react-fft/src/python');
+
+% Deterministic synthetic test: normal -> deep fade -> normal.  The helper
+% must use only the observed input power and must hold the complete fade.
+rng(20260828,'twister');
+sps = 2;
+nNormal1 = 1200*sps;
+nFade = 640*sps;
+nNormal2 = 1200*sps;
+x = exp(1j*2*pi*rand(nNormal1+nFade+nNormal2,1));
+x(nNormal1+(1:nFade)) = 0.1*x(nNormal1+(1:nFade)); % -20 dB power
+
+cfg = struct( ...
+    'SamplesPerSymbol',sps, ...
+    'WindowSymbols',32, ...
+    'AcquireSymbols',256, ...
+    'ReferenceTauSymbols',4096, ...
+    'FadeEnterDB',-12, ...
+    'FadeExitDB',-8, ...
+    'FadeEnterWindows',2, ...
+    'RecoverWindows',4, ...
+    'MaxInverseGainDB',18, ...
+    'Debug',true);
+
+[ctrl,info] = HelperTMBlindReliabilityManager(x,cfg);
+fadeIdx = nNormal1+(1:nFade);
+preIdx = 1:nNormal1;
+postIdx = nNormal1+nFade+(1:nNormal2);
+
+fprintf('synthetic fade HOLD coverage = %.2f %%\n', ...
+    100*mean(ctrl.HoldMask(fadeIdx)));
+fprintf('normal-region HOLD fraction = %.2f %%\n', ...
+    100*mean(ctrl.HoldMask([preIdx postIdx])));
+
+assert(info.Applied,'Reliability manager did not run.');
+assert(info.HoldEvents == 1,'Expected exactly one HOLD entry.');
+assert(info.RecoverEvents == 1,'Expected exactly one recovery.');
+assert(mean(ctrl.HoldMask(fadeIdx)) > 0.95, ...
+    'The deep fade was not covered by the shared HOLD mask.');
+assert(mean(ctrl.HoldMask(preIdx)) < 0.05, ...
+    'Normal pre-fade samples were incorrectly held.');
+assert(strcmp(info.FinalState,'TRACK'), ...
+    'The manager did not return to TRACK.');
+
+fprintf('PASS: blind reliability TRACK/HOLD/RECOVER unit test.\n');
+

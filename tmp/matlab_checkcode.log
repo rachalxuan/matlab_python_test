@@ -1,0 +1,66 @@
+ 
+要开始，请键入 doc。
+有关产品信息，请访问 www.mathworks.com。
+ 
+HelperTMBlindReliabilityManager.m: 0 messages
+HelperTMFastComplexGainTracker.m: 1 messages
+  L235 MSNU 此处之前隐藏了一条代码分析器消息，但该消息不再产生。
+HelperTMComplexGainTracker.m: 0 messages
+HelperTMAPSKRingNormalizer.m: 0 messages
+HelperTMAPSKPilotlessFrontEnd.m: 0 messages
+run_ccsds_tm_evaluation.m: 49 messages
+  L154 ALIGN IF 可能未与其匹配 END (行 157)对齐。
+  L911 INUSL 可能未使用输入参数 'fe'，尽管使用了后一个参数。请考虑将其替换为 ~。
+  L1765 NASGU 赋给变量 'noiseInfo' 的值可能未使用。
+  L1885 ASGLU 此处赋给 'agcState' 的值似乎未使用。请考虑将其替换为 ~。
+  L2013 NASGU 赋给变量 'uqpskPostCarrierEQEnabled' 的值可能未使用。
+  L2014 NASGU 赋给变量 'useFastEnvelopePath' 的值可能未使用。
+  L2317 NASGU 赋给变量 'bestTCMSampleOffset' 的值可能未使用。
+  L3465 NASGU 赋给变量 'snr_est' 的值可能未使用。
+  L3467 NASGU 赋给变量 'snr_est' 的值可能未使用。
+  L3469 NASGU 赋给变量 'snr_est' 的值可能未使用。
+  L3471 NASGU 赋给变量 'snr_est' 的值可能未使用。
+  L4429 NASGU 赋给变量 'yOut' 的值可能未使用。
+  L4449 ISMAT 检查变量是否为矩阵时，请考虑使用 ISMATRIX。
+  L5356 STCI 请使用 STRCMPI(str1,str2) 而不是在对 STRCMP 的调用中使用 UPPER/LOWER。
+  L5442 STCI 请使用 STRCMPI(str1,str2) 而不是在对 STRCMP 的调用中使用 UPPER/LOWER。
+  L5860 NBRAK2 无需使用方括号 []。
+  L6089 NASGU 赋给变量 'berVal' 的值可能未使用。
+  L6089 NASGU 赋给变量 'lockRate' 的值可能未使用。
+  L6228 NASGU 赋给变量 'bitErrorsBest' 的值可能未使用。
+  L6231 NASGU 赋给变量 'bestShift' 的值可能未使用。
+  L6304 NASGU 赋给变量 'bitErrorsBest' 的值可能未使用。
+  L6332 NASGU 赋给变量 'bitErrorsBest' 的值可能未使用。
+  L6379 NASGU 赋给变量 'bitErrorsBest' 的值可能未使用。
+  L6403 NASGU 赋给变量 'bitErrorsBest' 的值可能未使用。
+  L6440 NASGU 赋给变量 'bitErrorsBest' 的值可能未使用。
+  L6454 NASGU 赋给变量 'bitErrorsBest' 的值可能未使用。
+  L6485 NASGU 赋给变量 'bitErrorsBest' 的值可能未使用。
+  L6490 NASGU 赋给变量 'splitIQRoundSucceeded' 的值可能未使用。
+  L6499 NASGU 赋给变量 'bitErrorsBest' 的值可能未使用。
+  L7493 STCI 请使用 STRCMPI(str1,str2) 而不是在对 STRCMP 的调用中使用 UPPER/LOWER。
+  L8159 NASGU 赋给变量 'berVal' 的值可能未使用。
+  L8159 NASGU 赋给变量 'lockRate' 的值可能未使用。
+  L8298 NASGU 赋给变量 'symbolSkips' 的值可能未使用。
+  L9196 NASGU 赋给变量 'rateForAlign' 的值可能未使用。
+  L9198 NASGU 赋给变量 'rateForAlign' 的值可能未使用。
+  L9262 AGROW 变量似乎要更改每个循环迭代的大小。请考虑对速度进行预分配。
+  L11282 MSNU 此处之前隐藏了一条代码分析器消息，但该消息不再产生。
+  L11363 INUSD 可能未使用输入参数 'opt'。如果这是正常情况，请考虑将其替换为 ~。
+  L11490 MSNU 此处之前隐藏了一条代码分析器消息，但该消息不再产生。
+  L11684 STCI 请使用 STRCMPI(str1,str2) 而不是在对 STRCMP 的调用中使用 UPPER/LOWER。
+  L11775 NASGU 赋给变量 'payloadSym' 的值可能未使用。
+  L11887 NASGU 赋给变量 'facmStats' 的值可能未使用。
+  L11913 MSNU 此处之前隐藏了一条代码分析器消息，但该消息不再产生。
+  L11915 MSNU 此处之前隐藏了一条代码分析器消息，但该消息不再产生。
+  L11960 AGROW 变量似乎要更改每个循环迭代的大小。请考虑对速度进行预分配。
+  L12000 NASGU 赋给变量 'payloadWithPilots' 的值可能未使用。
+  L12099 MSNU 此处之前隐藏了一条代码分析器消息，但该消息不再产生。
+  L12120 NASGU 赋给变量 'tf' 的值可能未使用。
+  L13709 MSNU 此处之前隐藏了一条代码分析器消息，但该消息不再产生。
+sweep_h_channel_short_frames.m: 5 messages
+  L152 AGROW 变量似乎要更改每个循环迭代的大小。请考虑对速度进行预分配。
+  L1033 MSNU 此处之前隐藏了一条代码分析器消息，但该消息不再产生。
+  L1044 MSNU 此处之前隐藏了一条代码分析器消息，但该消息不再产生。
+  L1106 MSNU 此处之前隐藏了一条代码分析器消息，但该消息不再产生。
+  L1115 MSNU 此处之前隐藏了一条代码分析器消息，但该消息不再产生。

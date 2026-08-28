@@ -1,0 +1,19 @@
+ 
+要开始，请键入 doc。
+有关产品信息，请访问 www.mathworks.com。
+ 
+[警告: 'onCleanup' 类的对象已存在。无法清除此类或其任何超类。] 
+[> 位置：codex_blind_reliability_unit_v1 (第 2 行)
+位置: run (第 91 行)] 
+
+[TM blind reliability manager]
+  detector         : pre-envelope power, 32.0 symbols/window
+  thresholds       : enter=-12.0 dB x2, exit=-8.0 dB x4
+  power ratio      : min/median/max=-19.98/+0.00/+0.02 dB
+  HOLD             : 23/95 windows, 1472/6080 samples (24.21%)
+  transitions      : enter/recover=1/1, final=TRACK
+  inverse gain cap : +18.0 dB
+
+synthetic fade HOLD coverage = 97.50 %
+normal-region HOLD fraction = 4.67 %
+PASS: blind reliability TRACK/HOLD/RECOVER unit test.

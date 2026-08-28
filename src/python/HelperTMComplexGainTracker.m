@@ -40,6 +40,7 @@ function [yOut,state,info] = HelperTMComplexGainTracker(x,referenceConstellation
 %   TrackPhase                 true
 %   MagnitudeEstimationMode    'decision' ('power' uses filtered envelope)
 %   UpdatePowerReference       true
+%   ExternalHoldMask          [] (shared receiver reliability mask)
 %   Debug                      false
 
 if nargin < 2
@@ -97,6 +98,8 @@ if ~any(magnitudeMode == ["decision","power"])
 end
 updatePowerReference = localLogical(options,'UpdatePowerReference',true);
 debugEnabled = localLogical(options,'Debug',false);
+[externalHoldMask,externalHoldProvided] = ...
+    localExternalHoldMask(options,numel(x));
 
 if ~isscalar(mu) || ~isfinite(mu) || mu <= 0 || mu > 1
     error('HelperTMComplexGainTracker:InvalidStep', ...
@@ -161,6 +164,10 @@ for k = 1:numel(xWork)
     else
         inFade = false;
     end
+    % A shared pre-normalization detector is authoritative.  Local power or
+    % decision confidence may add protection, but cannot reopen updates
+    % while the common receiver state is HOLD/RECOVER.
+    inFade = inFade || externalHoldMask(k);
     fadeMask(k) = inFade;
 
     % For a scalar time-varying channel, a filtered envelope estimate is
@@ -271,6 +278,9 @@ info.HoldEvents = holdEvents;
 info.RecoverEvents = recoverEvents;
 info.FadeSymbols = nnz(fadeMask);
 info.FadeFraction = mean(fadeMask);
+info.ExternalHoldMaskProvided = externalHoldProvided;
+info.ExternalHoldSymbols = nnz(externalHoldMask);
+info.ExternalHoldFraction = mean(externalHoldMask);
 info.FinalGainMagnitude = abs(hHat);
 info.FinalGainMagnitude_dB = 20*log10(max(abs(hHat),eps));
 info.FinalGainPhase_deg = rad2deg(angle(hHat));
@@ -300,6 +310,9 @@ if debugEnabled
     fprintf('  HOLD/fade       : %d/%d symbols (%.2f/%.2f%%), events=%d recoveries=%d\n', ...
         info.HoldSymbols,info.FadeSymbols,100*info.HoldFraction, ...
         100*info.FadeFraction,info.HoldEvents,info.RecoverEvents);
+    fprintf('  shared HOLD     : provided=%d, symbols=%d (%.2f%%)\n', ...
+        info.ExternalHoldMaskProvided,info.ExternalHoldSymbols, ...
+        100*info.ExternalHoldFraction);
     fprintf('  h final         : %+.3f dB, %+.3f deg; range=[%+.3f,%+.3f] dB\n', ...
         info.FinalGainMagnitude_dB,info.FinalGainPhase_deg, ...
         info.EstimatedGainMin_dB,info.EstimatedGainMax_dB);
@@ -364,6 +377,21 @@ if isstruct(s) && isfield(s,name) && ~isempty(s.(name))
 end
 end
 
+function [mask,provided] = localExternalHoldMask(options,n)
+mask = false(n,1);
+provided = isstruct(options) && isfield(options,'ExternalHoldMask') && ...
+    ~isempty(options.ExternalHoldMask);
+if ~provided
+    return;
+end
+raw = logical(options.ExternalHoldMask(:));
+if numel(raw) ~= n
+    error('HelperTMComplexGainTracker:ExternalHoldMaskLength', ...
+        'ExternalHoldMask has %d symbols; expected %d.',numel(raw),n);
+end
+mask = raw;
+end
+
 function state = localEmptyState()
 state = struct('Mode','UNINITIALIZED','Gain',complex(1,0), ...
     'PowerIIR',NaN,'PowerReference',NaN,'PowerFade',false, ...
@@ -381,6 +409,8 @@ info = struct( ...
     'AcceptedDecisions',0,'CoefficientUpdates',0,'AcceptanceRate',NaN, ...
     'HoldSymbols',0,'HoldFraction',NaN,'HoldEvents',0,'RecoverEvents',0, ...
     'FadeSymbols',0,'FadeFraction',NaN, ...
+    'ExternalHoldMaskProvided',false,'ExternalHoldSymbols',0, ...
+    'ExternalHoldFraction',0, ...
     'FinalGainMagnitude',NaN,'FinalGainMagnitude_dB',NaN, ...
     'FinalGainPhase_deg',NaN,'EstimatedGainMin_dB',NaN, ...
     'EstimatedGainMax_dB',NaN,'InverseGainMaxObserved_dB',NaN, ...

@@ -133,6 +133,8 @@ end
 function [y, info] = localEnvelopeIIR(x, refConst, options, info)
 % Original causal sample-power IIR, preserved without changing its response.
 n = numel(x);
+[externalHoldMask,externalHoldProvided] = ...
+    localExternalHoldMask(options,n);
 sampleRate = localNumber(options, 'FastEnvelopeSampleRateHz', NaN);
 if ~isfinite(sampleRate) || sampleRate <= 0
     sampleRate = 1;
@@ -161,15 +163,18 @@ if ~(isfinite(minGain) && minGain > 0), minGain = 0.1; end
 if ~(isfinite(maxGain) && maxGain >= minGain), maxGain = 10; end
 
 y = zeros(size(x));
-gain = 1;
+gain = sqrt(targetPower/max(powerState,1e-12));
+gain = min(max(gain, minGain), maxGain);
 gains = zeros(n,1);
 for k = 1:n
     p = abs(x(k)).^2;
-    if isfinite(p)
+    if isfinite(p) && ~externalHoldMask(k)
         powerState = alpha*powerState + (1-alpha)*max(p,0);
+        gain = sqrt(targetPower/max(powerState, 1e-12));
+        gain = min(max(gain, minGain), maxGain);
     end
-    gain = sqrt(targetPower/max(powerState, 1e-12));
-    gain = min(max(gain, minGain), maxGain);
+    % HOLD keeps the last trustworthy gain.  The signal still flows, but a
+    % deep-fade noise floor cannot become the next envelope reference.
     y(k) = gain*x(k);
     gains(k) = gain;
 end
@@ -187,10 +192,15 @@ info.SampleRateHz = sampleRate;
 info.GainMin_dB = 20*log10(max(min(gains),eps));
 info.GainMax_dB = 20*log10(max(max(gains),eps));
 info.EstimatorMode = 'iir';
+info.ExternalHoldMaskProvided = externalHoldProvided;
+info.ExternalHoldSamples = nnz(externalHoldMask);
+info.ExternalHoldFraction = mean(externalHoldMask);
 end
 
 function [y, info] = localEnvelopeRobustBlock(x, refConst, options, info)
 n = numel(x);
+[externalHoldMask,externalHoldProvided] = ...
+    localExternalHoldMask(options,n);
 sampleRate = localNumber(options, 'FastEnvelopeSampleRateHz', NaN);
 if ~isfinite(sampleRate) || sampleRate <= 0, sampleRate = 1; end
 sps = max(1, localNumber(options, 'FastEnvelopeSamplesPerSymbol', 2));
@@ -269,13 +279,18 @@ if ~isfinite(maxGainDB) || maxGainDB < minGainDB, maxGainDB = 20; end
 rawGainDB = 10*log10(targetPower./powerTrace);
 rawGainDB = min(max(rawGainDB,minGainDB),maxGainDB);
 
-gainDB = rawGainDB;
+gainDB = zeros(size(rawGainDB));
+gainDB(1) = rawGainDB(1);
 maxStepDB = gainSlewDBPerSymbol/sps;
-if isfinite(maxStepDB)
-    for k = 2:n
+for k = 2:n
+    if externalHoldMask(k)
+        gainDB(k) = gainDB(k-1);
+    elseif isfinite(maxStepDB)
         delta = rawGainDB(k)-gainDB(k-1);
         delta = min(max(delta,-maxStepDB),maxStepDB);
         gainDB(k) = gainDB(k-1)+delta;
+    else
+        gainDB(k) = rawGainDB(k);
     end
 end
 gains = 10.^(gainDB/20);
@@ -299,6 +314,9 @@ info.HopSymbols = hopSamples/sps;
 info.MedianBlocks = medianBlocks;
 info.TrimFraction = trimFraction;
 info.GainSlewDBPerSymbol = gainSlewDBPerSymbol;
+info.ExternalHoldMaskProvided = externalHoldProvided;
+info.ExternalHoldSamples = nnz(externalHoldMask);
+info.ExternalHoldFraction = mean(externalHoldMask);
 end
 
 function powerValue = localTrimmedPower(x, trimFraction)
@@ -512,6 +530,21 @@ if nargin >= 1 && isstruct(options) && isfield(options,name) && ...
 end
 end
 
+function [mask,provided] = localExternalHoldMask(options,n)
+mask = false(n,1);
+provided = isstruct(options) && isfield(options,'ExternalHoldMask') && ...
+    ~isempty(options.ExternalHoldMask);
+if ~provided
+    return;
+end
+raw = logical(options.ExternalHoldMask(:));
+if numel(raw) ~= n
+    error('HelperTMFastComplexGainTracker:ExternalHoldMaskLength', ...
+        'ExternalHoldMask has %d samples; expected %d.',numel(raw),n);
+end
+mask = raw;
+end
+
 function m = localFiniteMean(x)
 x = x(isfinite(x));
 if isempty(x), m = NaN; else, m = mean(x); end
@@ -545,5 +578,8 @@ info = struct( ...
     'HopSymbols',NaN, ...
     'MedianBlocks',NaN, ...
     'TrimFraction',NaN, ...
-    'GainSlewDBPerSymbol',NaN);
+    'GainSlewDBPerSymbol',NaN, ...
+    'ExternalHoldMaskProvided',false, ...
+    'ExternalHoldSamples',0, ...
+    'ExternalHoldFraction',0);
 end

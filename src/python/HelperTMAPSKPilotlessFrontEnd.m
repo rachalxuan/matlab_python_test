@@ -140,6 +140,35 @@ if localLogical(options,'enableHChannel',false)
     end
 end
 carrierOpt.SymbolRateHz = localNumber(options,'symbolRate',10e6);
+sharedHoldMask = false(numel(x),1);
+sharedHoldProvided = isfield(options,'BlindReliabilityExternalHoldMask') && ...
+    ~isempty(options.BlindReliabilityExternalHoldMask);
+sharedMaxInverseGainDB = localNumber(options, ...
+    'blindReliabilityMaxInverseGainDB',18);
+if sharedHoldProvided
+    sharedHoldMask = logical(options.BlindReliabilityExternalHoldMask(:));
+    if numel(sharedHoldMask) ~= numel(x)
+        error('HelperTMAPSKPilotlessFrontEnd:ReliabilityMaskLength', ...
+            'BlindReliabilityExternalHoldMask has %d symbols; expected %d.', ...
+            numel(sharedHoldMask),numel(x));
+    end
+    if ~isfield(carrierOpt,'PreDDGainTracker') || ...
+            ~isstruct(carrierOpt.PreDDGainTracker)
+        carrierOpt.PreDDGainTracker = struct();
+    end
+    carrierOpt.PreDDGainTracker.ExternalHoldMask = sharedHoldMask;
+    carrierOpt.PreDDGainTracker.MaxInverseGainDB = min( ...
+        localNumber(carrierOpt.PreDDGainTracker,'MaxInverseGainDB', ...
+        sharedMaxInverseGainDB),sharedMaxInverseGainDB);
+    if ~isfield(carrierOpt,'RingNormalizer') || ...
+            ~isstruct(carrierOpt.RingNormalizer)
+        carrierOpt.RingNormalizer = struct();
+    end
+    carrierOpt.RingNormalizer.ExternalHoldMask = sharedHoldMask;
+    carrierOpt.RingNormalizer.MaxInverseGainDB = min( ...
+        localNumber(carrierOpt.RingNormalizer,'MaxInverseGainDB', ...
+        sharedMaxInverseGainDB),sharedMaxInverseGainDB);
+end
 if isfield(options,'carrierCaptureRangeHz') && ...
         ~isempty(options.carrierCaptureRangeHz)
     captureRangeHz = double(options.carrierCaptureRangeHz);
@@ -202,6 +231,12 @@ if enableGain
     end
     if ~isfield(gainOpt,'MaxInverseGainDB')
         gainOpt.MaxInverseGainDB = 40;
+    end
+    if sharedHoldProvided
+        gainOpt.ExternalHoldMask = sharedHoldMask;
+        gainOpt.MaxInverseGainDB = min( ...
+            localNumber(gainOpt,'MaxInverseGainDB', ...
+            sharedMaxInverseGainDB),sharedMaxInverseGainDB);
     end
     if ~isfield(gainOpt,'TrackMagnitude')
         gainOpt.TrackMagnitude = true;
@@ -286,6 +321,9 @@ info.FinalGainPhase_deg = gainInfo.FinalGainPhase_deg;
 info.GainRegularization = gainInfo.Regularization;
 info.GainMaxInverseGainDB = gainInfo.MaxInverseGainDB;
 info.GainInverseMaxObserved_dB = gainInfo.InverseGainMaxObserved_dB;
+info.SharedReliabilityMaskProvided = sharedHoldProvided;
+info.SharedReliabilityHoldSymbols = nnz(sharedHoldMask);
+info.SharedReliabilityHoldFraction = mean(sharedHoldMask);
 
 state = struct('Carrier',carrierState,'ComplexGain',gainState);
 
@@ -320,6 +358,10 @@ if debugEnabled
     fprintf('  inverse gain     : max=%+.2f dB, cap=%+.2f dB, regularization=%g\n', ...
         info.GainInverseMaxObserved_dB,info.GainMaxInverseGainDB, ...
         info.GainRegularization);
+    fprintf('  shared HOLD      : provided=%d, symbols=%d (%.2f%%)\n', ...
+        info.SharedReliabilityMaskProvided, ...
+        info.SharedReliabilityHoldSymbols, ...
+        100*info.SharedReliabilityHoldFraction);
     fprintf('  main boundary    : symbols still contain ASM; demap/FEC not performed here\n\n');
 end
 end

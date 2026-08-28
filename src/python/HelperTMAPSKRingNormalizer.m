@@ -52,6 +52,8 @@ fadeExitDB = localNumber(options,'FadeExitDB',-5);
 recoverGood = max(1,round(localNumber(options,'RecoverGoodSymbols',1)));
 enableFadeHold = localLogical(options,'EnableFadeHold',true);
 debugEnabled = localLogical(options,'Debug',false);
+[externalHoldMask,externalHoldProvided] = ...
+    localExternalHoldMask(options,numel(x));
 
 if mu <= 0 || mu > 1 || ~isfinite(mu)
     error('HelperTMAPSKRingNormalizer:InvalidStep','StepSize must be in (0,1].');
@@ -82,8 +84,14 @@ if any(estimatorMode == ["power-window","window","envelope"])
     amplitudeTrace = sqrt(max(localPower,eps)/powerReference);
     inverseGainTrace = amplitudeTrace./(amplitudeTrace.^2+regularization);
     inverseGainTrace = min(inverseGainTrace,maxInverseGain);
+    for k = 2:numel(inverseGainTrace)
+        if externalHoldMask(k)
+            inverseGainTrace(k) = inverseGainTrace(k-1);
+        end
+    end
     yOut = x.*inverseGainTrace;
-    fadeMask = localPower/powerReference < fadeEnterRatio;
+    fadeMask = localPower/powerReference < fadeEnterRatio | ...
+        externalHoldMask;
 
     info = localEmptyInfo();
     info.Applied = true;
@@ -102,6 +110,9 @@ if any(estimatorMode == ["power-window","window","envelope"])
     info.FadeFraction = mean(fadeMask);
     info.HoldEvents = nnz(diff([false; fadeMask]) == 1);
     info.RecoverEvents = nnz(diff([fadeMask; false]) == -1);
+    info.ExternalHoldMaskProvided = externalHoldProvided;
+    info.ExternalHoldSymbols = nnz(externalHoldMask);
+    info.ExternalHoldFraction = mean(externalHoldMask);
     info.FinalAmplitude = amplitudeTrace(end);
     info.FinalAmplitude_dB = 20*log10(max(amplitudeTrace(end),eps));
     info.AmplitudeMin_dB = 20*log10(max(min(amplitudeTrace),eps));
@@ -150,6 +161,7 @@ for k = 1:numel(x)
     else
         inFade = false;
     end
+    inFade = inFade || externalHoldMask(k);
     if wasInFade && ~inFade
         amplitude = sqrt(max(powerIIR,eps)/mean(abs(ref).^2));
     end
@@ -207,6 +219,9 @@ info.FadeSymbols = nnz(fadeMask);
 info.FadeFraction = mean(fadeMask);
 info.HoldEvents = holdEvents;
 info.RecoverEvents = recoverEvents;
+info.ExternalHoldMaskProvided = externalHoldProvided;
+info.ExternalHoldSymbols = nnz(externalHoldMask);
+info.ExternalHoldFraction = mean(externalHoldMask);
 info.FinalAmplitude = amplitude;
 info.FinalAmplitude_dB = 20*log10(max(amplitude,eps));
 info.AmplitudeMin_dB = 20*log10(max(min(amplitudeTrace),eps));
@@ -271,6 +286,21 @@ if isstruct(s) && isfield(s,name) && ~isempty(s.(name))
 end
 end
 
+function [mask,provided] = localExternalHoldMask(options,n)
+mask = false(n,1);
+provided = isstruct(options) && isfield(options,'ExternalHoldMask') && ...
+    ~isempty(options.ExternalHoldMask);
+if ~provided
+    return;
+end
+raw = logical(options.ExternalHoldMask(:));
+if numel(raw) ~= n
+    error('HelperTMAPSKRingNormalizer:ExternalHoldMaskLength', ...
+        'ExternalHoldMask has %d symbols; expected %d.',numel(raw),n);
+end
+mask = raw;
+end
+
 function info = localEmptyInfo()
 info = struct('Applied',false,'Reason','','EstimatorMode','off', ...
     'Radii',zeros(0,1),'MinRingSpacing',NaN, ...
@@ -278,6 +308,8 @@ info = struct('Applied',false,'Reason','','EstimatorMode','off', ...
     'AcceptedUpdates',0,'AcceptanceRate',NaN, ...
     'HoldSymbols',0,'HoldFraction',NaN,'FadeSymbols',0, ...
     'FadeFraction',NaN,'HoldEvents',0,'RecoverEvents',0, ...
+    'ExternalHoldMaskProvided',false,'ExternalHoldSymbols',0, ...
+    'ExternalHoldFraction',0, ...
     'FinalAmplitude',NaN,'FinalAmplitude_dB',NaN, ...
     'AmplitudeMin_dB',NaN,'AmplitudeMax_dB',NaN,'OutputPower',NaN);
 end
