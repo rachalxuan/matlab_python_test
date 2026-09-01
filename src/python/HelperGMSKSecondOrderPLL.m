@@ -64,6 +64,8 @@ nInit = min(numel(x), max(32*sps, 256));
 powerState = max(mean(abs(x(1:nInit)).^2), 1e-12);
 referencePower = powerState;
 fadePower = referencePower*10^(fadeThresholdDB/10);
+[externalHoldMask,externalHoldProvided] = ...
+    localExternalHoldMask(options,numel(x));
 
 phaseState = 0;
 frequencyState = 0;
@@ -90,7 +92,7 @@ for k = 1:numel(x)
     if isfinite(p)
         powerState = powerAlpha*powerState + (1-powerAlpha)*p;
     end
-    inFade = powerState < fadePower;
+    inFade = powerState < fadePower || externalHoldMask(k);
 
     if ~inFade
         tonePhase = pi*(k-1)/sps;
@@ -170,6 +172,9 @@ info.LockTransitions = lockTransitions;
 info.Reacquisitions = reacquisitions;
 info.AcceptedUpdates = accepted;
 info.FadeHoldSamples = fadeHolds;
+info.ExternalHoldMaskProvided = externalHoldProvided;
+info.ExternalHoldSamples = nnz(externalHoldMask);
+info.ExternalHoldFraction = mean(externalHoldMask);
 info.UpdateAcceptanceRate = accepted/max(numel(x)-sps,1);
 info.FinalFrequency_Hz = frequencyState*sampleRateHz/(2*pi);
 info.FrequencyMin_Hz = min(frequencyTrace)*sampleRateHz/(2*pi);
@@ -208,6 +213,21 @@ function value = localNumber(s, name, fallback)
     end
 end
 
+function [mask,provided] = localExternalHoldMask(options,n)
+    provided = isstruct(options) && isfield(options,'ExternalHoldMask') && ...
+        ~isempty(options.ExternalHoldMask);
+    mask = false(n,1);
+    if ~provided
+        return;
+    end
+    raw = logical(options.ExternalHoldMask(:));
+    if numel(raw) ~= n
+        error('HelperGMSKSecondOrderPLL:ExternalHoldMaskLength', ...
+            'ExternalHoldMask has %d samples; expected %d.',numel(raw),n);
+    end
+    mask = raw;
+end
+
 function value = localLogical(s, name, fallback)
     value = fallback;
     if isstruct(s) && isfield(s,name) && ~isempty(s.(name))
@@ -230,6 +250,8 @@ function info = localEmptyInfo()
         'DetectorTauSymbols',NaN,'Locked',false, ...
         'FinalMode','off','LockTransitions',0,'Reacquisitions',0, ...
         'AcceptedUpdates',0,'FadeHoldSamples',0, ...
+        'ExternalHoldMaskProvided',false,'ExternalHoldSamples',0, ...
+        'ExternalHoldFraction',0, ...
         'UpdateAcceptanceRate',NaN,'FinalFrequency_Hz',NaN, ...
         'FrequencyMin_Hz',NaN,'FrequencyMax_Hz',NaN, ...
         'FinalPhase_deg',NaN,'MeanAbsPhaseError',NaN, ...

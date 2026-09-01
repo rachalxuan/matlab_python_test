@@ -10,6 +10,12 @@ function [yOut,state,info] = HelperTMFeedforwardBlindPhaseSearch( ...
 % a continuous (unwrapped) trajectory.  Only phase is corrected.  A local
 % RMS normalization is used for the metric, so the signal amplitude passed
 % to the downstream equalizer is not modified.
+% ReliableMetricOverridesFadeHold is an opt-in escape from a power-only
+% HOLD.  Its stricter metric gate can be specified either as the legacy
+% absolute FadeOverrideMaxMetric or, preferably, as
+% FadeOverrideMaxMetricFraction times the squared minimum constellation
+% distance.  The normalized form gives comparable meaning to the threshold
+% for 16/32QAM and APSK instead of silently reusing a 16QAM scale.
 
 if nargin < 3 || isempty(options)
     options = struct();
@@ -44,6 +50,8 @@ fadeEnterDB = localNumber(options,'FadeEnterDB',fadeThresholdDB);
 fadeExitDB = max(fadeEnterDB,localNumber(options,'FadeExitDB',fadeEnterDB+3));
 fadeEnterBlocks = max(1,round(localNumber(options,'FadeEnterBlocks',2)));
 fadeRecoverBlocks = max(1,round(localNumber(options,'FadeRecoverBlocks',4)));
+fadeOverrideRecoverBlocks = max(1,round(localNumber( ...
+    options,'FadeOverrideRecoverBlocks',16)));
 fadeArmReliableBlocks = max(1,round(localNumber(options, ...
     'FadeArmReliableBlocks',4)));
 trajectoryAlpha = min(1,max(0,localNumber( ...
@@ -62,11 +70,15 @@ preserveFrequencyOnReacquire = localLogical(options, ...
     'PreserveFrequencyOnReacquire',false);
 reacquirePhaseAlpha = min(1,max(0,localNumber(options, ...
     'ReacquirePhaseAlpha',1)));
+reacquireConsistency = min(pi/4,max(deg2rad(1),localNumber(options, ...
+    'ReacquireConsistencyRad',deg2rad(12))));
 maxFrequency = max(0,localNumber(options, ...
     'MaxFrequencyRadPerSymbol',0.01));
 debugEnabled = localLogical(options,'Debug',false);
 debugEventCount = max(0,round(localNumber(options,'DebugEventCount',0)));
 preserveInitialPhase = localLogical(options,'PreserveInitialPhase',false);
+reliableMetricOverridesFadeHold = localLogical(options, ...
+    'ReliableMetricOverridesFadeHold',false);
 
 minDistance = localMinimumDistance(ref);
 maxMetric = localNumber(options,'MaxMetric',NaN);
@@ -85,6 +97,19 @@ end
 xMetric = x./sqrt(max(localPower,eps))*sqrt(mean(abs(ref).^2));
 
 centers = unique([1:hopSymbols:numel(x),numel(x)]).';
+[externalHoldMask,externalHoldProvided] = ...
+    localExternalHoldMask(options,numel(x));
+if externalHoldProvided
+    % The phase metric is computed over a centred window.  Dilate the
+    % receiver-wide HOLD mask by the same window before sampling it at BPS
+    % block centres; otherwise a block straddling a fade edge could still
+    % update the phase state from partly unobservable data.
+    externalHoldWindow = conv(double(externalHoldMask), ...
+        ones(windowSymbols,1),'same') > 0;
+    externalHoldAtCenters = externalHoldWindow(centers);
+else
+    externalHoldAtCenters = false(size(centers));
+end
 phaseStep = (pi/2)/numTestPhases;
 testPhases = -pi/4 + (0:numTestPhases-1)*phaseStep;
 cost = zeros(numel(centers),numTestPhases);
@@ -130,6 +155,30 @@ powerRatioAtCenters = powerAtCenters/(referencePower+eps);
 powerDBAtCenters = 10*log10(max(powerRatioAtCenters,eps));
 metricReliable = isfinite(bestMetric) & bestMetric <= maxMetric & ...
     confidence >= minConfidence;
+fadeOverrideMaxMetric = localNumber(options,'FadeOverrideMaxMetric',NaN);
+fadeOverrideMetricFraction = localNumber( ...
+    options,'FadeOverrideMaxMetricFraction',0.05);
+if ~isfinite(fadeOverrideMetricFraction) || ...
+        fadeOverrideMetricFraction <= 0
+    fadeOverrideMetricFraction = 0.05;
+end
+if ~isfinite(fadeOverrideMaxMetric) || fadeOverrideMaxMetric <= 0
+    fadeOverrideMaxMetric = ...
+        fadeOverrideMetricFraction*minDistance^2;
+else
+    fadeOverrideMetricFraction = ...
+        fadeOverrideMaxMetric/max(minDistance^2,eps);
+end
+fadeOverrideMaxMetric = min(maxMetric,fadeOverrideMaxMetric);
+fadeOverrideMinConfidence = localNumber( ...
+    options,'FadeOverrideMinConfidence',0.20);
+if ~isfinite(fadeOverrideMinConfidence) || fadeOverrideMinConfidence < 0
+    fadeOverrideMinConfidence = 0.20;
+end
+fadeOverrideMinConfidence = max(minConfidence,fadeOverrideMinConfidence);
+fadeOverrideReliable = metricReliable & ...
+    bestMetric <= fadeOverrideMaxMetric & ...
+    confidence >= fadeOverrideMinConfidence;
 
 % A low-power interval must not be treated as a sequence of independent
 % phase observations.  Use hysteresis so a fade enters HOLD only after a
@@ -154,33 +203,45 @@ if enableFadeHold
             % acquisition therefore uses the same reliable-above-exit
             % condition as recovery from an established fade.
             fadeHold(k) = true;
+            requiredArmBlocks = fadeArmReliableBlocks;
             if metricReliable(k) && powerDBAtCenters(k) >= fadeExitDB
                 armCount = armCount+1;
+            elseif reliableMetricOverridesFadeHold && ...
+                    fadeOverrideReliable(k)
+                armCount = armCount+1;
+                requiredArmBlocks = fadeOverrideRecoverBlocks;
             else
                 armCount = 0;
             end
-            if armCount >= fadeArmReliableBlocks
+            if armCount >= requiredArmBlocks
                 fadeArmed = true;
                 enterCount = 0;
-                firstAcquired = max(1,k-fadeArmReliableBlocks+1);
+                firstAcquired = max(1,k-requiredArmBlocks+1);
                 fadeHold(firstAcquired:k) = false;
             end
             continue;
         end
         if inFade
+            requiredRecoverBlocks = fadeRecoverBlocks;
             if metricReliable(k) && powerDBAtCenters(k) >= fadeExitDB
                 recoverCount = recoverCount+1;
+            elseif reliableMetricOverridesFadeHold && ...
+                    fadeOverrideReliable(k)
+                recoverCount = recoverCount+1;
+                requiredRecoverBlocks = fadeOverrideRecoverBlocks;
             else
                 recoverCount = 0;
             end
-            if recoverCount >= fadeRecoverBlocks
+            if recoverCount >= requiredRecoverBlocks
                 inFade = false;
                 recoverCount = 0;
                 enterCount = 0;
                 fadeRecoveries = fadeRecoveries+1;
             end
         else
-            if powerDBAtCenters(k) <= fadeEnterDB
+            if powerDBAtCenters(k) <= fadeEnterDB && ...
+                    ~(reliableMetricOverridesFadeHold && ...
+                    fadeOverrideReliable(k))
                 enterCount = enterCount+1;
             else
                 enterCount = 0;
@@ -197,6 +258,24 @@ if enableFadeHold
     end
 else
     fadeHold = powerDBAtCenters < fadeThresholdDB;
+    if reliableMetricOverridesFadeHold
+        fadeHold = fadeHold & ~fadeOverrideReliable;
+    end
+end
+% A shared pre-normalization reliability detector must dominate each
+% stage's local detector.  This keeps the phase search, magnitude tracker,
+% and equalizer frozen over the same physical fade instead of allowing one
+% adaptive state to move while the others are held.
+if reliableMetricOverridesFadeHold
+    % The receiver-wide power detector is conservative: low relative power
+    % is not the same as an unobservable phase.  Let a BPS block bypass that
+    % external HOLD only when its own constellation metric remains valid.
+    % In a real noise-dominated fade the strict override gate normally
+    % rejects the block and the legacy HOLD protection remains active.
+    fadeHold = fadeHold | (externalHoldAtCenters & ...
+        ~fadeOverrideReliable);
+else
+    fadeHold = fadeHold | externalHoldAtCenters;
 end
 reliable = metricReliable & ~fadeHold;
 
@@ -235,6 +314,7 @@ phaseState = measuredPhase(firstReliable);
 phaseAtCenters(1:firstReliable) = phaseState;
 frequencyAtCenters(1:firstReliable) = frequencyState;
 largeInnovationCount = 0;
+reacquireInnovation = NaN;
 reacquisitions = 0;
 for k = firstReliable+1:numel(centers)
     deltaSymbols = max(1,centers(k)-centers(k-1));
@@ -257,25 +337,37 @@ for k = firstReliable+1:numel(centers)
             % its magnitude is near zero.  Pure HOLD would reject the new
             % stable phase forever.  Require several consistent reliable
             % BPS observations, then reacquire that continuous branch.
-            largeInnovationCount = largeInnovationCount+1;
-            if largeInnovationCount >= reacquireBlocks
-                % Keep the old unwrapped branch and carrier slope.  The old
-                % implementation jumped directly to the modulo-pi/2
-                % observation and reset frequency to zero.  Under a
-                % persistent Doppler this made the next prediction lag and
-                % allowed a false adjacent-quadrant reacquisition.  Slew
-                % toward the observation while preserving the frequency
-                % state instead.
-                phaseState = prediction+reacquirePhaseAlpha*innovation;
-                if preserveFrequencyOnReacquire
-                    measuredFrequency = ...
-                        (phaseState-previousPhase)/deltaSymbols;
-                    frequencyState = (1-frequencyAlpha)*frequencyState + ...
-                        frequencyAlpha*measuredFrequency;
+            % Do not count unrelated large innovations as evidence of a
+            % new trajectory.  Immediately after a deep fade the BPS
+            % minimum can hop around while power is recovering.  Require a
+            % short, mutually consistent run before changing the state.
+            if largeInnovationCount == 0 || ...
+                    abs(innovation-reacquireInnovation) <= ...
+                    reacquireConsistency
+                largeInnovationCount = largeInnovationCount+1;
+                if largeInnovationCount == 1
+                    reacquireInnovation = innovation;
                 else
+                    reacquireInnovation = reacquireInnovation + ...
+                        (innovation-reacquireInnovation)/largeInnovationCount;
+                end
+            else
+                largeInnovationCount = 1;
+                reacquireInnovation = innovation;
+            end
+            if largeInnovationCount >= reacquireBlocks
+                % Re-anchor phase to the consensus observation but keep the
+                % old carrier slope.  A phase discontinuity is not a
+                % frequency measurement: feeding this jump into the
+                % frequency integrator drove it to its clamp and produced
+                % a second, artificial loss of lock after the fade.
+                phaseState = prediction + ...
+                    reacquirePhaseAlpha*reacquireInnovation;
+                if ~preserveFrequencyOnReacquire
                     frequencyState = 0;
                 end
                 largeInnovationCount = 0;
+                reacquireInnovation = NaN;
                 reacquisitions = reacquisitions+1;
                 trackingAction(k) = 3;
             else
@@ -285,6 +377,7 @@ for k = firstReliable+1:numel(centers)
         end
     else
         largeInnovationCount = 0;
+        reacquireInnovation = NaN;
         phaseState = prediction;
         trackingAction(k) = -1;
     end
@@ -318,12 +411,15 @@ info.NumTestPhases = numTestPhases;
 info.WindowSymbols = windowSymbols;
 info.HopSymbols = hopSymbols;
 info.MetricPowerWindowSymbols = metricPowerWindow;
+info.ReferenceMinimumDistance = minDistance;
 info.MaxMetric = maxMetric;
 info.MinConfidence = minConfidence;
 info.ReliableBlocks = nnz(reliable);
 info.TotalBlocks = numel(reliable);
 info.ReliableFraction = mean(reliable);
 info.MedianBestMetric = median(bestMetric);
+info.MedianBestMetricNormalized = ...
+    info.MedianBestMetric/max(minDistance^2,eps);
 info.MedianConfidence = median(confidence);
 info.AnchorPhase_deg = rad2deg(anchor);
 info.PreservedInitialPhase = preserveInitialPhase;
@@ -339,6 +435,17 @@ info.FadeHoldBlocks = nnz(fadeHold);
 info.FadeEvents = fadeEvents;
 info.FadeRecoveries = fadeRecoveries;
 info.PreserveFrequencyOnReacquire = preserveFrequencyOnReacquire;
+info.ReacquireConsistency_deg = rad2deg(reacquireConsistency);
+info.ExternalHoldMaskProvided = externalHoldProvided;
+info.ExternalHoldBlocks = nnz(externalHoldAtCenters);
+info.ExternalHoldFraction = mean(externalHoldAtCenters);
+info.ReliableMetricOverridesFadeHold = ...
+    reliableMetricOverridesFadeHold;
+info.FadeOverrideMaxMetric = fadeOverrideMaxMetric;
+info.FadeOverrideMaxMetricFraction = fadeOverrideMetricFraction;
+info.FadeOverrideMinConfidence = fadeOverrideMinConfidence;
+info.FadeOverrideRecoverBlocks = fadeOverrideRecoverBlocks;
+info.FadeOverrideReliableBlocks = nnz(fadeOverrideReliable);
 
 state = struct('FinalPhaseRad',phaseState, ...
     'FinalFrequencyRadPerSymbol',frequencyState, ...
@@ -351,6 +458,7 @@ state = struct('FinalPhaseRad',phaseState, ...
     'TrackingAction',trackingAction, ...
     'PowerRatio',powerRatioAtCenters, ...
     'FadeHold',fadeHold, ...
+    'ExternalHold',externalHoldAtCenters, ...
     'Centers',centers,'Reliable',reliable);
 
 if debugEnabled
@@ -359,17 +467,24 @@ if debugEnabled
         numTestPhases,windowSymbols,hopSymbols);
     fprintf('  reliable blocks  : %d/%d = %.2f%%\n', ...
         info.ReliableBlocks,info.TotalBlocks,100*info.ReliableFraction);
-    fprintf('  metric/confidence: median %.5g / %.4f\n', ...
-        info.MedianBestMetric,info.MedianConfidence);
+    fprintf(['  metric/confidence: median %.5g (%.5g dmin^2) ', ...
+        '/ %.4f\n'],info.MedianBestMetric, ...
+        info.MedianBestMetricNormalized,info.MedianConfidence);
     fprintf(['  init/final freq  : %+.6g / %+.6g rad/sym ', ...
         '(init=%+.3f Hz/Rs)\n'], ...
         info.InitialFrequencyRadPerSymbol, ...
         info.FinalFrequencyRadPerSymbol, ...
         info.InitialFrequency_HzPerSymbolRate);
     fprintf(['  HOLD/reacquire   : fadeBlocks=%d events=%d ', ...
-        'recoveries=%d reacquisitions=%d preserveFreq=%d\n'], ...
+        'recoveries=%d reacquisitions=%d preserveFreq=%d consistency=%.1f deg\n'], ...
         info.FadeHoldBlocks,info.FadeEvents,info.FadeRecoveries, ...
-        info.Reacquisitions,info.PreserveFrequencyOnReacquire);
+        info.Reacquisitions,info.PreserveFrequencyOnReacquire, ...
+        info.ReacquireConsistency_deg);
+    fprintf('  shared HOLD     : provided=%d blocks=%d (%.2f%%)\n', ...
+        info.ExternalHoldMaskProvided,info.ExternalHoldBlocks, ...
+        100*info.ExternalHoldFraction);
+    fprintf('  metric override : %d\n', ...
+        info.ReliableMetricOverridesFadeHold);
     fprintf('  anchor/final     : %+.3f / %+.3f deg, preserved=%d\n\n', ...
         info.AnchorPhase_deg,info.FinalCorrection_deg, ...
         info.PreservedInitialPhase);
@@ -393,6 +508,21 @@ if debugEnabled
         fprintf('\n');
     end
 end
+end
+
+function [mask,provided] = localExternalHoldMask(options,n)
+provided = isstruct(options) && isfield(options,'ExternalHoldMask') && ...
+    ~isempty(options.ExternalHoldMask);
+mask = false(n,1);
+if ~provided
+    return;
+end
+raw = logical(options.ExternalHoldMask(:));
+if numel(raw) ~= n
+    error('HelperTMFeedforwardBlindPhaseSearch:ExternalHoldMaskLength', ...
+        'ExternalHoldMask has %d symbols; expected %d.',numel(raw),n);
+end
+mask = raw;
 end
 
 function d = localMinimumDistance(ref)
@@ -441,9 +571,11 @@ end
 function info = localEmptyInfo()
 info = struct('Applied',false,'Reason','', ...
     'NumTestPhases',NaN,'WindowSymbols',NaN,'HopSymbols',NaN, ...
-    'MetricPowerWindowSymbols',NaN,'MaxMetric',NaN, ...
+    'MetricPowerWindowSymbols',NaN,'ReferenceMinimumDistance',NaN, ...
+    'MaxMetric',NaN, ...
     'MinConfidence',NaN,'ReliableBlocks',0,'TotalBlocks',0, ...
     'ReliableFraction',NaN,'MedianBestMetric',NaN, ...
+    'MedianBestMetricNormalized',NaN, ...
     'MedianConfidence',NaN,'AnchorPhase_deg',NaN, ...
     'PreservedInitialPhase',false, ...
     'FinalCorrection_deg',NaN,'CorrectionRMS_deg',NaN, ...
@@ -451,5 +583,13 @@ info = struct('Applied',false,'Reason','', ...
     'InitialFrequencyRadPerSymbol',NaN, ...
     'InitialFrequency_HzPerSymbolRate',NaN, ...
     'FadeHoldBlocks',0,'FadeEvents',0,'FadeRecoveries',0, ...
-    'PreserveFrequencyOnReacquire',false);
+    'PreserveFrequencyOnReacquire',false, ...
+    'ReacquireConsistency_deg',NaN, ...
+    'ExternalHoldMaskProvided',false,'ExternalHoldBlocks',0, ...
+    'ExternalHoldFraction',0, ...
+    'ReliableMetricOverridesFadeHold',false, ...
+    'FadeOverrideMaxMetric',NaN, ...
+    'FadeOverrideMaxMetricFraction',NaN, ...
+    'FadeOverrideMinConfidence',NaN, ...
+    'FadeOverrideRecoverBlocks',NaN,'FadeOverrideReliableBlocks',0);
 end

@@ -110,6 +110,37 @@ if localLogical(options,'enableHChannel',false)
     if ~localCarrierFieldExplicit(options,'EnableBlindPhaseSearch')
         carrierOpt.EnableBlindPhaseSearch = true;
     end
+    if ~isfield(carrierOpt,'BlindPhaseSearch') || ...
+            ~isstruct(carrierOpt.BlindPhaseSearch)
+        carrierOpt.BlindPhaseSearch = struct();
+    end
+    % The APSK BPS shares the QAM phase-search engine, but its metric gate is
+    % scaled by the APSK minimum distance.  These H-only defaults leave the
+    % validated standalone/NoH receiver unchanged.
+    if ~isfield(carrierOpt.BlindPhaseSearch,'EnableFadeHold')
+        carrierOpt.BlindPhaseSearch.EnableFadeHold = true;
+    end
+    if ~isfield(carrierOpt.BlindPhaseSearch,'FadeEnterDB')
+        carrierOpt.BlindPhaseSearch.FadeEnterDB = -10;
+    end
+    if ~isfield(carrierOpt.BlindPhaseSearch,'FadeExitDB')
+        carrierOpt.BlindPhaseSearch.FadeExitDB = -7;
+    end
+    if ~isfield(carrierOpt.BlindPhaseSearch, ...
+            'ReliableMetricOverridesFadeHold')
+        carrierOpt.BlindPhaseSearch.ReliableMetricOverridesFadeHold = true;
+    end
+    if ~isfield(carrierOpt.BlindPhaseSearch,'FadeOverrideMaxMetric') && ...
+            ~isfield(carrierOpt.BlindPhaseSearch, ...
+            'FadeOverrideMaxMetricFraction')
+        carrierOpt.BlindPhaseSearch.FadeOverrideMaxMetricFraction = 0.05;
+    end
+    if ~isfield(carrierOpt.BlindPhaseSearch,'FadeOverrideMinConfidence')
+        carrierOpt.BlindPhaseSearch.FadeOverrideMinConfidence = 0.20;
+    end
+    if ~isfield(carrierOpt.BlindPhaseSearch,'FadeOverrideRecoverBlocks')
+        carrierOpt.BlindPhaseSearch.FadeOverrideRecoverBlocks = 16;
+    end
     if ~localCarrierFieldExplicit(options,'EnableDDPhaseTracker')
         carrierOpt.EnableDDPhaseTracker = false;
     end
@@ -168,6 +199,28 @@ if sharedHoldProvided
     carrierOpt.RingNormalizer.MaxInverseGainDB = min( ...
         localNumber(carrierOpt.RingNormalizer,'MaxInverseGainDB', ...
         sharedMaxInverseGainDB),sharedMaxInverseGainDB);
+    if ~isfield(carrierOpt,'BlindPhaseSearch') || ...
+            ~isstruct(carrierOpt.BlindPhaseSearch)
+        carrierOpt.BlindPhaseSearch = struct();
+    end
+    if isfield(carrierOpt.BlindPhaseSearch,'ExternalHoldMask') && ...
+            ~isempty(carrierOpt.BlindPhaseSearch.ExternalHoldMask)
+        existingBPSHold = logical( ...
+            carrierOpt.BlindPhaseSearch.ExternalHoldMask(:));
+        if numel(existingBPSHold) ~= numel(sharedHoldMask)
+            error('HelperTMAPSKPilotlessFrontEnd:BPSHoldMaskLength', ...
+                ['BlindPhaseSearch.ExternalHoldMask has %d symbols; ', ...
+                 'expected %d.'],numel(existingBPSHold),numel(sharedHoldMask));
+        end
+        carrierOpt.BlindPhaseSearch.ExternalHoldMask = ...
+            existingBPSHold | sharedHoldMask;
+    else
+        carrierOpt.BlindPhaseSearch.ExternalHoldMask = sharedHoldMask;
+    end
+    % This top-level mask is consumed by the optional APSK DD carrier loop.
+    % BPS, DD, ring normalization and both scalar gain stages now observe the
+    % same physical fade state.
+    carrierOpt.ExternalHoldMask = sharedHoldMask;
 end
 if isfield(options,'carrierCaptureRangeHz') && ...
         ~isempty(options.carrierCaptureRangeHz)
@@ -209,7 +262,26 @@ if enableGain
         gainOpt.TrackPhase = false;
     end
     if ~isfield(gainOpt,'MagnitudeEstimationMode')
-        gainOpt.MagnitudeEstimationMode = 'power';
+        if sharedHoldProvided
+            % In the H-channel path the preceding APSK RDE/BPS stages can
+            % leave a time-varying scalar magnitude at this boundary.  A
+            % frozen power estimate then keeps the whole deep-fade interval
+            % at one stale scale and moves only the radial APSK bit-planes
+            % across their thresholds.  Ring-directed magnitude tracking
+            % removes data-ring power without borrowing transmitted bits.
+            gainOpt.MagnitudeEstimationMode = 'ring-directed';
+        else
+            % Preserve the established static/no-H receiver default.
+            gainOpt.MagnitudeEstimationMode = 'power';
+        end
+    end
+    if ~isfield(gainOpt,'TrackPowerMagnitudeDuringFade')
+        % HOLD protects phase/DD state.  The pilotless magnitude observer is
+        % still valid in a noiseless time-varying fade and must keep moving;
+        % otherwise recovery cannot occur because the radial thresholds see
+        % the stale pre-fade scale.  The inverse-gain cap remains the safety
+        % boundary once additive noise is introduced.
+        gainOpt.TrackPowerMagnitudeDuringFade = sharedHoldProvided;
     end
     if ~isfield(gainOpt,'UpdatePowerReference')
         gainOpt.UpdatePowerReference = false;

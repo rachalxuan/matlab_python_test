@@ -139,6 +139,12 @@ function opts = localDefaults(thisDir)
     opts.includeUncoded = true;
     opts.includeRS = true;
     opts.includeConvolutional = true;
+    % Opt-in only. The ordinary full-system matrix keeps its previous case
+    % list unless the caller explicitly requests concatenated coding.
+    opts.includeConcatenated = false;
+    opts.rsInterleavingDepths = 1;
+    opts.concatenatedConvRates = {'1/2'};
+    opts.concatenatedRSInterleavingDepths = 8;
     opts.includeLDPC = true;
     opts.includeTurbo = true;
     opts.includeTPC = true;

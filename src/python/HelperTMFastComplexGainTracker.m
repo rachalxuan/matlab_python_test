@@ -46,6 +46,8 @@ function [y, info] = localDecisionDirectedPhase(x, refConst, options, info)
 % can enter on QAM/APSK.  Updates are accepted only well inside the nearest
 % neighbour boundary; rejected symbols use holdover and cannot move the loop.
 n = numel(x);
+[externalHoldMask,externalHoldProvided] = ...
+    localExternalHoldMask(options,n);
 mu = localNumber(options, 'FastPhaseStep', 0.08);
 if ~isfinite(mu) || mu <= 0, mu = 0.08; end
 mu = min(mu, 0.5);
@@ -72,7 +74,7 @@ for k = 1:n
     phaseState = phaseState + frequencyState;
     z = x(k)*exp(-1j*phaseState);
     [d, distance] = localNearest(z, refConst);
-    if isfinite(distance) && distance <= gate && ...
+    if ~externalHoldMask(k) && isfinite(distance) && distance <= gate && ...
             isfinite(real(z)) && isfinite(imag(z)) && abs(z) > 1e-10
         phaseError = angle(z*conj(d));
         if isfinite(phaseError)
@@ -102,6 +104,9 @@ info.DDMSE = localFiniteMean(errors);
 info.GainTrace = gainTrace;
 info.GainMin_dB = 0;
 info.GainMax_dB = 0;
+info.ExternalHoldMaskProvided = externalHoldProvided;
+info.ExternalHoldSamples = nnz(externalHoldMask);
+info.ExternalHoldFraction = mean(externalHoldMask);
 end
 end
 
@@ -360,6 +365,8 @@ if localIsConstantEnvelope(refConst)
 end
 
 n = numel(x);
+[externalHoldMask,externalHoldProvided] = ...
+    localExternalHoldMask(options,n);
 mu = localNumber(options, 'FastComplexGainStep', 0.05);
 if ~isfinite(mu) || mu <= 0, mu = 0.05; end
 mu = min(mu, 0.5);
@@ -383,7 +390,8 @@ for k = 1:n
     z = g*x(k);
     y(k) = z;
     [d, distance] = localNearest(z, refConst);
-    if isfinite(distance) && distance <= gate && isfinite(x(k))
+    if ~externalHoldMask(k) && isfinite(distance) && ...
+            distance <= gate && isfinite(x(k))
         e = d-z;
         denom = abs(x(k)).^2 + 1e-8;
         gCandidate = g + mu*conj(x(k))*e/denom;
@@ -411,10 +419,15 @@ info.DDMSE = localFiniteMean(errors);
 info.GainTrace = gainTrace;
 info.GainMin_dB = 20*log10(max(min(abs(gainTrace)),eps));
 info.GainMax_dB = 20*log10(max(max(abs(gainTrace)),eps));
+info.ExternalHoldMaskProvided = externalHoldProvided;
+info.ExternalHoldSamples = nnz(externalHoldMask);
+info.ExternalHoldFraction = mean(externalHoldMask);
 end
 
 function [y, info] = localConstantEnvelopeGain(x, refConst, options, info)
 n = numel(x);
+[externalHoldMask,externalHoldProvided] = ...
+    localExternalHoldMask(options,n);
 m = localConstellationOrder(refConst);
 phaseMu = localNumber(options,'FastComplexGainPhaseStep',0.08);
 if ~isfinite(phaseMu) || phaseMu <= 0, phaseMu = 0.08; end
@@ -440,13 +453,14 @@ phaseErrors = zeros(n,1);
 gainTrace = zeros(n,1);
 for k = 1:n
     p = abs(x(k)).^2;
-    if isfinite(p)
+    if isfinite(p) && ~externalHoldMask(k)
         powerState = (1-powerMu)*powerState + powerMu*max(p,0);
     end
     magnitude = sqrt(targetPower/max(powerState,1e-12));
     magnitude = min(max(magnitude,minGain),maxGain);
     z = magnitude*x(k)*exp(-1j*phaseState);
-    if isfinite(real(z)) && isfinite(imag(z)) && abs(z) > 1e-8
+    if ~externalHoldMask(k) && isfinite(real(z)) && ...
+            isfinite(imag(z)) && abs(z) > 1e-8
         phaseError = angle((z^m)*conj(phaseTarget))/m;
         if isfinite(phaseError)
             phaseState = phaseState + phaseMu*phaseError;
@@ -472,6 +486,9 @@ info.DDMSE = localFiniteMean(phaseErrors.^2);
 info.GainTrace = gainTrace;
 info.GainMin_dB = 20*log10(max(min(abs(gainTrace)),eps));
 info.GainMax_dB = 20*log10(max(max(abs(gainTrace)),eps));
+info.ExternalHoldMaskProvided = externalHoldProvided;
+info.ExternalHoldSamples = nnz(externalHoldMask);
+info.ExternalHoldFraction = mean(externalHoldMask);
 end
 
 function tf = localIsConstantEnvelope(refConst)

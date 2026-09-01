@@ -1,0 +1,2 @@
+Altitude Latitude Longitude
+35788.121681       0.000              -101.300

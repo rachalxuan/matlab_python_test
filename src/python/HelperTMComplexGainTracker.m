@@ -38,7 +38,11 @@ function [yOut,state,info] = HelperTMComplexGainTracker(x,referenceConstellation
 %   NormalizeInputPower        false
 %   TrackMagnitude             true
 %   TrackPhase                 true
-%   MagnitudeEstimationMode    'decision' ('power' uses filtered envelope)
+%   MagnitudeEstimationMode    'decision' ('power' uses filtered envelope;
+%                              'ring-directed' tracks a continuous scale)
+%   RingMagnitudeStep          1 (ring-directed magnitude update fraction)
+%   RingMagnitudeMaxStepDB     0.5 dB/symbol continuity limit
+%   TrackPowerMagnitudeDuringFade false
 %   UpdatePowerReference       true
 %   ExternalHoldMask          [] (shared receiver reliability mask)
 %   Debug                      false
@@ -92,11 +96,17 @@ trackMagnitude = localLogical(options,'TrackMagnitude',true);
 trackPhase = localLogical(options,'TrackPhase',true);
 magnitudeMode = lower(strtrim(string(localText( ...
     options,'MagnitudeEstimationMode','decision'))));
-if ~any(magnitudeMode == ["decision","power"])
+if ~any(magnitudeMode == ["decision","power","ring-directed"])
     error('HelperTMComplexGainTracker:InvalidMagnitudeMode', ...
-        'MagnitudeEstimationMode must be decision or power.');
+        ['MagnitudeEstimationMode must be decision, power, ', ...
+         'or ring-directed.']);
 end
+ringMagnitudeStep = localNumber(options,'RingMagnitudeStep',1);
+ringMagnitudeMaxStepDB = localNumber( ...
+    options,'RingMagnitudeMaxStepDB',0.5);
 updatePowerReference = localLogical(options,'UpdatePowerReference',true);
+trackPowerMagnitudeDuringFade = localLogical(options, ...
+    'TrackPowerMagnitudeDuringFade',false);
 debugEnabled = localLogical(options,'Debug',false);
 [externalHoldMask,externalHoldProvided] = ...
     localExternalHoldMask(options,numel(x));
@@ -113,6 +123,17 @@ if fadeExitDB <= fadeEnterDB
     error('HelperTMComplexGainTracker:InvalidFadeHysteresis', ...
         'FadeExitDB must be greater than FadeEnterDB.');
 end
+if ~isscalar(ringMagnitudeStep) || ~isfinite(ringMagnitudeStep) || ...
+        ringMagnitudeStep <= 0 || ringMagnitudeStep > 1
+    error('HelperTMComplexGainTracker:InvalidRingMagnitudeStep', ...
+        'RingMagnitudeStep must be in (0,1].');
+end
+if ~isscalar(ringMagnitudeMaxStepDB) || ...
+        ~isfinite(ringMagnitudeMaxStepDB) || ...
+        ringMagnitudeMaxStepDB <= 0
+    error('HelperTMComplexGainTracker:InvalidRingMagnitudeSlew', ...
+        'RingMagnitudeMaxStepDB must be a positive finite scalar.');
+end
 
 inputPower = mean(abs(x).^2)+eps;
 if normalizeInput
@@ -121,9 +142,29 @@ else
     xWork = x;
 end
 
+% A short power IIR sees |h*d|^2, not |h|^2.  For multi-ring QAM, reducing
+% its time constant eventually makes the gain estimate follow the data
+% symbol radius.  The opt-in ring-directed mode removes that nuisance by
+% using the constellation radii together with channel-scale continuity.
+referenceRadii = unique(round(abs(ref)*1e12)/1e12);
+referenceRadii = referenceRadii(referenceRadii > eps & ...
+    isfinite(referenceRadii));
+if magnitudeMode == "ring-directed" && isempty(referenceRadii)
+    error('HelperTMComplexGainTracker:InvalidRingReference', ...
+        'Reference constellation does not contain a usable radius.');
+end
+
 initCount = min(numel(xWork),max(32,round(referenceTau/8)));
 initialPower = median(abs(xWork(1:initCount)).^2)+eps;
-initialMagnitude = max(eps,localNumber(options,'InitialGainMagnitude',1));
+defaultInitialMagnitude = 1;
+if magnitudeMode == "ring-directed"
+    % Global normalization does not make the beginning of a time-varying
+    % record unity gain.  Seed from a local acquisition block so the first
+    % ring choice is not forced to the wrong scale basin.
+    defaultInitialMagnitude = sqrt(initialPower/refPower);
+end
+initialMagnitude = max(eps,localNumber( ...
+    options,'InitialGainMagnitude',defaultInitialMagnitude));
 
 hHat = complex(initialMagnitude,0);
 powerIIR = initialPower;
@@ -175,19 +216,49 @@ for k = 1:numel(xWork)
     % ring decision boundaries.  This mode is intentionally opt-in because
     % the historical DD estimate is still preferable for multipath or an
     % unknown absolute-power reference.
-    % HOLD must freeze every adaptive coefficient owner.  Previously the
-    % power-mode branch continued replacing |hHat| inside a fade even though
-    % the DD state machine reported HOLD.  That made the inverse follow the
-    % noise floor and could apply tens of dB of meaningless gain.
-    if magnitudeMode == "power" && trackMagnitude && ~inFade
+    % The phase/DD state remains frozen in HOLD.  A receiver may optionally
+    % keep its decision-free AGC magnitude moving, however: otherwise a
+    % fading QAM constellation collapses through fixed radial thresholds
+    % even when there is no additive noise.  The inverse-gain cap is the
+    % safety boundary once the power estimate approaches a real noise floor.
+    allowPowerMagnitudeUpdate = ~inFade || ...
+        trackPowerMagnitudeDuringFade;
+    if magnitudeMode == "power" && trackMagnitude && ...
+            allowPowerMagnitudeUpdate
         powerMagnitude = sqrt(max(powerIIR,eps)/refPower);
         hHat = powerMagnitude*exp(1j*angle(hHat));
+    elseif magnitudeMode == "ring-directed" && trackMagnitude && ...
+            allowPowerMagnitudeUpdate
+        % Each reference ring gives one possible channel scale.  The true
+        % scalar H is continuous at the symbol rate, whereas selecting the
+        % wrong QAM ring produces a several-dB jump.  Choose the candidate
+        % closest to the previous scale and cap the permitted slew.  This
+        % removes data-ring power without transmitted bits or phase/DD
+        % decisions and remains usable while the phase state is in HOLD.
+        previousMagnitude = max(abs(hHat),eps);
+        scaleCandidates = abs(xWork(k))./referenceRadii;
+        candidateDistanceDB = abs(20*log10( ...
+            max(scaleCandidates,eps)/previousMagnitude));
+        [~,candidateIndex] = min(candidateDistanceDB);
+        observedMagnitude = max(scaleCandidates(candidateIndex),eps);
+        observedStepDB = 20*log10( ...
+            observedMagnitude/previousMagnitude);
+        observedStepDB = min(max(observedStepDB, ...
+            -ringMagnitudeMaxStepDB),ringMagnitudeMaxStepDB);
+        observedMagnitude = previousMagnitude*10^(observedStepDB/20);
+        trackedMagnitude = (1-ringMagnitudeStep)*previousMagnitude + ...
+            ringMagnitudeStep*observedMagnitude;
+        hHat = trackedMagnitude*exp(1j*angle(hHat));
     end
 
     % A fade exit gets a decision-free magnitude re-seed.  The phase of the
     % last reliable channel estimate is preserved.
     if wasInFade && ~inFade
-        reseedMagnitude = sqrt(max(powerIIR,eps)/refPower);
+        if magnitudeMode == "ring-directed"
+            reseedMagnitude = abs(hHat);
+        else
+            reseedMagnitude = sqrt(max(powerIIR,eps)/refPower);
+        end
         hHat = reseedMagnitude*exp(1j*angle(hHat));
     end
 
@@ -212,7 +283,7 @@ for k = 1:numel(xWork)
                 goodCount = min(goodCount+1,recoverGood);
 
                 hObservation = xWork(k)*conj(dHat)/(abs(dHat)^2+eps);
-                if magnitudeMode == "power"
+                if any(magnitudeMode == ["power","ring-directed"])
                     hObservation = abs(hHat)*exp(1j*angle(hObservation));
                 elseif ~trackMagnitude
                     hObservation = abs(hHat)*exp(1j*angle(hObservation));
@@ -266,6 +337,9 @@ info.StepSize = mu;
 info.Regularization = lambda;
 info.MaxInverseGainDB = maxInverseGainDB;
 info.MagnitudeEstimationMode = char(magnitudeMode);
+info.RingMagnitudeStep = ringMagnitudeStep;
+info.RingMagnitudeMaxStepDB = ringMagnitudeMaxStepDB;
+info.TrackPowerMagnitudeDuringFade = trackPowerMagnitudeDuringFade;
 info.UpdatePowerReference = updatePowerReference;
 info.DecisionGate = decisionGate;
 info.DecisionMarginMin = marginMin;
@@ -301,8 +375,14 @@ state = struct( ...
 
 if debugEnabled
     fprintf('\n[TM one-tap complex gain tracker]\n');
-    fprintf('  magnitude mode  : %s, update reference=%d\n', ...
-        info.MagnitudeEstimationMode,info.UpdatePowerReference);
+    fprintf(['  magnitude mode  : %s, update reference=%d, ', ...
+        'track power in fade=%d\n'], ...
+        info.MagnitudeEstimationMode,info.UpdatePowerReference, ...
+        info.TrackPowerMagnitudeDuringFade);
+    if magnitudeMode == "ring-directed"
+        fprintf('  ring step/slew  : %.3f / %.3f dB per symbol\n', ...
+            info.RingMagnitudeStep,info.RingMagnitudeMaxStepDB);
+    end
     fprintf('  applied/update  : %d, %d updates\n',info.Applied,info.CoefficientUpdates);
     fprintf('  DD accept       : %d/%d = %.2f%%, gate=%.5g margin>=%.3f\n', ...
         info.AcceptedDecisions,numel(xWork),100*info.AcceptanceRate, ...
@@ -404,7 +484,10 @@ info = struct( ...
     'InputPower',NaN,'WorkingInputPower',NaN,'OutputPower',NaN, ...
     'ReferenceMinimumDistance',NaN, ...
     'StepSize',NaN,'Regularization',NaN,'MaxInverseGainDB',NaN, ...
-    'MagnitudeEstimationMode','decision','UpdatePowerReference',true, ...
+    'MagnitudeEstimationMode','decision', ...
+    'RingMagnitudeStep',NaN,'RingMagnitudeMaxStepDB',NaN, ...
+    'TrackPowerMagnitudeDuringFade',false, ...
+    'UpdatePowerReference',true, ...
     'DecisionGate',NaN,'DecisionMarginMin',NaN, ...
     'AcceptedDecisions',0,'CoefficientUpdates',0,'AcceptanceRate',NaN, ...
     'HoldSymbols',0,'HoldFraction',NaN,'HoldEvents',0,'RecoverEvents',0, ...

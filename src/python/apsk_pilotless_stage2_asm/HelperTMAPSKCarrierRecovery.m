@@ -158,6 +158,8 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
     else
         xNorm = x;
     end
+    [externalHoldMask,externalHoldProvided] = ...
+        localExternalHoldMask(options,numel(xNorm));
 
     % ---------- Options: acquisition ----------
     acqSymbols = max(32, round(localNumber(options,'AcquisitionSymbols',4096)));
@@ -569,6 +571,9 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
             'CollectTrace',debugEnabled, ...
             'Debug',debugEnabled, ...
             'DebugLabel',[char(modulation) ' APSK DD']);
+        if externalHoldProvided
+            commonOpt.ExternalHoldMask = externalHoldMask;
+        end
         [yOut,commonLoopState,commonLoopInfo] = ...
             HelperTMSecondOrderCarrierLoop(xForDD,detector,commonOpt);
         accepted = commonLoopInfo.AcceptedMask;
@@ -612,12 +617,12 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
         else
             inPowerFade = false;
         end
-        fadeMask(n) = inPowerFade;
+        fadeMask(n) = inPowerFade || externalHoldMask(n);
 
         reliableDecision = d1 <= decisionGate && ...
             margin >= decisionMarginMin && ...
             abs(phErr) <= maxPhaseError && ...
-            ~inPowerFade;
+            ~inPowerFade && ~externalHoldMask(n);
 
         if ~enableDDPhaseTracker
             % In the BPS-only architecture the feed-forward stage owns the
@@ -645,7 +650,8 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
                     badCount = badCount + 1;
                     goodCount = 0;
                     phaseState = phaseState + freqState;
-                    if badCount >= holdEnterBad || inPowerFade
+                    if badCount >= holdEnterBad || inPowerFade || ...
+                            externalHoldMask(n)
                         mode = "HOLD";
                         holdEvents = holdEvents + 1;
                     end
@@ -757,6 +763,9 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
     info.RecoverEvents = recoverEvents;
     info.FadeSymbols = nnz(fadeMask);
     info.FadeFraction = mean(fadeMask);
+    info.ExternalHoldMaskProvided = externalHoldProvided;
+    info.ExternalHoldSymbols = nnz(externalHoldMask);
+    info.ExternalHoldFraction = mean(externalHoldMask);
     info.PhaseErrorRMS_deg = rad2deg(phaseErrRMS);
     info.MeanAbsPhaseError_deg = rad2deg(meanAbsPhaseErr);
     info.MeanDecisionDistance = meanDist;
@@ -1111,6 +1120,21 @@ function value = localLogical(s,name,defaultValue)
     value = any(text == ["true","1","yes","on"]);
 end
 
+function [mask,provided] = localExternalHoldMask(options,n)
+    provided = isstruct(options) && isfield(options,'ExternalHoldMask') && ...
+        ~isempty(options.ExternalHoldMask);
+    mask = false(n,1);
+    if ~provided
+        return;
+    end
+    raw = logical(options.ExternalHoldMask(:));
+    if numel(raw) ~= n
+        error('HelperTMAPSKCarrierRecovery:ExternalHoldMaskLength', ...
+            'ExternalHoldMask has %d symbols; expected %d.',numel(raw),n);
+    end
+    mask = raw;
+end
+
 function value = localInfoNumber(s,name,defaultValue)
     value = defaultValue;
     if isstruct(s) && isfield(s,name) && ~isempty(s.(name))
@@ -1196,6 +1220,9 @@ function info = localEmptyInfo()
         'DDCycleSlipRejects',0, ...
         'FadeSymbols',0, ...
         'FadeFraction',0, ...
+        'ExternalHoldMaskProvided',false, ...
+        'ExternalHoldSymbols',0, ...
+        'ExternalHoldFraction',0, ...
         'PhaseErrorRMS_deg',NaN, ...
         'MeanAbsPhaseError_deg',NaN, ...
         'MeanDecisionDistance',NaN, ...

@@ -36,6 +36,7 @@ function [y,state,info] = HelperTMSecondOrderCarrierLoop(x,phaseDetector,options
 %   FadeEnterDB                = -10
 %   FadeExitDB                 = -6
 %   PowerReference             = mean(abs(X).^2)
+%   ExternalHoldMask           = false(size(X))
 %   ResidualPhaseLimitRad      = inf
 %   CollectTrace               = false
 %   Debug                      = false
@@ -138,6 +139,8 @@ if ~isfinite(powerReference) || powerReference <= 0
 end
 pInit = min(max(16,round(fadeTau/2)),numel(x));
 powerIIR = mean(abs(x(1:pInit)).^2)+eps;
+[externalHoldMask,externalHoldProvided] = ...
+    localExternalHoldMask(options,numel(x));
 
 phaseState = localWrapPi(localNumber(options,'InitialPhaseRad',0));
 frequencyHz = localNumber(options,'InitialFrequencyHz',0);
@@ -188,10 +191,11 @@ for n = 1:numel(x)
     else
         inPowerFade = false;
     end
-    fadeMask(n) = inPowerFade;
+    combinedFade = inPowerFade || externalHoldMask(n);
+    fadeMask(n) = combinedFade;
 
     reliable = detectorReliable && isfinite(err) && ...
-        abs(err) <= maxPhaseError && ~inPowerFade;
+        abs(err) <= maxPhaseError && ~combinedFade;
     reliableMask(n) = reliable;
 
     if mode == "HOLD"
@@ -263,7 +267,7 @@ for n = 1:numel(x)
             badCount = badCount + 1;
             goodCount = 0;
             unlockCount = unlockCount + locked;
-            if badCount >= holdEnterBad || inPowerFade
+            if badCount >= holdEnterBad || combinedFade
                 mode = "HOLD";
                 locked = false;
                 holdEvents = holdEvents + 1;
@@ -327,6 +331,9 @@ info.HoldSymbols = nnz(holdMask);
 info.HoldFraction = mean(holdMask);
 info.FadeSymbols = nnz(fadeMask);
 info.FadeFraction = mean(fadeMask);
+info.ExternalHoldMaskProvided = externalHoldProvided;
+info.ExternalHoldSymbols = nnz(externalHoldMask);
+info.ExternalHoldFraction = mean(externalHoldMask);
 info.HoldEvents = holdEvents;
 info.RecoverEvents = recoverEvents;
 info.LockTransitions = lockTransitions;
@@ -428,6 +435,21 @@ else
 end
 end
 
+function [mask,provided] = localExternalHoldMask(options,n)
+provided = isstruct(options) && isfield(options,'ExternalHoldMask') && ...
+    ~isempty(options.ExternalHoldMask);
+mask = false(n,1);
+if ~provided
+    return;
+end
+raw = logical(options.ExternalHoldMask(:));
+if numel(raw) ~= n
+    error('HelperTMSecondOrderCarrierLoop:ExternalHoldMaskLength', ...
+        'ExternalHoldMask has %d symbols; expected %d.',numel(raw),n);
+end
+mask = raw;
+end
+
 function value = localText(s,name,defaultValue)
 value = defaultValue;
 if isstruct(s) && isfield(s,name) && ~isempty(s.(name))
@@ -454,6 +476,8 @@ info = struct('Applied',false,'Reason','', ...
     'AcceptedUpdates',0,'AcceptanceRate',NaN, ...
     'ReliableFraction',NaN,'HoldSymbols',0,'HoldFraction',NaN, ...
     'FadeSymbols',0,'FadeFraction',NaN,'HoldEvents',0, ...
+    'ExternalHoldMaskProvided',false,'ExternalHoldSymbols',0, ...
+    'ExternalHoldFraction',0, ...
     'RecoverEvents',0,'LockTransitions',0,'Reacquisitions',0, ...
     'CycleSlipRejects',0,'PhaseErrorRMS_deg',NaN, ...
     'MeanAbsPhaseError_deg',NaN,'FinalFrequencyHz',NaN, ...

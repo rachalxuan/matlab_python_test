@@ -15,6 +15,14 @@ function [rxBits, rxSoft, info] = ccsdsFMDemodulateWaveform(rxSig, params, fmInf
     rolloff = localGet(params, 'RolloffFactor', localGet(fmInfo, 'RolloffFactor', 0.5));
     tzzs = localGet(params, 'TZZS', localGet(fmInfo, 'TZZS', 0.715));
 
+    receiverMode = lower(string(localGetText( ...
+        params,'fmReceiverMode','matched-training')));
+    if any(receiverMode == ["matched-training","matched","differential-matched"])
+        [rxBits,rxSoft,info] = localMatchedTrainingReceiver( ...
+            rxSig,params,fmInfo,fd,fs,rolloff,tzzs);
+        return;
+    end
+
     rxSig = rxSig(:);
     interN = round(localGet(fmInfo, 'interN', fs / fd));
     nTraining = fmInfo.NTraining;
@@ -240,4 +248,136 @@ function value = localGet(s, name, defaultValue)
     else
         value = defaultValue;
     end
+end
+
+function value = localGetText(s,name,defaultValue)
+    value = defaultValue;
+    if isstruct(s) && isfield(s,name) && ~isempty(s.(name))
+        value = char(string(s.(name)));
+    end
+end
+
+function [rxBits,rxSoft,info] = localMatchedTrainingReceiver( ...
+        rxSig,params,fmInfo,fd,fs,rolloff,tzzs)
+% Differential FM discriminator followed by the matched pulse-shaping
+% filter.  The known 48-bit FM training word is used only for frame timing
+% and polarity; payload samples remain decision directed.
+    rxSig = complex(rxSig(:));
+    interN = round(localGet(fmInfo,'interN',fs/fd));
+    training = double(logical(fmInfo.training(:)))*2-1;
+    nTraining = numel(training);
+    nFrame = max(0,round(localGet(fmInfo,'NFrame',0)));
+    nPerFrame = max(1,round(localGet(fmInfo,'NPerFrame',1)));
+    minScore = localGet(params,'fmTrainingMinNormalizedCorrelation',0.65);
+    searchRadius = max(1,round(localGet(params,'fmTrainingSearchSymbols',8)));
+
+    if numel(rxSig) < 2 || interN < 1 || nTraining < 1 || nFrame < 1
+        rxBits = false(0,1);
+        rxSoft = zeros(0,1);
+        info = localMatchedTrainingInfo(nFrame);
+        return;
+    end
+
+    phaseIncrement = [0; angle(rxSig(2:end).*conj(rxSig(1:end-1)))];
+    discriminator = phaseIncrement/max(pi*abs(tzzs),eps);
+    shapingFilter = rcosine(fd,fs,'sqrt',rolloff);
+    shapingFilter = shapingFilter(:)/sum(shapingFilter);
+    matched = conv(discriminator,shapingFilter);
+
+    best = struct('Score',-inf,'Phase',1,'Start',1,'Polarity',1, ...
+        'Symbols',zeros(0,1),'Correlation',zeros(0,1));
+    trainingEnergy = sum(training.^2);
+    for phase = 1:interN
+        symbols = matched(phase:interN:end);
+        if numel(symbols) < nTraining
+            continue;
+        end
+        correlation = conv(symbols,flipud(training),'valid');
+        windowEnergy = conv(symbols.^2,ones(nTraining,1),'valid');
+        normalized = abs(correlation)./sqrt( ...
+            max(windowEnergy*trainingEnergy,eps));
+        [score,startIndex] = max(normalized);
+        if score > best.Score
+            polarity = sign(correlation(startIndex));
+            if polarity == 0, polarity = 1; end
+            best = struct('Score',score,'Phase',phase, ...
+                'Start',startIndex,'Polarity',polarity, ...
+                'Symbols',symbols,'Correlation',correlation);
+        end
+    end
+
+    outputSoft = zeros(nFrame*nPerFrame,1);
+    frameLoc = nan(nFrame,1);
+    frameScores = nan(nFrame,1);
+    accepted = false(nFrame,1);
+    framePeriod = nTraining+nPerFrame;
+    if isfinite(best.Score) && best.Score >= minScore
+        for frameIndex = 1:nFrame
+            expected = best.Start+(frameIndex-1)*framePeriod;
+            lo = max(1,expected-searchRadius);
+            hi = min(numel(best.Correlation),expected+searchRadius);
+            if hi < lo
+                continue;
+            end
+            candidate = best.Correlation(lo:hi);
+            candidateEnergy = zeros(size(candidate));
+            for q = 1:numel(candidate)
+                segment = best.Symbols(lo+q-1+(0:nTraining-1));
+                candidateEnergy(q) = sum(segment.^2);
+            end
+            candidateScore = abs(candidate)./sqrt( ...
+                max(candidateEnergy*trainingEnergy,eps));
+            [frameScore,localIndex] = max(candidateScore);
+            startIndex = lo+localIndex-1;
+            payloadStart = startIndex+nTraining;
+            payloadEnd = payloadStart+nPerFrame-1;
+            if frameScore < minScore || payloadEnd > numel(best.Symbols)
+                continue;
+            end
+            polarity = sign(best.Correlation(startIndex));
+            if polarity == 0, polarity = best.Polarity; end
+            payload = polarity*best.Symbols(payloadStart:payloadEnd);
+            outIndex = (frameIndex-1)*nPerFrame+(1:nPerFrame);
+            outputSoft(outIndex) = payload;
+            frameLoc(frameIndex) = startIndex;
+            frameScores(frameIndex) = frameScore;
+            accepted(frameIndex) = true;
+        end
+    end
+
+    outputSoft = reshape(outputSoft,[],1);
+    if any(accepted)
+        validScale = median(abs(outputSoft(outputSoft ~= 0)));
+        if ~isfinite(validScale) || validScale <= eps
+            validScale = sqrt(mean(outputSoft.^2)+eps);
+        end
+        outputSoft = 5*outputSoft/max(validScale,eps);
+        outputSoft = max(min(outputSoft,20),-20);
+    end
+    if fmInfo.padBits > 0 && numel(outputSoft) >= fmInfo.padBits
+        outputSoft = outputSoft(1:end-fmInfo.padBits);
+    end
+    rxSoft = outputSoft;
+    rxBits = rxSoft > 0;
+
+    info = localMatchedTrainingInfo(nFrame);
+    info.detectedFrames = nnz(accepted);
+    info.frameLoc = frameLoc(accepted).';
+    info.findDataLoc = info.frameLoc+nTraining;
+    info.correlation = frameScores;
+    info.gate = repmat(minScore,nFrame,1);
+    info.frameFlag = accepted;
+    info.dataBase = discriminator;
+    info.matched = matched;
+    info.receiverMode = 'matched-training';
+    info.bestNormalizedCorrelation = best.Score;
+    info.selectedSamplePhase = best.Phase;
+end
+
+function info = localMatchedTrainingInfo(nFrame)
+    info = struct('detectedFrames',0,'totalFrames',nFrame, ...
+        'frameLoc',[],'findDataLoc',[],'correlation',[], ...
+        'gate',[],'frameFlag',false(nFrame,1),'dataBase',[], ...
+        'matched',[],'receiverMode','matched-training', ...
+        'bestNormalizedCorrelation',NaN,'selectedSamplePhase',NaN);
 end
