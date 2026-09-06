@@ -32,6 +32,10 @@ end
 acquireBW = localNumber(options, 'gmskPLLAcquireLoopBandwidth', 0.020);
 trackBW = localNumber(options, 'gmskPLLTrackLoopBandwidth', 0.003);
 detectorTauSymbols = localNumber(options, 'gmskPLLDetectorTauSymbols', 16);
+normalizeDetectorInput = localLogical(options, ...
+    'gmskPLLNormalizeDetectorInput', false);
+detectorNormalizationFloorDB = localNumber(options, ...
+    'gmskPLLDetectorNormalizationFloorDB', -80);
 lockThreshold = localNumber(options, 'gmskPLLLockErrorThreshold', 0.12);
 unlockThreshold = localNumber(options, 'gmskPLLUnlockErrorThreshold', 0.30);
 lockSymbols = localNumber(options, 'gmskPLLLockSymbols', 128);
@@ -40,10 +44,14 @@ minAcquireSymbols = localNumber(options, 'gmskPLLMinAcquireSymbols', 256);
 fadeThresholdDB = localNumber(options, 'gmskPLLFadeThresholdDB', -15);
 maxFrequencyFraction = localNumber(options, ...
     'gmskPLLMaxFrequencyFraction', 0.05);
+fastTransientReacquire = localLogical(options, ...
+    'gmskPLLFastTransientReacquire', false);
 
 acquireBW = min(max(acquireBW, 1e-5), 0.20);
 trackBW = min(max(trackBW, 1e-5), acquireBW);
 detectorTauSymbols = max(0.25, detectorTauSymbols);
+detectorNormalizationFloorDB = min(max( ...
+    detectorNormalizationFloorDB, -300), 0);
 lockThreshold = min(max(lockThreshold, 1e-3), pi/2);
 unlockThreshold = min(max(unlockThreshold, lockThreshold), pi/2);
 lockSamples = max(sps, round(lockSymbols*sps));
@@ -64,6 +72,8 @@ nInit = min(numel(x), max(32*sps, 256));
 powerState = max(mean(abs(x(1:nInit)).^2), 1e-12);
 referencePower = powerState;
 fadePower = referencePower*10^(fadeThresholdDB/10);
+detectorNormalizationFloorPower = referencePower* ...
+    10^(detectorNormalizationFloorDB/10);
 [externalHoldMask,externalHoldProvided] = ...
     localExternalHoldMask(options,numel(x));
 
@@ -79,6 +89,7 @@ lockTransitions = 0;
 reacquisitions = 0;
 accepted = 0;
 fadeHolds = 0;
+detectorFloorLimitedSamples = 0;
 phaseErrors = nan(numel(x),1);
 frequencyTrace = zeros(numel(x),1);
 phaseTrace = zeros(numel(x),1);
@@ -96,7 +107,27 @@ for k = 1:numel(x)
 
     if ~inFade
         tonePhase = pi*(k-1)/sps;
-        squaredSample = z.^2;
+        detectorSample = z;
+        if normalizeDetectorInput
+            % GMSK is constant-envelope before the scalar H channel.  Use
+            % its phase, rather than its instantaneous magnitude, to drive
+            % the conjugate-line detector.  Otherwise z^2 weights a deep
+            % fade twice and the fixed detector gates silently stop phase
+            % tracking even in an exactly noiseless waveform.  The floor
+            % keeps the operation bounded if a sample is zero/non-finite;
+            % noisy operation leaves this mode disabled by default.
+            samplePower = abs(z)^2;
+            if ~isfinite(samplePower)
+                samplePower = 0;
+            end
+            if samplePower < detectorNormalizationFloorPower
+                detectorFloorLimitedSamples = ...
+                    detectorFloorLimitedSamples + 1;
+            end
+            detectorSample = z/sqrt(max( ...
+                samplePower,detectorNormalizationFloorPower));
+        end
+        squaredSample = detectorSample.^2;
         positiveObservation = squaredSample*exp(-1j*tonePhase);
         negativeObservation = squaredSample*exp(1j*tonePhase);
         positiveLineState = detectorAlpha*positiveLineState + ...
@@ -113,17 +144,26 @@ for k = 1:numel(x)
             detectorState = positiveLineState+alignedNegative;
             if abs(detectorState) > 1e-9
                 phaseError = 0.5*angle(detectorState);
-                if locked
+                % A deep complex fade can create a short, physically real
+                % carrier-phase excursion without keeping the detector bad
+                % long enough to declare the whole loop unlocked.  Use the
+                % acquisition gains only while that large innovation is
+                % present, then return immediately to the quiet tracking
+                % gains.  This is still decision-free and uses no true H.
+                if locked && (~fastTransientReacquire || ...
+                        abs(phaseError) < unlockThreshold)
                     kp = kpTrack;
                     ki = kiTrack;
+                    phaseErrorForCorrection = phaseError;
                 else
                     kp = kpAcquire;
                     ki = kiAcquire;
+                    phaseErrorForCorrection = phaseError;
                 end
                 frequencyState = frequencyState + ki*phaseError;
                 frequencyState = min(max(frequencyState, ...
                     -maxFrequency), maxFrequency);
-                phaseState = phaseState + kp*phaseError;
+                phaseState = phaseState + kp*phaseErrorForCorrection;
                 y(k) = x(k)*exp(-1j*phaseState);
                 phaseErrors(k) = phaseError;
                 accepted = accepted + 1;
@@ -160,18 +200,27 @@ for k = 1:numel(x)
 end
 
 finiteErrors = phaseErrors(isfinite(phaseErrors));
+transientMask = isfinite(phaseErrors) & ...
+    abs(phaseErrors) >= unlockThreshold;
+transientMask(1:min(minAcquireSamples-1,numel(transientMask))) = false;
+transientIntervals = localLogicalIntervals(transientMask);
 info.Applied = true;
 info.Reason = 'GMSK conjugate spectral-line detector plus second-order PLL';
 info.SamplesPerSymbol = sps;
 info.AcquireLoopBandwidth = acquireBW;
 info.TrackLoopBandwidth = trackBW;
 info.DetectorTauSymbols = detectorTauSymbols;
+info.DetectorInputNormalized = normalizeDetectorInput;
+info.DetectorNormalizationFloorDB = detectorNormalizationFloorDB;
+info.DetectorFloorLimitedSamples = detectorFloorLimitedSamples;
 info.Locked = locked;
 info.FinalMode = char(localModeName(locked));
 info.LockTransitions = lockTransitions;
 info.Reacquisitions = reacquisitions;
 info.AcceptedUpdates = accepted;
 info.FadeHoldSamples = fadeHolds;
+info.PhaseTransientSamples = nnz(transientMask);
+info.PhaseTransientIntervalsSamples = transientIntervals;
 info.ExternalHoldMaskProvided = externalHoldProvided;
 info.ExternalHoldSamples = nnz(externalHoldMask);
 info.ExternalHoldFraction = mean(externalHoldMask);
@@ -184,15 +233,69 @@ if ~isempty(finiteErrors)
     info.MeanAbsPhaseError = mean(abs(finiteErrors));
     info.RMSPhaseError = sqrt(mean(finiteErrors.^2));
 end
+if localLogical(options, 'debugGMSKSecondOrderPLLTrace', false)
+    % Keep the diagnostic opt-in and bounded.  A normal GMSK regression can
+    % contain millions of samples, so exporting the full internal traces
+    % would retain hundreds of MB after the receiver has finished.
+    defaultStride = max(1, 8*sps);
+    traceStride = max(1, round(localNumber(options, ...
+        'gmskPLLDebugTraceDecimationSamples', defaultStride)));
+    traceFirst = 1;
+    traceLast = numel(x);
+    traceWindow = [];
+    if isstruct(options) && isfield(options, ...
+            'gmskPLLDebugTraceTimeWindow_s') && ...
+            ~isempty(options.gmskPLLDebugTraceTimeWindow_s)
+        traceWindow = double(options.gmskPLLDebugTraceTimeWindow_s(:));
+    elseif isstruct(options) && isfield(options, ...
+            'debugCPMFadeTimeWindow_s') && ...
+            ~isempty(options.debugCPMFadeTimeWindow_s)
+        traceWindow = double(options.debugCPMFadeTimeWindow_s(:));
+    end
+    if numel(traceWindow) >= 2 && all(isfinite(traceWindow(1:2)))
+        traceWindow = sort(max(0,traceWindow(1:2)));
+        traceFirst = max(1,round(traceWindow(1)*sampleRateHz)+1);
+        traceLast = min(numel(x),round(traceWindow(2)*sampleRateHz)+1);
+    end
+    if traceLast < traceFirst
+        traceIndex = zeros(0,1);
+    else
+        traceIndex = (traceFirst:traceStride:traceLast).';
+    end
+    if ~isempty(traceIndex) && traceIndex(end) ~= traceLast
+        traceIndex(end+1,1) = traceLast;
+    end
+    referenceMagnitude = sqrt(max(referencePower, eps));
+    traceMagnitude = abs(x(traceIndex));
+    info.DebugTrace = struct( ...
+        'SampleIndex', uint32(traceIndex), ...
+        'Time_s', (double(traceIndex)-1)/double(sampleRateHz), ...
+        'InputMagnitude', traceMagnitude, ...
+        'InputMagnitude_dBRelative', 20*log10(max( ...
+            traceMagnitude,eps)/referenceMagnitude), ...
+        'PhaseCorrection_rad', phaseTrace(traceIndex), ...
+        'Frequency_Hz', frequencyTrace(traceIndex)*sampleRateHz/(2*pi), ...
+        'DetectorPhaseError_rad', phaseErrors(traceIndex), ...
+        'StrideSamples', traceStride, ...
+        'SampleRate_Hz', double(sampleRateHz));
+end
 if localLogical(options, 'debugGMSKSecondOrderPLL', false)
     fprintf(['   [GMSK second-order PLL] mode=%s locked=%d ', ...
-        'updates=%.1f%% fadeHold=%d freq=%+.1f Hz ', ...
-        'range=[%+.1f,%+.1f] Hz mean|e|=%.4g rad\n'], ...
+        'updates=%.1f%% fadeHold=%d norm=%d floorHits=%d freq=%+.1f Hz ', ...
+        'range=[%+.1f,%+.1f] Hz mean|e|=%.4g rad transients=%d/%d\n'], ...
         info.FinalMode, info.Locked, 100*info.UpdateAcceptanceRate, ...
-        info.FadeHoldSamples, info.FinalFrequency_Hz, ...
+        info.FadeHoldSamples, info.DetectorInputNormalized, ...
+        info.DetectorFloorLimitedSamples, info.FinalFrequency_Hz, ...
         info.FrequencyMin_Hz, info.FrequencyMax_Hz, ...
-        info.MeanAbsPhaseError);
+        info.MeanAbsPhaseError,info.PhaseTransientSamples, ...
+        size(info.PhaseTransientIntervalsSamples,1));
 end
+end
+
+function intervals = localLogicalIntervals(mask)
+mask = logical(mask(:));
+edges = diff([false;mask;false]);
+intervals = [find(edges == 1),find(edges == -1)-1];
 end
 
 function [kp, ki] = localLoopGains(normalizedBW)
@@ -247,9 +350,13 @@ function info = localEmptyInfo()
     info = struct( ...
         'Applied',false,'Reason','disabled','SamplesPerSymbol',NaN, ...
         'AcquireLoopBandwidth',NaN,'TrackLoopBandwidth',NaN, ...
-        'DetectorTauSymbols',NaN,'Locked',false, ...
+        'DetectorTauSymbols',NaN,'DetectorInputNormalized',false, ...
+        'DetectorNormalizationFloorDB',NaN, ...
+        'DetectorFloorLimitedSamples',0,'Locked',false, ...
         'FinalMode','off','LockTransitions',0,'Reacquisitions',0, ...
         'AcceptedUpdates',0,'FadeHoldSamples',0, ...
+        'PhaseTransientSamples',0, ...
+        'PhaseTransientIntervalsSamples',zeros(0,2), ...
         'ExternalHoldMaskProvided',false,'ExternalHoldSamples',0, ...
         'ExternalHoldFraction',0, ...
         'UpdateAcceptanceRate',NaN,'FinalFrequency_Hz',NaN, ...

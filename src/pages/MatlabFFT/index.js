@@ -92,7 +92,8 @@ const DEFAULT_CCSDS_PARAMS = {
   PCMFormat: "NRZ-L",
   ConvolutionalCodeRate: "5/6",
   CodeRate: "N/A",
-  TPCCodeRate: "native",
+  TPCCodeRate: "2/3",
+  TPCBlocksPerTF: 4,
   NumBitsInInformationBlock: 1024,
   IsLDPCOnSMTF: false,
   LDPCCodeblockSize: 1,
@@ -564,7 +565,7 @@ const CCSDSPlatform = () => {
   const LDPC_RATES = ["1/2", "2/3", "4/5", "7/8"];
   const LDPC_INFO_BLOCKS = [1024, 4096, 16384, 7136];
   const CONVOLUTIONAL_RATES = ["1/2", "2/3", "3/4", "5/6", "7/8"];
-  const TPC_RATES = ["native", "1/2", "2/3"];
+  const TPC_RATES = ["1/2", "2/3"];
 
   useEffect(() => {
     setIsElectron(window && window.matlabAPI !== undefined);
@@ -684,12 +685,20 @@ const CCSDSPlatform = () => {
 
       if (payload.channelCoding === "TPC") {
         delete payload.ConvolutionalCodeRate;
-        payload.TPCCodeRate = payload.TPCCodeRate || "native";
+        payload.TPCCodeRate = payload.TPCCodeRate || "2/3";
+        // TPC information blocks are not byte aligned at every shortened
+        // rate.  Use the validated ordinary-TM profiles rather than
+        // leaving the backend at its generic one-block default.
+        payload.TPCBlocksPerTF = payload.TPCCodeRate === "1/2" ? 8 : 4;
         payload.CodeRate = "N/A";
-        payload.berWarmUpFrames = 0;
+        payload.berWarmUpFrames = Math.max(
+          2,
+          Number(payload.berWarmUpFrames ?? 2),
+        );
         payload.berFrames = Number(payload.berFrames ?? 6);
       } else {
         delete payload.TPCCodeRate;
+        delete payload.TPCBlocksPerTF;
       }
 
       if (payload.channelCoding === "LDPC") {
@@ -1784,13 +1793,15 @@ const CCSDSPlatform = () => {
                       } else if (value === "TPC") {
                         form.setFieldsValue({
                           CodeRate: "N/A",
-                          TPCCodeRate: "native",
+                          TPCCodeRate: "2/3",
+                          TPCBlocksPerTF: 4,
                           ConvolutionalCodeRate: "5/6",
                         });
                       } else {
                         form.setFieldsValue({
                           CodeRate: "N/A",
-                          TPCCodeRate: "native",
+                          TPCCodeRate: "2/3",
+                          TPCBlocksPerTF: 4,
                         });
                       }
 
@@ -2062,15 +2073,19 @@ const CCSDSPlatform = () => {
                           <Form.Item
                             name="TPCCodeRate"
                             label="TPC码率"
-                            initialValue="native"
+                            initialValue="2/3"
                             rules={[enumRule(TPC_RATES, "TPC码率")]}
                           >
-                            <Select>
+                            <Select
+                              onChange={(rate) =>
+                                form.setFieldsValue({
+                                  TPCBlocksPerTF: rate === "1/2" ? 8 : 4,
+                                })
+                              }
+                            >
                               {TPC_RATES.map((rate) => (
                                 <Option key={rate} value={rate}>
-                                  {rate === "native"
-                                    ? "native (57x57)"
-                                    : rate}
+                                  {rate}
                                 </Option>
                               ))}
                             </Select>

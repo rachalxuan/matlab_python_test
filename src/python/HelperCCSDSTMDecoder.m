@@ -1635,7 +1635,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             elseif strcmp(prop,'Modulation')
                 flag = isFACM;
             elseif strcmp(prop,'PCMFormat')
-                flag = ~any(strcmp(obj.Modulation,{'PCM/PSK/PM','BPSK','QPSK','8PSK','OQPSK'})) || isFACM;
+                flag = ~any(strcmp(obj.Modulation,{'PCM/PSK/PM','BPSK','QPSK','8PSK', ...
+                    'OQPSK','16QAM','32QAM','16APSK','32APSK'})) || isFACM;
             elseif any(strcmp(prop, {'DisableFrameSynchronization','DisablePhaseAmbiguityResolution', ...
                     'FrameSyncBitSlipTolerance','FrameSyncASMErrorThreshold', ...
                     'FrameSyncLockThreshold','FrameSyncUnlockThreshold'}))

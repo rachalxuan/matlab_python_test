@@ -1195,7 +1195,8 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             elseif any(strcmp(prop,{'SubcarrierWaveform','SymbolRate','SubcarrierToSymbolRateRatio'}))
                 flag = ~strcmp(obj.Modulation,'PCM/PSK/PM') || isFACM;
             elseif strcmp(prop,'PCMFormat')
-                flag = ~any(strcmp(obj.Modulation,{'PCM/PSK/PM','BPSK','QPSK','8PSK','OQPSK'})) || isFACM;
+                flag = ~any(strcmp(obj.Modulation,{'PCM/PSK/PM','BPSK','QPSK','8PSK', ...
+                    'OQPSK','16QAM','32QAM','16APSK','32APSK'})) || isFACM;
             elseif strcmp(prop,'ModulationIndex')
                 flag = ~any(strcmp(obj.Modulation,{'PCM/PSK/PM','PCM/PM/biphase-L'})) || isFACM;
             elseif strcmp(prop,'FilterSpanInSymbols')

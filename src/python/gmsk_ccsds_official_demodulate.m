@@ -1,14 +1,17 @@
 function [softBits, info] = gmsk_ccsds_official_demodulate(inputWaveform, cfg)
-%GMSK_CCSDS_OFFICIAL_DEMODULATE Production CCSDS GMSK receiver entry point.
+%GMSK_CCSDS_OFFICIAL_DEMODULATE CCSDS GMSK receiver entry point.
 %
-% This is the only production entry point for the official GMSK detector.
 % It owns the complete sequence required by this transmitter:
-%   1. comm.GMSKDemodulator Viterbi detection.
-%   2. Fixed traceback-delay removal and polarity conversion.
+%   1. Select one raw-precoder detector:
+%      - coherent-viterbi: comm.GMSKDemodulator after carrier recovery.
+%      - differential-one-symbol: an open-loop differential metric that
+%        does not carry PLL state across a fade.
+%   2. Detector-specific alignment and polarity conversion.
 %   3. Per-frame CCSDS transition-precode recovery using the known ASM.
 %
-% The official detector supports uncoded, RS, convolutional, ordinary TM
-% LDPC, Turbo, and TPC frames with HasASM=true.  The detector is common to
+% The official detector supports uncoded, RS, convolutional, concatenated
+% RS+convolutional, ordinary TM LDPC, Turbo, and TPC frames with HasASM=true.
+% The detector is common to
 % every FEC family; coding metadata is used only to establish frame length
 % and the periodic ASM grid.  LDPC-on-SMTF has a different frame layout and
 % is rejected explicitly; it never falls back to the legacy detector.
@@ -38,6 +41,7 @@ function [softBits, info] = gmsk_ccsds_official_demodulate(inputWaveform, cfg)
 
     supportedCoding = channelCoding == "none" || channelCoding == "rs" || ...
         contains(channelCoding, "convolutional") || ...
+        channelCoding == "concatenated" || ...
         channelCoding == "ldpc" || channelCoding == "turbo" || ...
         channelCoding == "tpc";
 
@@ -50,7 +54,8 @@ function [softBits, info] = gmsk_ccsds_official_demodulate(inputWaveform, cfg)
         error('gmsk_ccsds_official_demodulate:UnsupportedCoding', ...
             ['Official CCSDS GMSK demodulation is not implemented for ', ...
              'ChannelCoding="%s". Supported now: none, RS, convolutional, ', ...
-             'ordinary TM LDPC, Turbo, and TPC. ', ...
+             'concatenated RS+convolutional, ordinary TM LDPC, Turbo, ', ...
+             'and TPC. ', ...
              'Legacy fallback is forbidden.'], char(channelCoding));
     end
 
@@ -65,15 +70,27 @@ function [softBits, info] = gmsk_ccsds_official_demodulate(inputWaveform, cfg)
     pcmFormat = localField(cfg, 'PCMFormat', 'NRZ-L');
     printDebug = logical(localField(cfg, 'PrintDebug', false));
 
-    % Algorithm constants are intentionally internal.  They are not link
-    % or waveform configuration and must not be exposed as sweep knobs.
-    officialCfg = struct( ...
+    receiverMode = lower(string(localField(cfg, ...
+        'ReceiverMode','coherent-viterbi')));
+    detectorCfg = struct( ...
         'SamplesPerSymbol', samplesPerSymbol, ...
         'BandwidthTimeProduct', bt, ...
         'TracebackDepth', 32, ...
         'OutputScale', 5);
-    [rawMetric, viterbiInfo] = ...
-        gmsk_official_viterbi_raw_metric(inputWaveform, officialCfg);
+    switch receiverMode
+        case "coherent-viterbi"
+            [rawMetric, detectorInfo] = ...
+                gmsk_official_viterbi_raw_metric(inputWaveform,detectorCfg);
+            detectorName = 'coherent-viterbi';
+        case "differential-one-symbol"
+            [rawMetric, detectorInfo] = ...
+                gmsk_differential_raw_metric(inputWaveform,detectorCfg);
+            detectorName = 'differential-one-symbol';
+        otherwise
+            error('gmsk_ccsds_official_demodulate:InvalidReceiverMode', ...
+                ['ReceiverMode must be "coherent-viterbi", ', ...
+                 'or "differential-one-symbol".']);
+    end
 
     codingCfg = struct( ...
         'NumBitsInInformationBlock', numInformationBits, ...
@@ -126,7 +143,7 @@ function [softBits, info] = gmsk_ccsds_official_demodulate(inputWaveform, cfg)
     end
 
     info = struct();
-    info.GMSKDetectorUsed = 'official';
+    info.GMSKDetectorUsed = detectorName;
     info.DetectorSucceeded = detectorSucceeded;
     info.FailureReason = failureReason;
     info.ChannelCoding = char(channelCoding);
@@ -143,14 +160,16 @@ function [softBits, info] = gmsk_ccsds_official_demodulate(inputWaveform, cfg)
     elseif channelCoding == "tpc"
         info.TPCBlocksPerTF = double(tpcBlocksPerTF);
         info.TPCCodeRate = char(string(tpcCodeRate));
-    elseif channelCoding == "rs"
+    elseif channelCoding == "rs" || channelCoding == "concatenated"
         info.RSMessageLength = double(rsMessageLength);
         info.RSInterleavingDepth = double(rsInterleavingDepth);
         info.IsRSMessageShortened = isRSMessageShortened;
         info.RSShortenedMessageLength = ...
             double(templateCfg.RSShortenedMessageLength);
     end
-    info.Viterbi = viterbiInfo;
+    info.Detector = detectorInfo;
+    % Compatibility field for callers that inspect the original receiver.
+    info.Viterbi = detectorInfo;
     info.FrameReset = frameResetInfo;
 end
 
@@ -158,7 +177,8 @@ function localValidateCodingMetadata(channelCoding, codeRate, ...
         numInformationBits, isLDPCOnSMTF, tpcBlocksPerTF, ...
         rsMessageLength, rsInterleavingDepth, ...
         isRSMessageShortened, rsShortenedMessageLength)
-    if contains(channelCoding, "convolutional") && isempty(codeRate)
+    if (contains(channelCoding, "convolutional") || ...
+            channelCoding == "concatenated") && isempty(codeRate)
         error('gmsk_ccsds_official_demodulate:MissingCodeRate', ...
             ['Convolutionally coded official GMSK requires the ', ...
              'transmitter ConvolutionalCodeRate.']);
@@ -206,7 +226,7 @@ function localValidateCodingMetadata(channelCoding, codeRate, ...
                    'InvalidTPCBlocksPerTF'], ...
                 'TPCBlocksPerTF must be a positive integer for official GMSK.');
         end
-    elseif channelCoding == "rs"
+    elseif channelCoding == "rs" || channelCoding == "concatenated"
         localValidatePositiveInteger(rsMessageLength, 'RSMessageLength');
         localValidatePositiveInteger(rsInterleavingDepth, ...
             'RSInterleavingDepth');

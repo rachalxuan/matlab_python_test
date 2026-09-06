@@ -48,6 +48,8 @@ end
 
 defaultCfg = apskPilotlessDefaultConfig();
 carrierOpt = defaultCfg.CarrierRecovery;
+noiselessHDiagnostic = localLogical(options,'enableHChannel',false) && ...
+    localIsExactlyNoiseless(options);
 if isfield(options,'CarrierRecovery') && isstruct(options.CarrierRecovery)
     carrierOpt = localMerge(carrierOpt,options.CarrierRecovery);
 end
@@ -117,8 +119,22 @@ if localLogical(options,'enableHChannel',false)
     % The APSK BPS shares the QAM phase-search engine, but its metric gate is
     % scaled by the APSK minimum distance.  These H-only defaults leave the
     % validated standalone/NoH receiver unchanged.
-    if ~isfield(carrierOpt.BlindPhaseSearch,'EnableFadeHold')
-        carrierOpt.BlindPhaseSearch.EnableFadeHold = true;
+    if ~localBlindPhaseSearchFieldExplicit(options,'EnableFadeHold')
+        % In an exactly noiseless scalar-H diagnostic, low amplitude does
+        % not make carrier phase unobservable.  Holding BPS solely because
+        % the envelope is low makes it extrapolate an old phase trajectory
+        % while both |H| and angle(H) move, which caused isolated 32APSK
+        % bursts.  Retain the protective HOLD for every noisy-H run.
+        carrierOpt.BlindPhaseSearch.EnableFadeHold = ...
+            ~(noiselessHDiagnostic && strcmpi(modulation,'32APSK'));
+    end
+    if noiselessHDiagnostic && strcmpi(modulation,'32APSK') && ...
+            ~localBlindPhaseSearchFieldExplicit(options,'FadeThresholdDB')
+        % EnableFadeHold=false selects the legacy single-threshold branch
+        % in the common BPS helper.  Put that threshold below any practical
+        % normalized-H value so the noiseless diagnostic really follows
+        % metric reliability rather than absolute envelope power.
+        carrierOpt.BlindPhaseSearch.FadeThresholdDB = -100;
     end
     if ~isfield(carrierOpt.BlindPhaseSearch,'FadeEnterDB')
         carrierOpt.BlindPhaseSearch.FadeEnterDB = -10;
@@ -151,10 +167,15 @@ if localLogical(options,'enableHChannel',false)
         carrierOpt.RecoverGoodSymbols = 1;
     end
     if ~localCarrierFieldExplicit(options,'EnableRingNormalizer')
-        % Normalized H keeps its local envelope trajectory.  Stabilize APSK
-        % ring radii before BPS/DD, while leaving the validated NoH path
-        % unchanged.  An explicit false remains a strict A/B rollback.
-        carrierOpt.EnableRingNormalizer = true;
+        % Do not run two independent amplitude loops in series on noiseless
+        % 32APSK.  Its dense three-ring constellation made the front RDE
+        % choose a wrong scale basin, after which the final power tracker
+        % had to undo that error.  The single post-BPS power tracker below
+        % is sufficient and produced zero errors in the controlled A/B.
+        % Keep every other established path unchanged until it has its own
+        % noisy-link validation.
+        carrierOpt.EnableRingNormalizer = ...
+            ~(noiselessHDiagnostic && strcmpi(modulation,'32APSK'));
     end
     if ~localCarrierFieldExplicit(options,'RingNormalizer')
         carrierOpt.RingNormalizer = struct( ...
@@ -262,7 +283,8 @@ if enableGain
         gainOpt.TrackPhase = false;
     end
     if ~isfield(gainOpt,'MagnitudeEstimationMode')
-        if sharedHoldProvided
+        if sharedHoldProvided || ...
+                (noiselessHDiagnostic && strcmpi(modulation,'16APSK'))
             % In the H-channel path the preceding APSK RDE/BPS stages can
             % leave a time-varying scalar magnitude at this boundary.  A
             % frozen power estimate then keeps the whole deep-fade interval
@@ -271,7 +293,10 @@ if enableGain
             % removes data-ring power without borrowing transmitted bits.
             gainOpt.MagnitudeEstimationMode = 'ring-directed';
         else
-            % Preserve the established static/no-H receiver default.
+            % Preserve the established static/no-H receiver default.  The
+            % denser 32APSK ring set also prefers a short power estimate
+            % after the preceding RDE normalizer; per-symbol ring selection
+            % produced a repeatable 46-bit burst on normalized std7.
             gainOpt.MagnitudeEstimationMode = 'power';
         end
     end
@@ -281,13 +306,27 @@ if enableGain
         % otherwise recovery cannot occur because the radial thresholds see
         % the stale pre-fade scale.  The inverse-gain cap remains the safety
         % boundary once additive noise is introduced.
-        gainOpt.TrackPowerMagnitudeDuringFade = sharedHoldProvided;
+        % In an exactly noiseless H diagnostic the envelope remains an
+        % observable channel quantity inside a fade.  Keeping this update
+        % active removes the stale-amplitude burst seen on both 16/32APSK.
+        % No-H and noisy-H defaults remain unchanged until their own link
+        % margin/noise-floor validation is complete.
+        gainOpt.TrackPowerMagnitudeDuringFade = ...
+            sharedHoldProvided || noiselessHDiagnostic;
     end
     if ~isfield(gainOpt,'UpdatePowerReference')
         gainOpt.UpdatePowerReference = false;
     end
     if ~isfield(gainOpt,'FadePowerTauSymbols')
-        gainOpt.FadePowerTauSymbols = 16;
+        if noiselessHDiagnostic && strcmpi(modulation,'32APSK')
+            % Sixteen symbols still follows the random occupancy of the
+            % three APSK rings and leaves a deterministic radial EVM floor.
+            % A 32-symbol power estimate removes that data modulation while
+            % remaining short relative to the tested H envelope dynamics.
+            gainOpt.FadePowerTauSymbols = 32;
+        else
+            gainOpt.FadePowerTauSymbols = 16;
+        end
     end
     if ~isfield(gainOpt,'EnableFadeHold')
         gainOpt.EnableFadeHold = true;
@@ -481,6 +520,15 @@ else
 end
 end
 
+function tf = localIsExactlyNoiseless(options)
+mode = "snr";
+if isstruct(options) && isfield(options,'noiseMode') && ...
+        ~isempty(options.noiseMode)
+    mode = lower(strtrim(string(options.noiseMode)));
+end
+tf = any(mode == ["off","none","disabled"]);
+end
+
 function tf = localCarrierFieldExplicit(options,name)
 tf = (isstruct(options) && isfield(options,'CarrierRecovery') && ...
       isstruct(options.CarrierRecovery) && ...
@@ -489,6 +537,22 @@ tf = (isstruct(options) && isfield(options,'CarrierRecovery') && ...
       isfield(options,'PilotlessAPSKCarrierRecovery') && ...
       isstruct(options.PilotlessAPSKCarrierRecovery) && ...
       isfield(options.PilotlessAPSKCarrierRecovery,name));
+end
+
+function tf = localBlindPhaseSearchFieldExplicit(options,name)
+tf = false;
+parents = {'CarrierRecovery','PilotlessAPSKCarrierRecovery'};
+for k = 1:numel(parents)
+    parent = parents{k};
+    if isstruct(options) && isfield(options,parent) && ...
+            isstruct(options.(parent)) && ...
+            isfield(options.(parent),'BlindPhaseSearch') && ...
+            isstruct(options.(parent).BlindPhaseSearch) && ...
+            isfield(options.(parent).BlindPhaseSearch,name)
+        tf = true;
+        return;
+    end
+end
 end
 
 function info = localEmptyGainInfo()

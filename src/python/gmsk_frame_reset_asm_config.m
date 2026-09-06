@@ -93,6 +93,38 @@ function cfg = gmsk_frame_reset_asm_config(channelCoding, codeRate, ...
         return;
     end
 
+    % A concatenated TM frame is raw ASM followed by an RS codeword, then
+    % a continuous convolutional encoder.  Unlike an RS-only frame, its
+    % ASM is therefore convolutionally encoded and needs the same trellis
+    % state-reset template as a convolutional frame.  Its period, however,
+    % is based on the RS codeword length rather than payload bytes.
+    if codeKey == "concatenated"
+        rsMessageLength = localPositiveIntegerField( ...
+            codingCfg, 'RSMessageLength');
+        rsInterleavingDepth = localPositiveIntegerField( ...
+            codingCfg, 'RSInterleavingDepth');
+        isShortened = localLogicalField(codingCfg, ...
+            'IsRSMessageShortened', false);
+        if isShortened
+            rsShortenedMessageLength = localPositiveIntegerField( ...
+                codingCfg, 'RSShortenedMessageLength');
+        else
+            rsShortenedMessageLength = rsMessageLength;
+        end
+        localValidateRSConfiguration(rsMessageLength, ...
+            rsInterleavingDepth, rsShortenedMessageLength);
+
+        rsCodewordBytes = rsInterleavingDepth * ...
+            (255 - rsMessageLength + rsShortenedMessageLength);
+        inputFrameBits = numel(asmBits) + 8*rsCodewordBytes;
+        cfg.RSMessageLength = rsMessageLength;
+        cfg.RSInterleavingDepth = rsInterleavingDepth;
+        cfg.IsRSMessageShortened = isShortened;
+        cfg.RSShortenedMessageLength = rsShortenedMessageLength;
+        cfg.codewordLength = 8*rsCodewordBytes;
+        cfg.frameLayout = 'conv-encoded-raw-asm-rs-codeword';
+    end
+
     % TPC frames also keep their ASM outside the product-code blocks.  One
     % transfer frame carries one or more fixed (64,57)^2 codewords.
     if codeKey == "tpc"
@@ -109,7 +141,7 @@ function cfg = gmsk_frame_reset_asm_config(channelCoding, codeRate, ...
         return;
     end
 
-    if ~contains(codeKey, 'convolutional')
+    if ~contains(codeKey, 'convolutional') && codeKey ~= "concatenated"
         cfg.asmTemplates = asmBits;
         cfg.asmOffsetBits = 0;
         return;

@@ -82,12 +82,13 @@ function varargout = run_ccsds_tm_evaluation(varargin)
 %     'channelCoding','TPC', ...
 %     'TPCCodeRate','2/3', ...
 %     'channelFilePath','E:\matlab_project\v3.0\v3.0\channel\ChannelData.mat', ...
-%     'TPCBlocksPerTF',1, ...
+%     'TPCBlocksPerTF',4, ...
 %     'TPCInterleaver','auto', ...
 %     'hasASM',true, ...
 %     'RandomizerEnabled',false, ...
 %     'RandomizerFECPosition','afterEncoding', ...
 %     'GMSKDetectionMode','official-viterbi-frame-reset', ...
+%     'GMSKReceiverMode','differential-one-symbol', ... % optional; noiseless H default
 %     'enableHChannel',true, ...
 %     'berWarmUpFrames',8, ...
 %     'berFrames',16, ...
@@ -102,6 +103,7 @@ function varargout = run_ccsds_tm_evaluation(varargin)
 tStart = tic;
 
 [opt, outputMode] = parseEvaluationEntryInputs(varargin{:});
+opt = localNormalizeOrdinaryTPCDefaults(opt);
 imagePaths = '';
 
 try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 =====
@@ -197,7 +199,12 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
         'GMSKSecondOrderPLLFrequencyMin_Hz', ...
         'GMSKSecondOrderPLLFrequencyMax_Hz', ...
         'GMSKSecondOrderPLLUpdateAcceptanceRate', ...
+        'GMSKSecondOrderPLLDetectorInputNormalized', ...
+        'GMSKSecondOrderPLLDetectorNormalizationFloorDB', ...
+        'GMSKSecondOrderPLLDetectorFloorLimitedSamples', ...
         'GMSKSecondOrderPLLFadeHoldSamples', ...
+        'GMSKSecondOrderPLLPhaseTransientSamples', ...
+        'GMSKSecondOrderPLLPhaseTransientIntervalsSamples', ...
         'GMSKSecondOrderPLLExternalHoldApplied', ...
         'GMSKSecondOrderPLLExternalHoldSamples', ...
         'GMSKSecondOrderPLLMeanAbsPhaseError'};
@@ -206,6 +213,22 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
         if isfield(res,gmskPLLField)
             frontResult.(gmskPLLField) = res.(gmskPLLField);
         end
+    end
+    if isfield(res,'GMSKSecondOrderPLLDebugTrace')
+        frontResult.GMSKSecondOrderPLLDebugTrace = ...
+            res.GMSKSecondOrderPLLDebugTrace;
+    end
+    if isfield(res,'GMSKErrorFrames')
+        frontResult.GMSKErrorFrames = res.GMSKErrorFrames;
+    end
+    if isfield(res,'GMSKErrorDiagnostics')
+        frontResult.GMSKErrorDiagnostics = res.GMSKErrorDiagnostics;
+    end
+    if isfield(res,'CPMFadeTrace')
+        frontResult.CPMFadeTrace = res.CPMFadeTrace;
+    end
+    if isfield(res,'HMatrixFrameStats')
+        frontResult.HMatrixFrameStats = res.HMatrixFrameStats;
     end
     gmskTrackerFields = { ...
         'GMSKResidualTrackerApplied','GMSKResidualWindowCount', ...
@@ -1205,7 +1228,24 @@ function [res, ctx] = runOneShot(opt)
         initialCodeStr = 'none';
     end
     initialCodeKey = lower(string(initialCodeStr));
-    tpcBlocksPerTF = 1;
+    % The generic TPC class defaults (native, one block) are not a valid
+    % ordinary-TM transfer-frame profile: native needs 8 blocks for byte
+    % alignment, which would exceed the generator's 2048-byte TF limit.
+    % Keep the evaluator/UI contract on the two deployable shortened rates.
+    if contains(initialCodeKey, 'tpc') && ...
+            (~isfield(opt,'TPCCodeRate') || isempty(opt.TPCCodeRate)) && ...
+            (~isfield(opt,'tpcCodeRate') || isempty(opt.tpcCodeRate))
+        opt.TPCCodeRate = '2/3';
+    end
+    if contains(initialCodeKey, 'tpc') && ...
+            strcmpi(char(localTPCCodeRateValue(opt)),'1/2')
+        tpcBlocksPerTF = 8;
+    elseif contains(initialCodeKey, 'tpc') && ...
+            strcmpi(char(localTPCCodeRateValue(opt)),'2/3')
+        tpcBlocksPerTF = 4;
+    else
+        tpcBlocksPerTF = 1;
+    end
     if isfield(opt,'TPCBlocksPerTF') && ~isempty(opt.TPCBlocksPerTF)
         tpcBlocksPerTF = max(1, round(makeNum(opt.TPCBlocksPerTF)));
     elseif isfield(opt,'tpcBlocksPerTF') && ~isempty(opt.tpcBlocksPerTF)
@@ -1796,12 +1836,22 @@ function [res, ctx] = runOneShot(opt)
 
     [txAfterH, hInfo, hState] = applyHChannelDamage( ...
         txAfterUpconverter, opt, Fs);
+    % ===== 临时：H 后、噪声前接收增益 A/B =====
+postHTestGainDB = getfieldnumeric(opt,'postHTestGainDB',0);
+
+txAfterH = txAfterH * 10^(postHTestGainDB/20);
+
+fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
+    postHTestGainDB, 10^(postHTestGainDB/20));
+
+
+
     hAppliedGainDB = 10*log10( ...
         (mean(abs(txAfterH).^2) + eps) / ...
         (mean(abs(txAfterUpconverter).^2) + eps));
     actualCodeRateForHStats = getfieldnumeric(tmWaveInfo, 'ActualCodeRate', NaN);
     bitsPerSymbolForHStats = getfieldnumeric(tmWaveInfo, 'NumBitsPerSymbol', NaN);
-    localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, ...
+    hMatrixFrameStats = localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, ...
         actualCodeRateForHStats, bitsPerSymbolForHStats, totalFrames);
 
     noisePlacement = getNoisePlacementMode(opt);
@@ -2210,6 +2260,28 @@ function [res, ctx] = runOneShot(opt)
             'enableGMSKCoarseFrequencyCompensator', true);
         [rxSynced, cfo_est] = localMSKGMSKX2CoarseCFO( ...
             rxWaveform, Fs, fSym, enableGMSKCoarse);
+        gmskNoiselessH = getLogicalField(opt,'enableHChannel',false) && ...
+            strcmpi(string(noiseInfo.Mode),'off');
+        defaultGMSKReceiverMode = 'coherent-viterbi-pll';
+        if gmskNoiselessH
+            % The open-loop DPD localizes a complex-zero disturbance to its
+            % affected symbols instead of integrating it into persistent
+            % carrier state.  Noisy operation retains the coherent Viterbi
+            % path until its differential soft metric has a noise sweep.
+            defaultGMSKReceiverMode = 'differential-one-symbol';
+        end
+        gmskReceiverMode = lower(string(getfieldwithdefault( ...
+            opt,'GMSKReceiverMode',defaultGMSKReceiverMode)));
+        validGMSKReceiverModes = ["coherent-viterbi-pll", ...
+            "differential-one-symbol"];
+        if ~any(gmskReceiverMode == validGMSKReceiverModes)
+            error('run_ccsds_tm_evaluation:InvalidGMSKReceiverMode', ...
+                ['GMSKReceiverMode must be "coherent-viterbi-pll", ', ...
+                 'or "differential-one-symbol".']);
+        end
+        opt.GMSKReceiverMode = char(gmskReceiverMode);
+        gmskOpenLoopDifferential = startsWith( ...
+            gmskReceiverMode,"differential-");
         gmskTrackerOpt = opt;
         % In an exactly noiseless H experiment even a very small CPM sample
         % still carries deterministic phase.  HOLD discards that phase and
@@ -2223,7 +2295,8 @@ function [res, ctx] = runOneShot(opt)
         gmskBlindReliabilityEnabled = getLogicalField(opt, ...
             'enableBlindReliabilityManager',false) && ...
             getLogicalField(opt,'enableHChannel',false) && ...
-            ~gmskNoiselessContinuousTracking;
+            ~gmskNoiselessContinuousTracking && ...
+            ~gmskOpenLoopDifferential;
         if gmskBlindReliabilityEnabled
             gmskReliabilityCfg = struct( ...
                 'SamplesPerSymbol',sps, ...
@@ -2276,9 +2349,53 @@ function [res, ctx] = runOneShot(opt)
                 gmskTrackerOpt.gmskPLLFadeThresholdDB = -100;
             end
         end
-        if enableGMSKSecondOrderPLL
+        % The conjugate-line detector otherwise weights phase evidence by
+        % |H|^2.  In a noiseless scalar-H diagnostic that creates an
+        % unintended amplitude-dependent HOLD near a deep fade.  Remove
+        % that coupling by default only for this diagnostic regime.  Noisy
+        % and non-H baselines retain the legacy amplitude-weighted detector
+        % unless the caller opts in explicitly.
+        if ~isfield(gmskTrackerOpt,'gmskPLLNormalizeDetectorInput') || ...
+                isempty(gmskTrackerOpt.gmskPLLNormalizeDetectorInput)
+            gmskTrackerOpt.gmskPLLNormalizeDetectorInput = gmskNoiselessH;
+        end
+        if ~isfield(gmskTrackerOpt, ...
+                'gmskPLLDetectorNormalizationFloorDB') || ...
+                isempty(gmskTrackerOpt.gmskPLLDetectorNormalizationFloorDB)
+            if gmskNoiselessH
+                gmskTrackerOpt.gmskPLLDetectorNormalizationFloorDB = -140;
+            else
+                gmskTrackerOpt.gmskPLLDetectorNormalizationFloorDB = -80;
+            end
+        end
+        if gmskNoiselessH && ~gmskOpenLoopDifferential
+            if ~isfield(gmskTrackerOpt,'gmskPLLFastTransientReacquire') || ...
+                    isempty(gmskTrackerOpt.gmskPLLFastTransientReacquire)
+                gmskTrackerOpt.gmskPLLFastTransientReacquire = true;
+            end
+        end
+        if getLogicalField(opt,'debugCPMFadeTrace',false)
+            % The comparison diagnostic needs an absolute-time PLL trace,
+            % but only inside its explicitly bounded fade window.
+            gmskTrackerOpt.debugGMSKSecondOrderPLLTrace = true;
+            if ~isfield(gmskTrackerOpt, ...
+                    'gmskPLLDebugTraceDecimationSamples') || ...
+                    isempty(gmskTrackerOpt.gmskPLLDebugTraceDecimationSamples)
+                traceStep = getfieldnumeric(opt, ...
+                    'debugCPMFadeStep_s',0.2e-6);
+                gmskTrackerOpt.gmskPLLDebugTraceDecimationSamples = ...
+                    max(1,round(traceStep*Fs));
+            end
+        end
+        if gmskOpenLoopDifferential
+            % Differential detection removes constant carrier phase in the
+            % detector itself.  Do not run either residual tracker: that
+            % would reintroduce persistent phase/frequency state and defeat
+            % this architecture-level A/B test.
+        elseif enableGMSKSecondOrderPLL
             [rxSynced, gmskSecondOrderPLLInfo] = ...
-                HelperGMSKSecondOrderPLL(rxSynced,Fs,fSym,gmskTrackerOpt);
+                HelperGMSKSecondOrderPLL( ...
+                rxSynced,Fs,fSym,gmskTrackerOpt);
         else
             [rxSynced, gmskResidualTrackerInfo] = ...
                 localGMSKResidualDopplerTracker( ...
@@ -2321,7 +2438,11 @@ function [res, ctx] = runOneShot(opt)
                 enableGMSKCoarse, cfo_est, getf(opt,'cfo',0));
         if getLogicalField(opt,'debugGMSK',false) || ...
                 getLogicalField(opt,'debugCodedBoundary',false)
-            if enableGMSKSecondOrderPLL
+            if gmskOpenLoopDifferential
+                fprintf(['   [GMSK carrier recovery] mode=%s, ', ...
+                    'state-free after x^2 coarse CFO\n'], ...
+                    char(gmskReceiverMode));
+            elseif enableGMSKSecondOrderPLL
                 fprintf(['   [GMSK second-order PLL] applied=%d mode=%s ', ...
                     'locked=%d freq=%+.1f Hz range=[%+.1f,%+.1f] Hz ', ...
                     'updates=%.1f%% fadeHold=%d mean|e|=%.4g rad\n'], ...
@@ -2353,7 +2474,14 @@ function [res, ctx] = runOneShot(opt)
         % 4D-8PSK-TCM 专用同步分支。
         % 不能把 "4D-8PSK-TCM" 直接交给官方 CarrierSynchronizer,
         % 因为官方对象只接受 BPSK/QPSK/OQPSK/8PSK/PAM/QAM 等普通调制名。
-        if abs(getf(opt,'cfo',0)) > 0
+        % H(t) can contain Doppler/phase motion even when the separately
+        % configured CFO and phase offset are both zero.  Basing this choice
+        % only on those two UI fields silently bypassed carrier recovery for
+        % the normalized-H path.
+        needs4DCarrierTracking = abs(getf(opt,'cfo',0)) > 0 || ...
+            abs(getf(opt,'phaseOffset',0)) > 0 || ...
+            getLogicalField(opt,'enableHChannel',false);
+        if needs4DCarrierTracking
             % 4D-TCM 的符号仍落在 8PSK 星座点上, 因此粗频偏阶段用官方
             % 8PSK CoarseFrequencyCompensator。后面的 4D Viterbi 解调仍由
             % HelperCCSDSTMDemodulator 处理, 这里不把 4D 名称交给官方同步器。
@@ -2397,7 +2525,7 @@ function [res, ctx] = runOneShot(opt)
                 timeTmp = sampledTmp;
             end
 
-            if abs(getf(opt,'phaseOffset',0)) > 0 || abs(getf(opt,'cfo',0)) > 0
+            if needs4DCarrierTracking
                 carrierTmp = comm.CarrierSynchronizer( ...
                     'Modulation','8PSK', ...
                     'SamplesPerSymbol',1, ...
@@ -4154,14 +4282,48 @@ function [res, ctx] = runOneShot(opt)
         gmskSecondOrderPLLInfo.FrequencyMax_Hz;
     res.GMSKSecondOrderPLLUpdateAcceptanceRate = ...
         gmskSecondOrderPLLInfo.UpdateAcceptanceRate;
+    res.GMSKSecondOrderPLLDetectorInputNormalized = ...
+        logical(gmskSecondOrderPLLInfo.DetectorInputNormalized);
+    res.GMSKSecondOrderPLLDetectorNormalizationFloorDB = ...
+        gmskSecondOrderPLLInfo.DetectorNormalizationFloorDB;
+    res.GMSKSecondOrderPLLDetectorFloorLimitedSamples = ...
+        gmskSecondOrderPLLInfo.DetectorFloorLimitedSamples;
     res.GMSKSecondOrderPLLFadeHoldSamples = ...
         gmskSecondOrderPLLInfo.FadeHoldSamples;
+    res.GMSKSecondOrderPLLPhaseTransientSamples = ...
+        gmskSecondOrderPLLInfo.PhaseTransientSamples;
+    res.GMSKSecondOrderPLLPhaseTransientIntervalsSamples = ...
+        gmskSecondOrderPLLInfo.PhaseTransientIntervalsSamples;
     res.GMSKSecondOrderPLLExternalHoldApplied = ...
         logical(gmskSecondOrderPLLInfo.ExternalHoldMaskProvided);
     res.GMSKSecondOrderPLLExternalHoldSamples = ...
         gmskSecondOrderPLLInfo.ExternalHoldSamples;
     res.GMSKSecondOrderPLLMeanAbsPhaseError = ...
         gmskSecondOrderPLLInfo.MeanAbsPhaseError;
+    if isfield(gmskSecondOrderPLLInfo,'DebugTrace')
+        res.GMSKSecondOrderPLLDebugTrace = ...
+            gmskSecondOrderPLLInfo.DebugTrace;
+    end
+    if getLogicalField(opt,'debugCPMFadeTrace',false)
+        res.CPMFadeTrace = localBuildCPMFadeTrace( ...
+            modStr,opt,Fs,sps,rxWaveformBeforeAGC,coarseSynced, ...
+            hState,gmskSecondOrderPLLInfo);
+    end
+    if isfield(berStats,'GMSKErrorFrames') && ...
+            ~isempty(berStats.GMSKErrorFrames)
+        res.GMSKErrorFrames = berStats.GMSKErrorFrames;
+    end
+    if ~isempty(hMatrixFrameStats)
+        res.HMatrixFrameStats = hMatrixFrameStats;
+    end
+    if isfield(res,'GMSKErrorFrames')
+        pllDebugTrace = struct();
+        if isfield(gmskSecondOrderPLLInfo,'DebugTrace')
+            pllDebugTrace = gmskSecondOrderPLLInfo.DebugTrace;
+        end
+        res.GMSKErrorDiagnostics = localBuildGMSKErrorDiagnostics( ...
+            res.GMSKErrorFrames,hMatrixFrameStats,pllDebugTrace);
+    end
     res.GMSKResidualTrackerApplied = ...
         logical(gmskResidualTrackerInfo.Applied);
     res.GMSKResidualWindowCount = gmskResidualTrackerInfo.WindowCount;
@@ -4811,7 +4973,6 @@ function [yOut, hInfo, hState] = applyHMatrixFileChannel(xIn, opt, sampleRateHz,
         {'channelOutOfRangeMode','channel_out_of_range_mode', ...
          'hMatrixOutOfRangeMode','h_matrix_out_of_range_mode', ...
          'channelExtrapolationMode','hMatrixExtrapolationMode'}, "wrap"));
-
     coeff = interpolateHMatrixCoefficients(H, channelSampleRateHz, numel(xIn), ...
         sampleRateHz, method, outOfRangeMode);
 
@@ -5198,7 +5359,12 @@ function yOut = equalizeKnownHMatrixChannel(yIn, hState, opt, snrForReg_dB)
     end
 end
 
-function localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, actualCodeRate, bitsPerSymbol, totalFrames)
+function frameStats = localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, actualCodeRate, bitsPerSymbol, totalFrames)
+    frameStats = struct('Frame', {}, 'TimeStart_s', {}, 'TimeEnd_s', {}, ...
+        'MinAbsH', {}, 'RmsAbsH', {}, 'MedianAbsH', {}, 'MaxAbsH', {}, ...
+        'MinAbsH_dB', {}, 'RmsAbsH_dB', {}, 'MedianAbsH_dB', {}, 'MaxAbsH_dB', {}, ...
+        'HDopplerMedian_Hz', {}, 'HDopplerRMS_Hz', {}, ...
+        'HDopplerMaxAbs_Hz', {});
     debugEnabled = getOptionLogical(opt, ...
         {'debugHFrameStats','debugHMatrixFrameStats','debugChannelFrameStats'}, false);
     if ~debugEnabled
@@ -5228,11 +5394,21 @@ function localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, actualC
         [~, dominantPath] = max(mean(abs(hState.pathCoeff).^2, 2));
     end
 
-    samplesPerFrame = max(1, round(double(bitsPerFrame) / ...
-        double(actualCodeRate) / double(bitsPerSymbol) * double(sps)));
-    frameDuration = samplesPerFrame / double(Fs);
     hAbs = abs(hState.pathCoeff(dominantPath, :));
     hComplex = hState.pathCoeff(dominantPath, :);
+    samplesPerFrame = max(1, round(double(bitsPerFrame) / ...
+        double(actualCodeRate) / double(bitsPerSymbol) * double(sps)));
+    % Prefer the realized waveform span when it is available.  The simple
+    % payload/rate formula omits encoded ASM and modulation-specific frame
+    % overhead (for convolutional GMSK: 17840 versus 17904 symbols/frame),
+    % which shifts a late error frame away from the actual H notch.
+    if isfinite(totalFrames) && totalFrames >= 1
+        realizedSamplesPerFrame = floor(numel(hAbs)/round(totalFrames));
+        if realizedSamplesPerFrame >= 1
+            samplesPerFrame = realizedSamplesPerFrame;
+        end
+    end
+    frameDuration = samplesPerFrame / double(Fs);
     numFramesAvailable = floor(numel(hAbs) / samplesPerFrame);
     numFramesAvailable = min(numFramesAvailable, floor(double(totalFrames)));
     if numFramesAvailable < 1
@@ -5255,15 +5431,12 @@ function localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, actualC
         return;
     end
 
-    fprintf('   [H-frame stats] dominant=%d/%d, frameSamples=%d, frameDuration=%.6g s, show=%d..%d of %d\n', ...
-        dominantPath, pathCount, samplesPerFrame, frameDuration, ...
-        startFrame, endFrame, numFramesAvailable);
-
-    frameStats = struct('Frame', {}, 'TimeStart_s', {}, 'TimeEnd_s', {}, ...
-        'MinAbsH', {}, 'RmsAbsH', {}, 'MedianAbsH', {}, 'MaxAbsH', {}, ...
-        'MinAbsH_dB', {}, 'RmsAbsH_dB', {}, 'MedianAbsH_dB', {}, 'MaxAbsH_dB', {}, ...
-        'HDopplerMedian_Hz', {}, 'HDopplerRMS_Hz', {}, ...
-        'HDopplerMaxAbs_Hz', {});
+    printEnabled = getOptionLogical(opt, {'debugHFrameStatsPrint'}, true);
+    if printEnabled
+        fprintf('   [H-frame stats] dominant=%d/%d, frameSamples=%d, frameDuration=%.6g s, show=%d..%d of %d\n', ...
+            dominantPath, pathCount, samplesPerFrame, frameDuration, ...
+            startFrame, endFrame, numFramesAvailable);
+    end
     for frameIdx = startFrame:endFrame
         idx = (frameIdx-1)*samplesPerFrame + (1:samplesPerFrame);
         idx = idx(idx <= numel(hAbs));
@@ -5296,13 +5469,15 @@ function localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, actualC
             hDopplerRMS = sqrt(mean(hDoppler.^2));
             hDopplerMax = max(abs(hDoppler));
         end
-        fprintf(['      frame=%03d t=[%.6f %.6f] s |h| min/rms/med/max = ' ...
-                 '%.4g/%.4g/%.4g/%.4g  dB=%.2f/%.2f/%.2f/%.2f ' ...
-                 'Hdoppler[med/rms/max]=%+.1f/%.1f/%.1f Hz\n'], ...
-            frameIdx, t0, t1, minA, rmsA, medA, maxA, ...
-            20*log10(max(minA, eps)), 20*log10(max(rmsA, eps)), ...
-            20*log10(max(medA, eps)), 20*log10(max(maxA, eps)), ...
-            hDopplerMedian,hDopplerRMS,hDopplerMax);
+        if printEnabled
+            fprintf(['      frame=%03d t=[%.6f %.6f] s |h| min/rms/med/max = ' ...
+                     '%.4g/%.4g/%.4g/%.4g  dB=%.2f/%.2f/%.2f/%.2f ' ...
+                     'Hdoppler[med/rms/max]=%+.1f/%.1f/%.1f Hz\n'], ...
+                frameIdx, t0, t1, minA, rmsA, medA, maxA, ...
+                20*log10(max(minA, eps)), 20*log10(max(rmsA, eps)), ...
+                20*log10(max(medA, eps)), 20*log10(max(maxA, eps)), ...
+                hDopplerMedian,hDopplerRMS,hDopplerMax);
+        end
 
         frameStats(end+1).Frame = frameIdx; %#ok<AGROW>
         frameStats(end).TimeStart_s = t0;
@@ -5323,6 +5498,260 @@ function localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, actualC
     try
         assignin('base','lastHMatrixFrameStats',frameStats);
     catch
+    end
+end
+
+function entries = localEmptyGMSKErrorFrames()
+    entries = struct('RxFrameIndex',{},'TxFrameIndex',{},'FrameID',{}, ...
+        'ErrorCount',{},'BitPositions',{},'BytePositions',{}, ...
+        'ApproxTimeStart_s',{},'ApproxTimeEnd_s',{});
+end
+
+function trace = localBuildCPMFadeTrace( ...
+        modStr,opt,Fs,sps,rxInput,trackerOutput,hState,gmskPLLInfo)
+%LOCALBUILDCPMFADETRACE Bounded, receiver-observable MSK/GMSK comparison.
+% The trace is diagnostic only.  It uses the exact sample indices processed
+% by the receiver and never feeds information back into synchronization or
+% decoding.  H is included as oracle evidence solely for post-run analysis.
+    empty = zeros(0,1);
+    trace = struct( ...
+        'Modulation',char(string(modStr)), ...
+        'SampleRate_Hz',double(Fs), ...
+        'SamplesPerSymbol',double(sps), ...
+        'Time_s',empty,'SampleIndex',empty, ...
+        'HAbs_dBRelative',empty,'HPhaseWrapped_deg',empty, ...
+        'HPhaseChange_deg',empty, ...
+        'RxAbs_dBRelative',empty,'RxPhaseWrapped_deg',empty, ...
+        'PostTrackerRxPhaseWrapped_deg',empty, ...
+        'MSKDifferentialMetric',empty, ...
+        'MSKDifferentialMetricAbs',empty, ...
+        'GMSKPLLAppliedCorrectionChange_deg',empty, ...
+        'GMSKPLLDetectorError_deg',empty, ...
+        'GMSKPLLFrequency_Hz',empty);
+
+    if ~isfinite(Fs) || Fs <= 0 || isempty(rxInput) || ...
+            ~isstruct(hState) || ~isfield(hState,'hasHMatrix') || ...
+            ~logical(hState.hasHMatrix) || ...
+            ~isfield(hState,'pathCoeff') || isempty(hState.pathCoeff)
+        return;
+    end
+    window = [0.094 0.098];
+    if isfield(opt,'debugCPMFadeTimeWindow_s') && ...
+            ~isempty(opt.debugCPMFadeTimeWindow_s)
+        candidate = double(opt.debugCPMFadeTimeWindow_s(:));
+        if numel(candidate) >= 2 && all(isfinite(candidate(1:2)))
+            window = sort(max(0,candidate(1:2))).';
+        end
+    end
+    stepSeconds = getfieldnumeric(opt,'debugCPMFadeStep_s',0.2e-6);
+    if ~isfinite(stepSeconds) || stepSeconds <= 0
+        stepSeconds = 0.2e-6;
+    end
+    stepSamples = max(1,round(stepSeconds*Fs));
+
+    dominantPath = 1;
+    pathCount = size(hState.pathCoeff,1);
+    if isfield(hState,'dominantPathIndex') && ...
+            isfinite(hState.dominantPathIndex) && ...
+            hState.dominantPathIndex >= 1 && ...
+            hState.dominantPathIndex <= pathCount
+        dominantPath = round(hState.dominantPathIndex);
+    end
+    h = complex(hState.pathCoeff(dominantPath,:).');
+    rxInput = complex(rxInput(:));
+    trackerOutput = complex(trackerOutput(:));
+    available = min([numel(h),numel(rxInput),numel(trackerOutput)]);
+    firstSample = max(1,ceil(window(1)*Fs)+1);
+    lastSample = min(available,floor(window(2)*Fs)+1);
+    if lastSample < firstSample
+        return;
+    end
+    sampleIndex = (firstSample:stepSamples:lastSample).';
+    if sampleIndex(end) ~= lastSample
+        sampleIndex(end+1,1) = lastSample;
+    end
+    % Preserve the exact deepest sample even when the requested display
+    % decimation would otherwise step over it.
+    [~,minimumOffset] = min(abs(h(firstSample:lastSample)));
+    minimumSample = firstSample + minimumOffset - 1;
+    sampleIndex = unique([sampleIndex;minimumSample]);
+    timeSeconds = (double(sampleIndex)-1)/double(Fs);
+
+    hSelected = h(sampleIndex);
+    hReference = median(abs(h));
+    if ~isfinite(hReference) || hReference <= eps
+        hReference = sqrt(mean(abs(h).^2)+eps);
+    end
+    rxReference = median(abs(rxInput));
+    if ~isfinite(rxReference) || rxReference <= eps
+        rxReference = sqrt(mean(abs(rxInput).^2)+eps);
+    end
+    hUnwrapped = unwrap(angle(hSelected));
+
+    trace.Time_s = timeSeconds;
+    trace.SampleIndex = double(sampleIndex);
+    trace.HAbs_dBRelative = 20*log10(max(abs(hSelected),eps)/hReference);
+    trace.HPhaseWrapped_deg = rad2deg(angle(hSelected));
+    trace.HPhaseChange_deg = rad2deg(hUnwrapped-hUnwrapped(1));
+    trace.RxAbs_dBRelative = 20*log10( ...
+        max(abs(rxInput(sampleIndex)),eps)/rxReference);
+    trace.RxPhaseWrapped_deg = rad2deg(angle(rxInput(sampleIndex)));
+    trace.PostTrackerRxPhaseWrapped_deg = ...
+        rad2deg(angle(trackerOutput(sampleIndex)));
+
+    n = numel(sampleIndex);
+    if strcmpi(string(modStr),'MSK')
+        numSymbols = floor(numel(trackerOutput)/sps);
+        if numSymbols >= 1
+            blocks = reshape(trackerOutput(1:numSymbols*sps),sps,numSymbols);
+            increments = blocks(2:end,:).*conj(blocks(1:end-1,:));
+            rawMetric = sum(imag(increments),1).';
+            metricScale = median(abs(rawMetric));
+            if ~isfinite(metricScale) || metricScale <= eps
+                metricScale = sqrt(mean(rawMetric.^2)+eps);
+            end
+            metric = 5*rawMetric/max(metricScale,eps);
+            metric = max(min(double(metric),20),-20);
+            symbolIndex = min(numSymbols,max(1,ceil(double(sampleIndex)/sps)));
+            trace.MSKDifferentialMetric = metric(symbolIndex);
+            trace.MSKDifferentialMetricAbs = abs(metric(symbolIndex));
+        else
+            trace.MSKDifferentialMetric = nan(n,1);
+            trace.MSKDifferentialMetricAbs = nan(n,1);
+        end
+        trace.GMSKPLLAppliedCorrectionChange_deg = nan(n,1);
+        trace.GMSKPLLDetectorError_deg = nan(n,1);
+        trace.GMSKPLLFrequency_Hz = nan(n,1);
+    else
+        trace.MSKDifferentialMetric = nan(n,1);
+        trace.MSKDifferentialMetricAbs = nan(n,1);
+        trace.GMSKPLLAppliedCorrectionChange_deg = nan(n,1);
+        trace.GMSKPLLDetectorError_deg = nan(n,1);
+        trace.GMSKPLLFrequency_Hz = nan(n,1);
+        if isstruct(gmskPLLInfo) && isfield(gmskPLLInfo,'DebugTrace')
+            debug = gmskPLLInfo.DebugTrace;
+            if isstruct(debug) && isfield(debug,'SampleIndex') && ...
+                    ~isempty(debug.SampleIndex)
+                debugIndex = double(debug.SampleIndex(:));
+                appliedCorrection = -rad2deg( ...
+                    double(debug.PhaseCorrection_rad(:)));
+                trace.GMSKPLLAppliedCorrectionChange_deg = interp1( ...
+                    debugIndex,appliedCorrection,double(sampleIndex), ...
+                    'linear',NaN);
+                finiteCorrection = find(isfinite( ...
+                    trace.GMSKPLLAppliedCorrectionChange_deg),1);
+                if ~isempty(finiteCorrection)
+                    trace.GMSKPLLAppliedCorrectionChange_deg = ...
+                        trace.GMSKPLLAppliedCorrectionChange_deg - ...
+                        trace.GMSKPLLAppliedCorrectionChange_deg( ...
+                        finiteCorrection);
+                end
+                trace.GMSKPLLDetectorError_deg = interp1( ...
+                    debugIndex,rad2deg(double( ...
+                    debug.DetectorPhaseError_rad(:))), ...
+                    double(sampleIndex),'nearest',NaN);
+                trace.GMSKPLLFrequency_Hz = interp1( ...
+                    debugIndex,double(debug.Frequency_Hz(:)), ...
+                    double(sampleIndex),'linear',NaN);
+            end
+        end
+    end
+end
+
+function diagnostics = localBuildGMSKErrorDiagnostics(errorFrames,hFrameStats,pllTrace)
+%LOCALBUILDGMSKERRORDIAGNOSTICS Join decoded errors with H/PLL evidence.
+% Times are indexed to the transmitted waveform.  They are exact at the
+% frame level, while individual decoded-bit times remain approximate due
+% to convolutional traceback and receive-filter latency.
+    diagnostics = struct('RxFrameIndex',{},'TxFrameIndex',{},'FrameID',{}, ...
+        'ErrorCount',{},'BitPositions',{},'BytePositions',{}, ...
+        'TimeStart_s',{},'TimeEnd_s',{},'HMinAbs_dB',{}, ...
+        'HRmsAbs_dB',{},'HMedianAbs_dB',{},'HDopplerMedian_Hz',{}, ...
+        'HDopplerMaxAbs_Hz',{},'PLLTracePoints',{}, ...
+        'PLLFrequencyMin_Hz',{},'PLLFrequencyMax_Hz',{}, ...
+        'PLLFrequencyEnd_Hz',{},'PLLPhaseChange_deg',{}, ...
+        'PLLDetectorErrorMaxAbs_rad',{},'PLLInputMin_dBRelative',{});
+    if isempty(errorFrames)
+        return;
+    end
+
+    for k = 1:numel(errorFrames)
+        source = errorFrames(k);
+        t0 = source.ApproxTimeStart_s;
+        t1 = source.ApproxTimeEnd_s;
+        hMin = NaN;
+        hRms = NaN;
+        hMedian = NaN;
+        hDopplerMedian = NaN;
+        hDopplerMax = NaN;
+        if ~isempty(hFrameStats)
+            hIndex = find([hFrameStats.Frame] == source.TxFrameIndex,1);
+            if ~isempty(hIndex)
+                hFrame = hFrameStats(hIndex);
+                t0 = hFrame.TimeStart_s;
+                t1 = hFrame.TimeEnd_s;
+                hMin = hFrame.MinAbsH_dB;
+                hRms = hFrame.RmsAbsH_dB;
+                hMedian = hFrame.MedianAbsH_dB;
+                hDopplerMedian = hFrame.HDopplerMedian_Hz;
+                hDopplerMax = hFrame.HDopplerMaxAbs_Hz;
+            end
+        end
+
+        traceCount = 0;
+        pllMin = NaN;
+        pllMax = NaN;
+        pllEnd = NaN;
+        pllPhaseChange = NaN;
+        pllErrorMax = NaN;
+        pllInputMin = NaN;
+        if isstruct(pllTrace) && isfield(pllTrace,'Time_s') && ...
+                isfield(pllTrace,'Frequency_Hz')
+            traceMask = pllTrace.Time_s >= t0 & pllTrace.Time_s <= t1;
+            traceIndex = find(traceMask);
+            traceCount = numel(traceIndex);
+            if traceCount > 0
+                frequency = pllTrace.Frequency_Hz(traceIndex);
+                pllMin = min(frequency);
+                pllMax = max(frequency);
+                pllEnd = frequency(end);
+                if isfield(pllTrace,'PhaseCorrection_rad')
+                    phase = pllTrace.PhaseCorrection_rad(traceIndex);
+                    pllPhaseChange = rad2deg(phase(end)-phase(1));
+                end
+                if isfield(pllTrace,'DetectorPhaseError_rad')
+                    detectorError = pllTrace.DetectorPhaseError_rad(traceIndex);
+                    detectorError = detectorError(isfinite(detectorError));
+                    if ~isempty(detectorError)
+                        pllErrorMax = max(abs(detectorError));
+                    end
+                end
+                if isfield(pllTrace,'InputMagnitude_dBRelative')
+                    pllInputMin = min( ...
+                        pllTrace.InputMagnitude_dBRelative(traceIndex));
+                end
+            end
+        end
+
+        diagnostics(end+1,1) = struct( ... %#ok<AGROW>
+            'RxFrameIndex',source.RxFrameIndex, ...
+            'TxFrameIndex',source.TxFrameIndex, ...
+            'FrameID',source.FrameID, ...
+            'ErrorCount',source.ErrorCount, ...
+            'BitPositions',source.BitPositions, ...
+            'BytePositions',source.BytePositions, ...
+            'TimeStart_s',t0,'TimeEnd_s',t1, ...
+            'HMinAbs_dB',hMin,'HRmsAbs_dB',hRms, ...
+            'HMedianAbs_dB',hMedian, ...
+            'HDopplerMedian_Hz',hDopplerMedian, ...
+            'HDopplerMaxAbs_Hz',hDopplerMax, ...
+            'PLLTracePoints',traceCount, ...
+            'PLLFrequencyMin_Hz',pllMin, ...
+            'PLLFrequencyMax_Hz',pllMax, ...
+            'PLLFrequencyEnd_Hz',pllEnd, ...
+            'PLLPhaseChange_deg',pllPhaseChange, ...
+            'PLLDetectorErrorMaxAbs_rad',pllErrorMax, ...
+            'PLLInputMin_dBRelative',pllInputMin);
     end
 end
 
@@ -6869,6 +7298,29 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
         berVal = bestBer;
         lockRate = max(bestLock, 0);
         berStats = bestStats;
+        if contains(upper(string(tmMod)),'GMSK') && ...
+                getLogicalField(opt,'debugGMSKErrorBits',false) && ...
+                isfield(berStats,'GMSKErrorFrames')
+            try
+                assignin('base','lastGMSKErrorFrames', ...
+                    berStats.GMSKErrorFrames);
+            catch
+            end
+            for iErrorFrame = 1:numel(berStats.GMSKErrorFrames)
+                errorFrame = berStats.GMSKErrorFrames(iErrorFrame);
+                errorPositions = errorFrame.BitPositions;
+                shown = errorPositions(1:min(numel(errorPositions),32));
+                suffix = '';
+                if numel(errorPositions) > numel(shown)
+                    suffix = sprintf(' ... (%d total)',numel(errorPositions));
+                end
+                fprintf(['   [GMSK error bits] rxFrame=%d txFrame=%d id=%d ' ...
+                    'errors=%d positions=%s%s\n'], ...
+                    errorFrame.RxFrameIndex,errorFrame.TxFrameIndex, ...
+                    errorFrame.FrameID,errorFrame.ErrorCount, ...
+                    mat2str(shown(:).'),suffix);
+            end
+        end
         if isfield(asmResolveInfo, 'timeline')
             berStats.ASMPhaseTimeline = asmResolveInfo.timeline;
         end
@@ -7402,6 +7854,7 @@ function stats = localEmptyBERStats()
         'BERInsideFade', NaN, ...
         'BERRecoveryAfterFade', NaN, ...
         'BEROutsideFade', NaN);
+    stats.GMSKErrorFrames = localEmptyGMSKErrorFrames();
     predecoderMetricFields = localPredecoderResultFields();
     for k = 1:numel(predecoderMetricFields)
         stats.(predecoderMetricFields{k}) = NaN;
@@ -8083,6 +8536,38 @@ function value = localTPCCodeRateValue(opt)
     end
 end
 
+function opt = localNormalizeOrdinaryTPCDefaults(opt)
+    % The ordinary-TM public evaluator must not inherit the generic class
+    % default (native, one block).  Native 57x57 is not byte aligned until
+    % eight blocks and that 3249-byte TF exceeds the public 2048-byte limit.
+    if ~isfield(opt,'channelCoding') || ...
+            ~strcmpi(canonicalChannelCoding(opt.channelCoding),'TPC')
+        return;
+    end
+    if (~isfield(opt,'TPCCodeRate') || isempty(opt.TPCCodeRate)) && ...
+            (~isfield(opt,'tpcCodeRate') || isempty(opt.tpcCodeRate))
+        opt.TPCCodeRate = '2/3';
+    end
+    rate = char(localTPCCodeRateValue(opt));
+    if (~isfield(opt,'TPCBlocksPerTF') || isempty(opt.TPCBlocksPerTF)) && ...
+            (~isfield(opt,'tpcBlocksPerTF') || isempty(opt.tpcBlocksPerTF))
+        if strcmpi(rate,'1/2')
+            opt.TPCBlocksPerTF = 8;
+        elseif strcmpi(rate,'2/3')
+            opt.TPCBlocksPerTF = 4;
+        end
+    end
+    if ~isfield(opt,'TPCInterleaver') || isempty(opt.TPCInterleaver)
+        opt.TPCInterleaver = 'auto';
+    end
+    if ~isfield(opt,'berWarmUpFrames') || isempty(opt.berWarmUpFrames)
+        opt.berWarmUpFrames = 2;
+    end
+    if ~isfield(opt,'berFrames') || isempty(opt.berFrames)
+        opt.berFrames = 6;
+    end
+end
+
 function value = localTPCInterleaverValue(opt)
     value = getfieldwithdefault(opt, 'TPCInterleaver', ...
         getfieldwithdefault(opt, 'tpcInterleaver', 'auto'));
@@ -8142,6 +8627,17 @@ function v = getfieldwithdefault(s, name, defv)
     end
 end
 
+function tf = localUsesOrdinaryPCMLineCoding(tmMod)
+% Ordinary NRZ-M/NRZ-S line coding is applied to the serialized TM bit
+% stream before all of these memoryless constellation mappers.  Pass the
+% PCM format to their demodulator so it can undo the differential line code
+% before ASM synchronization.  CPM and 4D-TCM have separate differential
+% conventions and are intentionally excluded.
+    tf = any(strcmpi(string(tmMod), ...
+        ["BPSK","QPSK","8PSK","OQPSK", ...
+         "16QAM","32QAM","16APSK","32APSK"]));
+end
+
 function demodData = localDemodForASM(fineSynced, tmMod, tmCode, opt, btVal)
     if isfield(opt,'PCMFormat') && ~isempty(opt.PCMFormat)
         pcmFormatRx = string(opt.PCMFormat);
@@ -8191,7 +8687,7 @@ function demodData = localDemodForASM(fineSynced, tmMod, tmCode, opt, btVal)
         demodData = real(demodobj(fineSynced));
     else
         demodArgs = {'Modulation', tmMod, 'ChannelCoding', tmCode};
-        if any(strcmpi(string(tmMod),["BPSK","QPSK","8PSK"]))
+        if localUsesOrdinaryPCMLineCoding(tmMod)
             demodArgs = [demodArgs, {'PCMFormat', pcmFormatRx}];
         end
         if contains(tmMod,'4D-8PSK-TCM')
@@ -8902,6 +9398,20 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         if any(strcmp(officialCodeKey, ["convolutional", "concatenated"]))
             officialReceiverCfg.CodeRate = getfieldwithdefault(opt, ...
                 'ConvolutionalCodeRate', '1/2');
+            if officialCodeKey == "concatenated"
+                % The concatenated layout needs both the inner
+                % convolutional rate and the outer RS frame dimensions to
+                % determine the encoded ASM repetition period.
+                officialReceiverCfg.RSMessageLength = ...
+                    getfieldnumeric(opt, 'RSMessageLength', 223);
+                officialReceiverCfg.RSInterleavingDepth = ...
+                    getfieldnumeric(opt, 'RSInterleavingDepth', 1);
+                officialReceiverCfg.IsRSMessageShortened = ...
+                    getLogicalField(opt, 'IsRSMessageShortened', false);
+                officialReceiverCfg.RSShortenedMessageLength = ...
+                    getfieldnumeric(opt, 'RSShortenedMessageLength', ...
+                    officialReceiverCfg.RSMessageLength);
+            end
         elseif officialCodeKey == "ldpc" || officialCodeKey == "turbo"
             if ~isfield(opt, 'CodeRate') || isempty(opt.CodeRate)
                 error('run_ccsds_tm_evaluation:MissingOfficialGMSKCodeRate', ...
@@ -8961,6 +9471,13 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             getfieldnumeric(opt, 'sps', 8);
         officialReceiverCfg.BandwidthTimeProduct = btVal;
         officialReceiverCfg.PrintDebug = debugGMSK;
+        receiverMode = lower(string(getfieldwithdefault( ...
+            opt,'GMSKReceiverMode','coherent-viterbi-pll')));
+        if startsWith(receiverMode,"differential-")
+            officialReceiverCfg.ReceiverMode = char(receiverMode);
+        else
+            officialReceiverCfg.ReceiverMode = 'coherent-viterbi';
+        end
 
         [demodData, officialReceiverInfo] = ...
             gmsk_ccsds_official_demodulate( ...
@@ -8970,7 +9487,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         % Every FEC adapter below converts from this one convention;
         % detector choice is never allowed to change polarity.
         demodData = localCanonicalGMSKSoftMetric(demodData);
-        gmskDetectorUsed = "official";
+        gmskDetectorUsed = string(officialReceiverInfo.GMSKDetectorUsed);
         gmskFrameResetAligned = true;
         if debugGMSK
             fprintf(['   [GMSK official receiver] detector=%s, ', ...
@@ -8994,7 +9511,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         demodData = real(demodData);
     else
         demodArgs = {'Modulation',tmMod,'ChannelCoding',tmCode};
-        if any(strcmpi(string(tmMod),["BPSK","QPSK","8PSK"]))
+        if localUsesOrdinaryPCMLineCoding(tmMod)
             demodArgs = [demodArgs, {'PCMFormat',pcmFormatRx}];
         end
         if (contains(tmMod,'QAM') || contains(tmMod,'APSK')) && ...
@@ -9059,6 +9576,8 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
 
     debugCodedBoundary = getLogicalField(opt, 'debugCodedBoundary', false);
     collectPredecoderStats = getLogicalField(opt, 'collectPredecoderStats', false);
+    printPredecoderDebug = debugCodedBoundary || ...
+        getLogicalField(opt, 'debugPredecoderBurst', false);
     measurePredecoderStats = debugCodedBoundary || ...
         (collectPredecoderStats && ~strcmpi(string(tmCode), "none"));
     if measurePredecoderStats && ...
@@ -9093,7 +9612,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         end
         predecoderStats = localMeasureEncodedBoundaryStats( ...
             demodForPredecoderStats, txEnc, tmMod, ...
-            debugCodedBoundary, ...
+            printPredecoderDebug, ...
             getfieldnumeric(opt, 'predecoderMaxOffsetBits', 256), ...
             predecoderContext);
     end
@@ -9887,6 +10406,9 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     debugFrameCheck = getLogicalField(opt, 'debugCodedBoundary', false) || ...
         getLogicalField(opt, 'debugFrameCheck', false);
     debugFrameLimit = max(0, round(getfieldnumeric(opt, 'debugFrameCheckCount', 20)));
+    collectGMSKErrorBits = contains(upper(string(tmMod)),'GMSK') && ...
+        getLogicalField(opt,'debugGMSKErrorBits',false);
+    gmskErrorFrames = localEmptyGMSKErrorFrames();
 
     % 从 decodedBits 里按 bitsPerFrame 切一帧。
     % 取 TM Primary Header 中 bit 25~32 的 Virtual Channel Frame Count，
@@ -9954,6 +10476,22 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                 frameStats = localUpdateCRCStats(frameStats, rxFr, opt);
                 if thisErrs > 0
                     frameErrors = frameErrors + 1;
+                    if collectGMSKErrorBits
+                        errorPositions = find(rxFr(:) ~= txFrame(:));
+                        frameDuration = localAcquisitionTimeSeconds( ...
+                            1,bitsPerFrame,tmMod,tmCode,opt);
+                        entry = struct( ...
+                            'RxFrameIndex',j, ...
+                            'TxFrameIndex',txFrameIndex, ...
+                            'FrameID',rxId, ...
+                            'ErrorCount',thisErrs, ...
+                            'BitPositions',double(errorPositions(:).'), ...
+                            'BytePositions',double(unique( ...
+                                ceil(errorPositions(:).'/8))), ...
+                            'ApproxTimeStart_s',(txFrameIndex-1)*frameDuration, ...
+                            'ApproxTimeEnd_s',txFrameIndex*frameDuration);
+                        gmskErrorFrames(end+1,1) = entry; %#ok<AGROW>
+                    end
                 end
                 errs = errs + thisErrs;
                 bitsComp = bitsComp + bitsPerFrame;
@@ -9994,6 +10532,9 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     frameStats.AcquisitionFrames = acquisitionFrames;
     frameStats.AcquisitionTime_s = localAcquisitionTimeSeconds(acquisitionFrames, bitsPerFrame, tmMod, tmCode, opt);
     frameStats.GMSKDetectorUsed = char(gmskDetectorUsed);
+    if collectGMSKErrorBits
+        frameStats.GMSKErrorFrames = gmskErrorFrames;
+    end
     frameStats = localFinalizeQAMBPSFadeBER(frameStats);
     frameStats = localAttachPredecoderStats(frameStats, predecoderStats);
     % numRx 太少说明解码器同步失败,只输出了 1 帧 zeros (header=0 偶然命中 warmup 帧 0),
@@ -11117,7 +11658,11 @@ function localPrintPredecoderBurstDebug( ...
         rxSoft = -rxSoft;
     end
     txAligned = int8(txBits(best.txStart-1+(1:numFrames*frameLength)));
-    rxHard = int8(rxSoft > 0);
+    if contains(upper(string(tmMod)), 'GMSK')
+        rxHard = int8(rxSoft < 0);
+    else
+        rxHard = int8(rxSoft > 0);
+    end
 
     errorMatrix = reshape(rxHard ~= txAligned,frameLength,numFrames);
     frameErrors = sum(errorMatrix,1);
@@ -14666,9 +15211,13 @@ function info = localEmptyGMSKSecondOrderPLLInfo()
     info = struct( ...
         'Applied',false,'Reason','disabled','SamplesPerSymbol',NaN, ...
         'AcquireLoopBandwidth',NaN,'TrackLoopBandwidth',NaN, ...
-        'DetectorTauSymbols',NaN,'Locked',false, ...
+        'DetectorTauSymbols',NaN,'DetectorInputNormalized',false, ...
+        'DetectorNormalizationFloorDB',NaN, ...
+        'DetectorFloorLimitedSamples',0,'Locked',false, ...
         'FinalMode','off','LockTransitions',0,'Reacquisitions',0, ...
         'AcceptedUpdates',0,'FadeHoldSamples',0, ...
+        'PhaseTransientSamples',0, ...
+        'PhaseTransientIntervalsSamples',zeros(0,2), ...
         'ExternalHoldMaskProvided',false,'ExternalHoldSamples',0, ...
         'ExternalHoldFraction',0, ...
         'UpdateAcceptanceRate',NaN,'FinalFrequency_Hz',NaN, ...

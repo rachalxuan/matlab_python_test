@@ -426,7 +426,8 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             elseif strcmp(prop,'Modulation')
                 flag = isFACM;
             elseif strcmp(prop,'PCMFormat')
-                flag = ~any(strcmp(obj.Modulation,{'PCM/PSK/PM','BPSK','QPSK','8PSK','OQPSK','UQPSK'})) || isFACM;
+                flag = ~any(strcmp(obj.Modulation,{'PCM/PSK/PM','BPSK','QPSK','8PSK', ...
+                    'OQPSK','UQPSK','16QAM','32QAM','16APSK','32APSK'})) || isFACM;
             % 允许 GMSK 模式下设置 BandwidthTimeProduct
             elseif strcmp(prop, 'BandwidthTimeProduct')
                 flag = ~contains(string(obj.Modulation), 'GMSK');
