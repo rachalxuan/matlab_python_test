@@ -39,7 +39,10 @@ function selectModel_Interface(parameter, t_vec, satPosRange, termPosRange, satV
                end
                % H_Martix_tMode = complex(zeros(clusterNum, parameter.N_Ts, N_snapshots)); tao_nMode = zeros(clusterNum, N_snapshots); P_nMode = zeros(clusterNum, N_snapshots);
                H_Martix_tMode = complex(zeros(clusterNum, parameter.N_Ts)); tao_nMode = zeros(clusterNum,1); P_nMode = zeros(clusterNum, 1);
-               for i = 1:parameter.dT:N_snapshots
+               % t_vec already incorporates parameter.dT.  Iterate every
+               % generated trajectory entry here; stepping by dT a second
+               % time would skip snapshots whenever dT is not 1 second.
+               for i = 1:N_snapshots
                     % if isequal(btnPause.UserData, true), actualSnapshots = max(1, i-1); break; end
                     % if mod(i, 5) == 0, drawnow limitrate; end 
                     % actualSnapshots = max(1, i-1);
@@ -215,7 +218,7 @@ function selectModel_Interface(parameter, t_vec, satPosRange, termPosRange, satV
                         LdB = Loss;
                         for m = i-parameter.Tt(end)+1 :i
                             saveData(H_Martix_tMode(m-(i-parameter.Tt),:,:),P_nMode,tao_nMode,doppler,LdB,all_cumulative_distances(m-(i-parameter.Tt),:),parameter.outDataFolder, ...
-                            parameter.antennaPatternName,modelType,m,size(parameter.antennaGainData,1));
+                            parameter.antennaPatternName,modelType,m,size(parameter.antennaGainData,1),parameter);
 
                             progressPercent = round(m / N_snapshots * 100); 
                             % times = round(100/(19 -numEvents));
@@ -243,7 +246,7 @@ function selectModel_Interface(parameter, t_vec, satPosRange, termPosRange, satV
                     end
 
                     if  ~parameter.ITU_R
-                        saveData(H_Martix_tMode,P_nMode,tao_nMode,doppler,LdB,all_cumulative_distances,parameter.outDataFolder,parameter.antennaPatternName,modelType,i,size(parameter.antennaGainData,1));
+                        saveData(H_Martix_tMode,P_nMode,tao_nMode,doppler,LdB,all_cumulative_distances,parameter.outDataFolder,parameter.antennaPatternName,modelType,i,size(parameter.antennaGainData,1),parameter);
                     end
 
                     if i == 25

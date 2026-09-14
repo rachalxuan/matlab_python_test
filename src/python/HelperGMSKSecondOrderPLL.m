@@ -46,6 +46,10 @@ maxFrequencyFraction = localNumber(options, ...
     'gmskPLLMaxFrequencyFraction', 0.05);
 fastTransientReacquire = localLogical(options, ...
     'gmskPLLFastTransientReacquire', false);
+collectRuntimeLock = localLogical(options, ...
+    'enableRuntimeLockTelemetry', false);
+runtimeWindowSymbols = max(1,round(localNumber(options, ...
+    'runtimeCarrierWindowSymbols',16)));
 
 acquireBW = min(max(acquireBW, 1e-5), 0.20);
 trackBW = min(max(trackBW, 1e-5), acquireBW);
@@ -93,6 +97,11 @@ detectorFloorLimitedSamples = 0;
 phaseErrors = nan(numel(x),1);
 frequencyTrace = zeros(numel(x),1);
 phaseTrace = zeros(numel(x),1);
+if collectRuntimeLock
+    lockTrace = false(numel(x),1);
+else
+    lockTrace = false(0,1);
+end
 
 for k = 1:numel(x)
     phaseState = phaseState + frequencyState;
@@ -197,6 +206,9 @@ for k = 1:numel(x)
 
     frequencyTrace(k) = frequencyState;
     phaseTrace(k) = phaseState;
+    if collectRuntimeLock
+        lockTrace(k) = locked;
+    end
 end
 
 finiteErrors = phaseErrors(isfinite(phaseErrors));
@@ -232,6 +244,23 @@ info.FinalPhase_deg = rad2deg(phaseTrace(end));
 if ~isempty(finiteErrors)
     info.MeanAbsPhaseError = mean(abs(finiteErrors));
     info.RMSPhaseError = sqrt(mean(finiteErrors.^2));
+end
+if collectRuntimeLock
+    runtimeStride = max(1,runtimeWindowSymbols*sps);
+    runtimeIndex = (1:runtimeStride:numel(x)).';
+    if ~isempty(runtimeIndex) && runtimeIndex(end) ~= numel(x)
+        runtimeIndex(end+1,1) = numel(x);
+    end
+    runtimeError = abs(phaseErrors(runtimeIndex));
+    info.RuntimeLockTrace = struct( ...
+        'Available',~isempty(runtimeIndex), ...
+        'Time_s',(double(runtimeIndex)-1)/double(sampleRateHz), ...
+        'Locked',lockTrace(runtimeIndex), ...
+        'EvidenceGood',isfinite(runtimeError) & ...
+            runtimeError <= unlockThreshold, ...
+        'ErrorState_rad',runtimeError, ...
+        'UnlockThreshold_rad',unlockThreshold, ...
+        'StrideSamples',runtimeStride);
 end
 if localLogical(options, 'debugGMSKSecondOrderPLLTrace', false)
     % Keep the diagnostic opt-in and bounded.  A normal GMSK regression can
@@ -362,5 +391,6 @@ function info = localEmptyInfo()
         'UpdateAcceptanceRate',NaN,'FinalFrequency_Hz',NaN, ...
         'FrequencyMin_Hz',NaN,'FrequencyMax_Hz',NaN, ...
         'FinalPhase_deg',NaN,'MeanAbsPhaseError',NaN, ...
-        'RMSPhaseError',NaN);
+        'RMSPhaseError',NaN, ...
+        'RuntimeLockTrace',struct('Available',false));
 end

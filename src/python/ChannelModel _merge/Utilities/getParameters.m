@@ -54,7 +54,15 @@ else
     parameter.fc = 3;                               % Sampling frequency (Hz)
 end
 
-parameter.T = 0.2;                                   % Simulation duration of one time, 's' 
+parameter.T = 0.2;                                   % Duration represented inside one MAT snapshot, s
+if isfield(channelParams,'channel_snapshot_duration_s')
+    parameter.T = double(channelParams.channel_snapshot_duration_s);
+elseif isfield(channelParams,'snapshot_duration_s')
+    parameter.T = double(channelParams.snapshot_duration_s);
+end
+if ~isscalar(parameter.T) || ~isfinite(parameter.T) || parameter.T <= 0
+    error('channel_snapshot_duration_s must be a positive finite scalar.');
+end
 % parameter.Ttotal = 10;
 
 % 收发天线高度和阵元数目
@@ -71,38 +79,31 @@ parameter.N_t = 1;                                 % Number of transmitter anten
 parameter.N_r = 1;                                 % Number of receiving end antennas
 
 if isfield(channelParams,'antenna_pattern_file')
-   [~,name,ext] = fileparts(channelParams.antenna_pattern_file);
-   
-   parameter.antennaPatternName = name;
-   antenna_pattern_file = channelParams.antenna_pattern_file;
-   num_antenna_pattern = size(antenna_pattern_file,2);
-   parameter.antennaGainData = cell(num_antenna_pattern,1);
-   % fileclass = class(antenna_pattern_file);
-   % disp(fileclass)
-   % disp(antenna_pattern_file)
-   % disp(ext)
-   if iscell(antenna_pattern_file)
-        antenna_pattern_file = string(antenna_pattern_file);
-   end
-   if ischar(antenna_pattern_file)
-       error("ischar");
-   end
-   for j = 1:size(ext,2)
-       antenna_pattern = antenna_pattern_file(j);      
-       if strcmp(ext(j),'.mat') 
-           parameter.antennaGainData{j} = load(antenna_pattern).data;  %默认选取phi=90,dB_LHCP
-       else  %'.csv'
-           parameter.antennaGainData{j} =  readtable(antenna_pattern);
+   antennaPatternFiles = string(channelParams.antenna_pattern_file);
+   antennaPatternFiles = antennaPatternFiles(:);
+   [~,name,ext] = arrayfun(@fileparts, antennaPatternFiles, ...
+       'UniformOutput', false);
+   parameter.antennaPatternName = name(:);
+   parameter.antennaGainData = cell(numel(antennaPatternFiles),1);
+   for j = 1:numel(antennaPatternFiles)
+       antennaPattern = antennaPatternFiles(j);
+       if strcmpi(ext{j},'.mat')
+           antennaData = load(antennaPattern);
+           if ~isfield(antennaData,'data')
+               error('Antenna pattern MAT must contain variable data: %s', antennaPattern);
+           end
+           parameter.antennaGainData{j} = antennaData.data;  % 默认选取 phi=90,dB_LHCP
+       elseif strcmpi(ext{j},'.csv')
+           parameter.antennaGainData{j} = readtable(antennaPattern);
+       else
+           error('Unsupported antenna pattern file extension: %s', ext{j});
        end
    end
-   % disp(parameter.antennaGainData)
 
 else
     filename = ('external_data\AnnexGain\AntennaGain.csv');
-    parameter.antennaGainData = cell(1,1);
-    parameter.antennaGainData = readtable(filename);
-    disp('false')
-    disp(parameter.antennaGainData)
+    parameter.antennaPatternName = {'AntennaGain'};
+    parameter.antennaGainData = {readtable(filename)};
 end
 
 % parameter.antennaData = readtable(parameter.antennaGainData);
@@ -134,6 +135,14 @@ parameter.satelliteTheta = 90;
 %
 parameter.satelliteData = [Re + parameter.satelliteHeight, parameter.satelliteE, parameter.satelliteI, parameter.satelliteOmega, parameter.satelliteOmega1, parameter.satelliteTheta];
 parameter.dT = 1;
+if isfield(channelParams,'channel_snapshot_interval_s')
+    parameter.dT = double(channelParams.channel_snapshot_interval_s);
+elseif isfield(channelParams,'snapshot_interval_s')
+    parameter.dT = double(channelParams.snapshot_interval_s);
+end
+if ~isscalar(parameter.dT) || ~isfinite(parameter.dT) || parameter.dT <= 0
+    error('channel_snapshot_interval_s must be a positive finite scalar.');
+end
 
 
 %大尺度enable判断
@@ -330,6 +339,17 @@ parameter.constellationSceneCode = constellationSceneCode;
 parameter.constellationSceneName = sceneMeta.SceneName;
 parameter.sceneMeta = sceneMeta;
 parameter.Ttotal = sceneMeta.AccessDuration;
+if isfield(channelParams,'duration_time') && ~isempty(channelParams.duration_time)
+    requestedDuration = double(channelParams.duration_time);
+    if ~isscalar(requestedDuration) || ~isfinite(requestedDuration) || requestedDuration <= 0
+        error('duration_time must be a positive finite scalar in seconds.');
+    end
+    if requestedDuration > sceneMeta.AccessDuration
+        error('duration_time %.3f s exceeds the selected access duration %.3f s.', ...
+            requestedDuration, sceneMeta.AccessDuration);
+    end
+    parameter.Ttotal = requestedDuration;
+end
 
 parameter.customTrajectory = sceneTraj;
 
@@ -366,6 +386,9 @@ parameter.socket = struct( ...
     'targetIP', '127.0.0.1', ...
     'targetPort', 6000, ...
     'enable', true);
+if isfield(channelParams,'enable_socket')
+    parameter.socket.enable = logical(channelParams.enable_socket);
+end
 
 
 % fields = fieldnames(channel_params);  

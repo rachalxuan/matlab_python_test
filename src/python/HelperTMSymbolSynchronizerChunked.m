@@ -16,13 +16,17 @@ detectorGain = localNumber(cfg,'DetectorGain',1);
 loopBandwidth = localNumber(cfg,'NormalizedLoopBandwidth',0.01);
 modulation = localString(cfg,'Modulation','PAM/PSK/QAM');
 chunkSize = max(4096, round(localNumber(cfg,'ChunkSizeSamples',50000)));
+collectTimingError = localLogical(cfg,'CollectTimingError',false);
 
 info = struct('InputSamples',numel(x), ...
     'OutputSamples',0, ...
     'ChunkSizeSamples',chunkSize, ...
     'NumChunks',0, ...
     'ExpectedSymbols',numel(x)/max(samplesPerSymbol,eps), ...
-    'RateError_ppm',NaN);
+    'RateError_ppm',NaN, ...
+    'TimingErrorAvailable',false, ...
+    'TimingErrorRMS',NaN, ...
+    'TimingErrorTrace',zeros(0,1));
 
 if isempty(x)
     y = x;
@@ -42,13 +46,19 @@ xPadded = zeros(numPadded,1,'like',x);
 xPadded(1:numel(x)) = x;
 
 parts = cell(numChunks,1);
+errorParts = cell(numChunks,1);
 nParts = 0;
 for first = 1:chunkSize:numPadded
     last = first+chunkSize-1;
     nParts = nParts + 1;
     % All calls have the same input size.  The final zero padding only
     % flushes the loop state; its output is removed below.
-    parts{nParts} = timingObj(xPadded(first:last));
+    if collectTimingError
+        [parts{nParts},errorParts{nParts}] = ...
+            timingObj(xPadded(first:last));
+    else
+        parts{nParts} = timingObj(xPadded(first:last));
+    end
 end
 
 parts = parts(1:nParts);
@@ -59,6 +69,16 @@ info.OutputSamples = numel(y);
 info.NumChunks = nParts;
 info.RateError_ppm = 1e6*(numel(y)-info.ExpectedSymbols)/ ...
     max(info.ExpectedSymbols,1);
+if collectTimingError
+    timingError = vertcat(errorParts{1:nParts});
+    timingError = timingError(1:min(numel(timingError),numel(y)));
+    info.TimingErrorTrace = double(timingError(:));
+    finiteError = info.TimingErrorTrace(isfinite(info.TimingErrorTrace));
+    info.TimingErrorAvailable = ~isempty(finiteError);
+    if info.TimingErrorAvailable
+        info.TimingErrorRMS = sqrt(mean(finiteError.^2));
+    end
+end
 end
 
 function v = localNumber(s,name,defaultValue)
@@ -78,6 +98,19 @@ if isfield(s,name) && ~isempty(s.(name))
     raw = s.(name);
     if ischar(raw) || isstring(raw)
         v = char(string(raw));
+    end
+end
+end
+
+function v = localLogical(s,name,defaultValue)
+v = logical(defaultValue);
+if isfield(s,name) && ~isempty(s.(name))
+    raw = s.(name);
+    if isnumeric(raw) || islogical(raw)
+        v = logical(raw(1));
+    else
+        v = any(lower(strtrim(string(raw(1)))) == ...
+            ["true","1","yes","on"]);
     end
 end
 end

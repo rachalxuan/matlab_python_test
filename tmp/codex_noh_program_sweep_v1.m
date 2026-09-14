@@ -205,11 +205,20 @@ function cfg = localNoHConfig(mode,user,tmpDir)
     cfg.DelaySamples = [0.10 0.25 0.45];
     cfg.IncludeCombinedPoint = true;
     cfg.ImpairmentGroups = ["baseline","noise","cfo","phase","delay","combined"];
-    cfg.ChannelFilePath = ...
-        'E:/matlab_project/v3.0/v3.0/channel/ChannelData_7.mat';
+    % Current acceptance baseline: the newly delivered 3GPP NTN CDL-B,
+    % scene 1 file.  Legacy ChannelData_*.mat files remain historical
+    % regression inputs and are no longer the default.
+    cfg.ChannelFilePath = [ ...
+        'C:/Users/admin/xwechat_files/wxid_95czmz1vt20422_de63/', ...
+        'msg/file/2026-09/mat文件/mat文件/', ...
+        '3GPPNTN-CDL_B_1_AntennaGain_1.mat'];
+    % The current and newly delivered channel files use a 100 kHz channel
+    % coefficient time grid.  Pass it explicitly because the new 2-D MAT
+    % files do not contain sample-rate metadata.
+    cfg.ChannelSampleRateHz = 1e5;
     cfg.ChannelInterpolationMethod = 'linear';
     cfg.ChannelOutOfRangeMode = 'wrap';
-    cfg.InterpolateChannelDelays = false;
+    cfg.InterpolateChannelDelays = true;
     cfg.EqualizerMode = 'blind-cma-lms';
     cfg.ReceiverOverrides = struct();
     if mode == "impairment"
@@ -217,7 +226,8 @@ function cfg = localNoHConfig(mode,user,tmpDir)
         cfg.MaxBER = 1e-3;
     elseif mode == "normalizedh"
         cfg.DisplayName = "Normalized-H";
-        % Cover the known late std7 fade; callers can shorten this explicitly.
+        % Retain a moderate default integration; callers can select jobs and
+        % shorten BERFrames explicitly for smoke tests.
         cfg.BERWarmUpFrames = 8;
         cfg.BERFrames = 60;
     end
@@ -414,6 +424,7 @@ function p = localNoHBaseParams(cfg)
         p.enableHChannel = true;
         p.HMode = 'h_matrix_file';
         p.channelFilePath = cfg.ChannelFilePath;
+        p.channelSampleRateHz = cfg.ChannelSampleRateHz;
         p.channelInterpolationMethod = cfg.ChannelInterpolationMethod;
         p.channelOutOfRangeMode = cfg.ChannelOutOfRangeMode;
         p.interpolateChannelDelays = cfg.InterpolateChannelDelays;
@@ -547,6 +558,7 @@ function row = localRunNoHJob(job,cfg,jobIndex)
         p.enableHChannel = true;
         p.HMode = 'h_matrix_file';
         p.channelFilePath = cfg.ChannelFilePath;
+        p.channelSampleRateHz = cfg.ChannelSampleRateHz;
         p.channelInterpolationMethod = cfg.ChannelInterpolationMethod;
         p.channelOutOfRangeMode = cfg.ChannelOutOfRangeMode;
         p.interpolateChannelDelays = cfg.InterpolateChannelDelays;

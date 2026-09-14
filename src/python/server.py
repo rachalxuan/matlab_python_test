@@ -423,6 +423,8 @@ def run_simulation():
             "enableHChannel": params.get("enableHChannel"),
             "HMode": params.get("HMode"),
             "channelFilePath": params.get("channelFilePath"),
+            "channelFilePaths": params.get("channelFilePaths"),
+            "channelSampleRateHz": params.get("channelSampleRateHz"),
             "enableEqualizer": params.get("enableEqualizer"),
         }
         print("[Server] 参数摘要:", json.dumps(debug_params, ensure_ascii=False))

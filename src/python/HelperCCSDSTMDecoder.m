@@ -116,6 +116,15 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         pFrameSyncGoodCount = 0
         pFrameSyncBadCount = 0
         pFrameSyncLastPhase = 1
+        pFrameSyncObservationIndex = zeros(0,1)
+        pFrameSyncAcceptedTrace = false(0,1)
+        pFrameSyncLockedTrace = false(0,1)
+        pFrameSyncHoldoverTrace = false(0,1)
+        pFrameSyncCorrelationTrace = zeros(0,1)
+        pFrameSyncThresholdTrace = zeros(0,1)
+        pFrameSyncPositionTrace = zeros(0,1)
+        pFrameSyncPhaseTrace = zeros(0,1)
+        pFrameSyncTelemetrySource = 'unavailable'
     end
 
     properties
@@ -140,6 +149,15 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         % TPCInterleaver Codeword deinterleaver mode for TPC.
         %   Must match the transmitter-side TPCInterleaver setting.
         TPCInterleaver = 'auto'
+        % TPCUseKnownZeroConstraint Use deterministic zero filler as prior.
+        %   This improves shortened-rate decoding without changing the
+        %   transmitted 64-by-64 codeword or its interleaver.
+        TPCUseKnownZeroConstraint = false
+        % TPCDecoderMode Product-code decoder mode.
+        %   "iterative" is the production Chase decoder.  The
+        %   "hard-systematic-debug" mode is a front-end diagnostic that
+        %   bypasses FEC correction and extracts transmitted systematic bits.
+        TPCDecoderMode = 'iterative'
     end
 
     methods
@@ -147,6 +165,36 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         function obj = HelperCCSDSTMDecoder(varargin)
             % Support name-value pair arguments when constructing object
             setProperties(obj,numel(varargin),varargin{:})
+        end
+
+        function telemetry = getFrameSyncTelemetry(obj)
+            % Return receiver-observable ASM lock history.  This method
+            % deliberately exposes no transmitted-frame or BER truth.
+            locked = logical(obj.pFrameSyncLockedTrace(:));
+            accepted = logical(obj.pFrameSyncAcceptedTrace(:));
+            transitions = diff([false;locked]);
+            lockEvents = nnz(transitions == 1);
+            lossEvents = nnz(transitions == -1);
+            telemetry = struct( ...
+                'Available',obj.HasASM && ~isempty(locked), ...
+                'Source',char(obj.pFrameSyncTelemetrySource), ...
+                'ObservationIndex',double(obj.pFrameSyncObservationIndex(:)), ...
+                'ASMObservationAccepted',accepted, ...
+                'Locked',locked, ...
+                'Holdover',logical(obj.pFrameSyncHoldoverTrace(:)), ...
+                'Correlation',double(obj.pFrameSyncCorrelationTrace(:)), ...
+                'MinimumCorrelation',double(obj.pFrameSyncThresholdTrace(:)), ...
+                'PeakPosition',double(obj.pFrameSyncPositionTrace(:)), ...
+                'PhaseIndex',double(obj.pFrameSyncPhaseTrace(:)), ...
+                'AcquireThresholdFrames',max(1,round(double( ...
+                    obj.FrameSyncLockThreshold))), ...
+                'LoseThresholdFrames',max(1,round(double( ...
+                    obj.FrameSyncUnlockThreshold))), ...
+                'LockRate',mean(double(locked)), ...
+                'LockedAtEnd',logical(obj.pFrameSyncLocked), ...
+                'LockEvents',lockEvents, ...
+                'LossEvents',lossEvents, ...
+                'Reacquisitions',max(0,lockEvents-1));
         end
     end
 
@@ -523,9 +571,17 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 blocksPerTF = localPositiveInteger(obj.TPCBlocksPerTF, 1);
                 obj.pFullInputBufferLength = 64*64*blocksPerTF + syncLen;
                 obj.pFrameLength = obj.pFullInputBufferLength;
-                fprintf('[TPC setup] k=%d, n=%d, rate=%.6f, blocksPerTF=%d, syncLen=%d, fullFrame=%d\n', ...
-                    localTPCPayloadBits(obj.TPCCodeRate), 64*64, ...
-                    localTPCEffectiveRate(obj.TPCCodeRate), blocksPerTF, syncLen, obj.pFullInputBufferLength);
+                payloadBits = localTPCPayloadBits(obj.TPCCodeRate);
+                knownZeroBits = 57*57-payloadBits;
+                fprintf(['[TPC setup] k=%d, n=%d, rate=%.6f, ', ...
+                    'blocksPerTF=%d, syncLen=%d, fullFrame=%d, ', ...
+                    'knownZeroConstraint=%d (%d bits/codeword), decoder=%s\n'], ...
+                    payloadBits, 64*64, ...
+                    localTPCEffectiveRate(obj.TPCCodeRate), blocksPerTF, ...
+                    syncLen, obj.pFullInputBufferLength, ...
+                    logical(obj.TPCUseKnownZeroConstraint) && ...
+                    knownZeroBits > 0, knownZeroBits, ...
+                    char(string(obj.TPCDecoderMode)));
             end
         end
 
@@ -659,6 +715,42 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 [frames, obj.pInputBuffer] = buffer(syncInput, obj.pFullInputBufferLength);
                 syncLostFlag = false;
 
+                % Export the same per-frame ASM evidence that a hardware
+                % lock lamp would consume.  This monitor is deliberately
+                % side-band: it does not gate or realign decoder output.
+                selectedASMLength = numel(obj.pASM);
+                maxASMErrors = min(max(0,round(double( ...
+                    obj.FrameSyncASMErrorThreshold))), ...
+                    floor(selectedASMLength/2));
+                minimumCorrelation = 1 - ...
+                    2*maxASMErrors/max(selectedASMLength,1);
+                for iSyncObservation = 1:size(frames,2)
+                    bestFrameCorrelation = -inf;
+                    bestFramePhase = 1;
+                    for iSyncPhase = 1:size(obj.pRotatedASM,2)
+                        marker = double(sign( ...
+                            obj.pRotatedASM(:,iSyncPhase)));
+                        marker(marker == 0) = 1;
+                        markerLength = min(numel(marker),size(frames,1));
+                        sample = double(frames(1:markerLength, ...
+                            iSyncObservation));
+                        frameCorrelation = sum( ...
+                            marker(1:markerLength).*sample(:)) / ...
+                            (sum(abs(sample(:)))+eps);
+                        if frameCorrelation > bestFrameCorrelation
+                            bestFrameCorrelation = frameCorrelation;
+                            bestFramePhase = iSyncPhase;
+                        end
+                    end
+                    evidenceAccepted = periodicSyncAccepted && ...
+                        isfinite(bestFrameCorrelation) && ...
+                        bestFrameCorrelation >= minimumCorrelation;
+                    updateFrameSyncMonitorState(obj,evidenceAccepted);
+                    recordFrameSyncObservation(obj,evidenceAccepted, ...
+                        false,bestFrameCorrelation,minimumCorrelation, ...
+                        1,bestFramePhase,'periodic-raw-asm');
+                end
+
                 if strcmp(obj.ChannelCoding, "TPC") && evalin('base','exist(''debugTPC_encodedBits'',''var'')')
                     fprintf('[TPC DEBUG] decoder ASM sync pos=%d err=%d mean=%.2f frames=%d, polarity=%+d, outFrames=%d\n', ...
                         bestPos, bestErr, bestMeanErr, bestFrames, bestPolarity, size(frames,2));
@@ -676,6 +768,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             elseif obj.HasASM && obj.DisableFrameSynchronization
                 [frames, obj.pInputBuffer] = buffer([obj.pInputBuffer; llr], obj.pFullInputBufferLength);
                 syncLostFlag = false;
+                % An upstream stage established the boundary.  Do not
+                % fabricate per-frame ASM observations here; that stage
+                % must explicitly export its own telemetry.
             elseif obj.HasASM
                 [frames, syncLostFlag] = frameSynchronize(obj, llr);
             else
@@ -1040,7 +1135,10 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                     end
                                     [msg, ~] = ccsdsTPCDecodeSoft(cwSoft(:,iWord), ...
                                         'TPCCodeRate', obj.TPCCodeRate, ...
-                                        'TPCInterleaver', obj.TPCInterleaver);
+                                        'TPCInterleaver', obj.TPCInterleaver, ...
+                                        'UseKnownZeroConstraint', ...
+                                        obj.TPCUseKnownZeroConstraint, ...
+                                        'DecoderMode', obj.TPCDecoderMode);
                                     y((iWord-1)*infoLen+1:iWord*infoLen) = msg(:);
                                 end
 
@@ -1152,6 +1250,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     correlationAccepted = false;
                 end
 
+                holdoverUsed = false;
                 if correlationAccepted
                     obj.pFrameSyncGoodCount = obj.pFrameSyncGoodCount + 1;
                     obj.pFrameSyncBadCount = 0;
@@ -1169,6 +1268,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                             obj.pFrameSyncBadCount < unlockThreshold
                         pos = 1;
                         PhaseIndex = obj.pFrameSyncLastPhase;
+                        holdoverUsed = true;
                         if printFrameSyncDebug
                             fprintf(['[Coded DEBUG] decoder ASM holdover ', ...
                                 'corr=%.4f threshold=%.4f bad=%d/%d\n'], ...
@@ -1178,6 +1278,10 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     else
                         obj.pFrameSyncLocked = false;
                         syncFailed = true;
+                        recordFrameSyncObservation(obj,false,false, ...
+                            selectedCorrelation,minimumCorrelation, ...
+                            rawPos,PhaseIndex, ...
+                            'decoder-soft-asm-correlator');
                         if printFrameSyncDebug
                             fprintf(['[Coded DEBUG] decoder ASM rejected ', ...
                                 'corr=%.4f threshold=%.4f pos=%d\n'], ...
@@ -1189,6 +1293,10 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                         continue;
                     end
                 end
+
+                recordFrameSyncObservation(obj,correlationAccepted, ...
+                    holdoverUsed,selectedCorrelation,minimumCorrelation, ...
+                    rawPos,PhaseIndex,'decoder-soft-asm-correlator');
 
                 % Resolve phase ambiguity
                 if any(strcmp(obj.Modulation,{'QPSK','OQPSK'}))
@@ -1429,6 +1537,48 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             syncASM = codedASM(offsetLength+1:end);
         end
 
+        function updateFrameSyncMonitorState(obj,evidenceAccepted)
+            % Apply the configured acquisition/loss hysteresis for paths
+            % whose decoding is already aligned elsewhere.  The ordinary
+            % soft-ASM correlator updates the same state inline because it
+            % also uses HOLD to control decoder output.
+            if evidenceAccepted
+                obj.pFrameSyncGoodCount = obj.pFrameSyncGoodCount + 1;
+                obj.pFrameSyncBadCount = 0;
+                if obj.pFrameSyncGoodCount >= max(1,round(double( ...
+                        obj.FrameSyncLockThreshold)))
+                    obj.pFrameSyncLocked = true;
+                end
+            else
+                obj.pFrameSyncGoodCount = 0;
+                obj.pFrameSyncBadCount = obj.pFrameSyncBadCount + 1;
+                if obj.pFrameSyncLocked && ...
+                        obj.pFrameSyncBadCount >= max(1,round(double( ...
+                        obj.FrameSyncUnlockThreshold)))
+                    obj.pFrameSyncLocked = false;
+                end
+            end
+        end
+
+        function recordFrameSyncObservation(obj,accepted,holdover, ...
+                correlation,minimumCorrelation,position,phaseIndex,source)
+            observationIndex = numel(obj.pFrameSyncLockedTrace)+1;
+            obj.pFrameSyncObservationIndex(end+1,1) = observationIndex;
+            obj.pFrameSyncAcceptedTrace(end+1,1) = logical(accepted);
+            obj.pFrameSyncLockedTrace(end+1,1) = ...
+                logical(obj.pFrameSyncLocked);
+            obj.pFrameSyncHoldoverTrace(end+1,1) = logical(holdover);
+            obj.pFrameSyncCorrelationTrace(end+1,1) = correlation;
+            obj.pFrameSyncThresholdTrace(end+1,1) = minimumCorrelation;
+            obj.pFrameSyncPositionTrace(end+1,1) = position;
+            obj.pFrameSyncPhaseTrace(end+1,1) = phaseIndex;
+            if strcmp(obj.pFrameSyncTelemetrySource,'unavailable')
+                obj.pFrameSyncTelemetrySource = char(source);
+            elseif ~strcmp(obj.pFrameSyncTelemetrySource,char(source))
+                obj.pFrameSyncTelemetrySource = 'mixed';
+            end
+        end
+
         function resetImpl(obj)
             % Initialize / reset discrete-state properties
             if ~isempty(obj.pDec)
@@ -1446,6 +1596,15 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             obj.pFrameSyncGoodCount = 0;
             obj.pFrameSyncBadCount = 0;
             obj.pFrameSyncLastPhase = 1;
+            obj.pFrameSyncObservationIndex = zeros(0,1);
+            obj.pFrameSyncAcceptedTrace = false(0,1);
+            obj.pFrameSyncLockedTrace = false(0,1);
+            obj.pFrameSyncHoldoverTrace = false(0,1);
+            obj.pFrameSyncCorrelationTrace = zeros(0,1);
+            obj.pFrameSyncThresholdTrace = zeros(0,1);
+            obj.pFrameSyncPositionTrace = zeros(0,1);
+            obj.pFrameSyncPhaseTrace = zeros(0,1);
+            obj.pFrameSyncTelemetrySource = 'unavailable';
         end
 
         function releaseImpl(obj)
@@ -1479,6 +1638,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             s.TPCCodeRate = obj.TPCCodeRate;
             s.TPCBlocksPerTF = obj.TPCBlocksPerTF;
             s.TPCInterleaver = obj.TPCInterleaver;
+            s.TPCUseKnownZeroConstraint = obj.TPCUseKnownZeroConstraint;
+            s.TPCDecoderMode = obj.TPCDecoderMode;
             s.ViterbiTraceBackDepth = obj.ViterbiTraceBackDepth;
             s.ViterbiTrellis = obj.ViterbiTrellis;
             s.ViterbiWordLength = obj.ViterbiTrellis;
@@ -1545,6 +1706,13 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             if isfield(s,'TPCInterleaver')
                 obj.TPCInterleaver = s.TPCInterleaver;
             end
+            if isfield(s,'TPCUseKnownZeroConstraint')
+                obj.TPCUseKnownZeroConstraint = ...
+                    s.TPCUseKnownZeroConstraint;
+            end
+            if isfield(s,'TPCDecoderMode')
+                obj.TPCDecoderMode = s.TPCDecoderMode;
+            end
 
             if wasLocked
                 if isfield(s,'pDec') % For the case of ChannelCoding being "none" or "RS", pDec is not defined. Hence, this should not be saved then
@@ -1610,6 +1778,10 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
             elseif strcmp(prop,'TPCInterleaver')
                 flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
+            elseif strcmp(prop,'TPCUseKnownZeroConstraint')
+                flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
+            elseif strcmp(prop,'TPCDecoderMode')
+                flag = ~strcmp(obj.ChannelCoding,'TPC') || isFACM;
             elseif strcmp(prop,'NumBitsInInformationBlock')
                 flag = ~any(strcmp(obj.ChannelCoding,{'LDPC','turbo'})) || isFACM;
             elseif strcmp(prop,'IsLDPCOnSMTF')
@@ -1672,6 +1844,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 'TPCCodeRate',...
                 'TPCBlocksPerTF',...
                 'TPCInterleaver',...
+                'TPCUseKnownZeroConstraint',...
+                'TPCDecoderMode',...
                 'NumBitsInInformationBlock',...
                 'IsLDPCOnSMTF',...
                 'LDPCCodeblockSize',...

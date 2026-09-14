@@ -47,6 +47,8 @@ function [softBits, info, rawMetric] = gmsk_frame_reset_demodulate(inputData, cf
     info.FramePeriodBits = cfg.framePeriodBits;
     info.ASMOffsetBits = cfg.asmOffsetBits;
     info.ASMTemplateLength = size(cfg.asmTemplates, 1);
+    info.ASMMaxErrors = cfg.asmMaxErrors;
+    info.ASMMinGap = cfg.asmMinGap;
     info.RawMetricLength = numel(rawMetric);
 
     knownEnd = cfg.asmOffsetBits + size(cfg.asmTemplates, 1);
@@ -400,6 +402,8 @@ function info = localEmptyInfo()
     info.FramePeriodBits = 0;
     info.ASMOffsetBits = 0;
     info.ASMTemplateLength = 0;
+    info.ASMMaxErrors = NaN;
+    info.ASMMinGap = NaN;
     info.RawMetricLength = 0;
     info.FrameStarts = zeros(0, 1);
     info.FrameIndex = zeros(0, 1);

@@ -122,7 +122,11 @@ const DEFAULT_CCSDS_PARAMS = {
   AGCMode: "off",
   rsPreset: "rs-255-223-i5",
   channelModel: "none",
+  channelSampleRateHz: 100000,
   enableEqualizer: false,
+  // 仅导出仿真时间轴上的同步状态，不参与接收机校正。
+  enableRuntimeLockTelemetry: true,
+  runtimeStatusUpdateMs: 200,
 };
 
 const MODULATION_OPTIONS = [
@@ -414,7 +418,61 @@ const getEvmSummary = (evmPercent) => {
 };
 
 const getGMSKEvmSummary = () =>
-  "GMSK 是一种连续相位调制，因此该数值仅作为 IQ 或包络的粗略指示，而非标准的星座图 EVM。在评估 GMSK 的信号质量时，建议优先参考 BER（误码率）、LockRate（锁定率）、PAPR（峰均功率比）、相位轨迹、相位差以及 PSD（功率谱密度）";
+  "GMSK 是一种连续相位调制，因此该数值仅作为 IQ 或包络的粗略指示，而非标准的星座图 EVM。在评估 GMSK 的信号质量时，建议优先参考 BER（误码率）、载波/码元/帧同步状态、PAPR（峰均功率比）、相位轨迹、相位差以及 PSD（功率谱密度）";
+
+const normalizeRuntimeLockTrack = (track) => {
+  if (!track || track.Available !== true) {
+    return {
+      available: false,
+      source: track?.Source || "unavailable",
+      reason: track?.Reason || "当前接收路径未导出该锁定状态",
+      locked: null,
+      ratePercent: null,
+      lossEvents: 0,
+      reacquisitions: 0,
+      time: [],
+      state: [],
+      displayTime: [],
+      displayState: [],
+    };
+  }
+  return {
+    available: true,
+    source: track.Source || "receiver detector",
+    reason: track.Reason || "",
+    locked: Boolean(track.LockedAtEnd),
+    ratePercent: isFiniteNumber(track.LockRate)
+      ? track.LockRate * 100
+      : null,
+    lossEvents: Number(track.LossEvents || 0),
+    reacquisitions: Number(track.Reacquisitions || 0),
+    time: Array.isArray(track.Time_s) ? track.Time_s : [],
+    state: Array.isArray(track.State) ? track.State : [],
+    displayTime: Array.isArray(track.DisplayTime_s)
+      ? track.DisplayTime_s
+      : [],
+    displayState: Array.isArray(track.DisplayState)
+      ? track.DisplayState
+      : [],
+  };
+};
+
+const RuntimeLockIndicator = ({ track }) => {
+  if (!track?.available) {
+    return <span title={track?.reason || "当前接收路径未导出此状态"}>N/A</span>;
+  }
+
+  return (
+    <>
+      <Tag color={track.locked ? "success" : "error"}>
+        {track.locked ? "锁定" : "失锁"}
+      </Tag>
+      {isFiniteNumber(track.ratePercent)
+        ? `${formatMetricValue(track.ratePercent)}%`
+        : ""}
+    </>
+  );
+};
 
 const normalizeSimulationResult = (raw) => {
   if (!raw) return null;
@@ -429,6 +487,29 @@ const normalizeSimulationResult = (raw) => {
 
   if (Object.prototype.hasOwnProperty.call(raw, "BER")) {
     const lockRate = isFiniteNumber(raw.LockRate) ? raw.LockRate : null;
+    const runtimeLock = raw.RuntimeLockTelemetry?.Enabled
+      ? {
+          carrier: normalizeRuntimeLockTrack(
+            raw.RuntimeLockTelemetry.Carrier,
+          ),
+          timing: normalizeRuntimeLockTrack(raw.RuntimeLockTelemetry.Timing),
+          frame: normalizeRuntimeLockTrack(raw.RuntimeLockTelemetry.Frame),
+          statusUpdatePeriod: raw.RuntimeLockTelemetry.StatusUpdatePeriod_s,
+        }
+      : null;
+    const runtimeLockTracks = runtimeLock
+      ? [runtimeLock.carrier, runtimeLock.timing, runtimeLock.frame]
+      : [];
+    const allRuntimeLocksAvailable =
+      runtimeLockTracks.length === 3 &&
+      runtimeLockTracks.every((track) => track.available);
+    const combinedLockStatus = runtimeLock
+      ? allRuntimeLocksAvailable
+        ? runtimeLockTracks.every((track) => track.locked)
+        : null
+      : isFiniteNumber(lockRate)
+        ? lockRate > 0.8
+        : null;
     const elapsedTime = isFiniteNumber(raw.ElapsedTime)
       ? raw.ElapsedTime
       : null;
@@ -486,7 +567,14 @@ const normalizeSimulationResult = (raw) => {
           : null,
         LockRate: lockRate,
         LockRatePercent: isFiniteNumber(lockRate) ? lockRate * 100 : null,
-        LockStatus: isFiniteNumber(lockRate) ? lockRate > 0.8 : null,
+        LegacyLockRateMeaning:
+          raw.LegacyLockRateMeaning ||
+          "评估器发送/接收帧匹配率，不是接收机锁定检测器",
+        RuntimeLock: runtimeLock,
+        CarrierLock: runtimeLock?.carrier || null,
+        TimingLock: runtimeLock?.timing || null,
+        FrameSyncLock: runtimeLock?.frame || null,
+        LockStatus: combinedLockStatus,
         InputSNR: raw.snr_in,
         InputCFO: raw.cfo_in,
         InputPhase: raw.phase_in,
@@ -548,7 +636,7 @@ const CCSDSPlatform = () => {
   const [historyVisible, setHistoryVisible] = useState(false);
   const [historyList, setHistoryList] = useState([]);
   const [channelModels, setChannelModels] = useState([]);
-  const [uploadedChannelModel, setUploadedChannelModel] = useState(null);
+  const [uploadedChannelModels, setUploadedChannelModels] = useState([]);
 
   // 图表 Refs
   const rawConstellationRef = useRef(null);
@@ -728,9 +816,36 @@ const CCSDSPlatform = () => {
 
       const selectedChannel = payload.channelModel || "none";
       const hPreset = H_DAMAGE_PRESETS[selectedChannel.replace("synthetic_", "")];
+      if (selectedChannel === "upload-sequence" && uploadedChannelModels.length > 1) {
+        const descriptors = uploadedChannelModels.map((item) => {
+          const match = String(item.fileName || "").match(/^(.*)_(\d+)\.mat$/i);
+          return match ? { prefix: match[1], ordinal: Number(match[2]) } : null;
+        });
+        const prefixes = new Set(descriptors.filter(Boolean).map((item) => item.prefix));
+        const ordinals = descriptors.filter(Boolean).map((item) => item.ordinal);
+        if (
+          descriptors.some((item) => item === null) ||
+          prefixes.size !== 1 ||
+          new Set(ordinals).size !== ordinals.length
+        ) {
+          throw new Error(
+            "快照序列必须来自同一天线/模型前缀，并以唯一的 _1.mat、_2.mat… 结尾；不要把 A_1/A_2 等不同方向图混成时间序列。",
+          );
+        }
+      }
+      const uploadedSequence =
+        selectedChannel === "upload-sequence" && uploadedChannelModels.length
+          ? {
+              id: "upload-sequence",
+              label: `自定义快照序列（${uploadedChannelModels.length} 个）`,
+              paths: uploadedChannelModels.map((item) => item.path),
+            }
+          : null;
       const matrixChannel =
         channelModels.find((item) => item.id === selectedChannel) ||
-        (uploadedChannelModel?.id === selectedChannel ? uploadedChannelModel : null);
+        uploadedSequence ||
+        uploadedChannelModels.find((item) => item.id === selectedChannel) ||
+        null;
       payload.enableHChannel = Boolean(hPreset || matrixChannel);
       if (hPreset) {
         payload.HMode = "siso_multipath";
@@ -738,10 +853,21 @@ const CCSDSPlatform = () => {
         payload.normalizeHChannel = true;
       } else if (matrixChannel) {
         payload.HMode = "h_matrix_file";
-        payload.channelFilePath = matrixChannel.path;
+        const channelPaths = matrixChannel.paths || [matrixChannel.path];
+        payload.channelFilePath = channelPaths[0];
+        if (channelPaths.length > 1) {
+          payload.channelFilePaths = channelPaths;
+        } else {
+          delete payload.channelFilePaths;
+        }
+        payload.channelSampleRateHz = Number(
+          payload.channelSampleRateHz || 100000,
+        );
         payload.channelInterpolationMethod = "linear";
-        payload.channelOutOfRangeMode = "wrap";
-        payload.interpolateChannelDelays = false;
+        // A time sequence must never silently repeat or freeze after its
+        // declared end; insufficient H duration is a configuration error.
+        payload.channelOutOfRangeMode = channelPaths.length > 1 ? "error" : "wrap";
+        payload.interpolateChannelDelays = channelPaths.length > 1;
         payload.normalizeHChannel = false;
         delete payload.H;
       } else {
@@ -749,6 +875,7 @@ const CCSDSPlatform = () => {
         payload.H = [];
         payload.normalizeHChannel = false;
         delete payload.channelFilePath;
+        delete payload.channelFilePaths;
       }
       payload.enableEqualizer = payload.enableHChannel && Boolean(payload.enableEqualizer);
       payload.normalizeEqualizerOutput = true;
@@ -876,9 +1003,29 @@ const CCSDSPlatform = () => {
       if (!result?.success || !result?.model) {
         throw new Error(result?.error || "上传失败");
       }
-      setUploadedChannelModel(result.model);
-      form.setFieldValue("channelModel", result.model.id);
-      message.success(`已加载信道文件：${result.model.label}`);
+      setUploadedChannelModels((previous) => {
+        const next = [
+          ...previous.filter((item) => item.id !== result.model.id),
+          result.model,
+        ];
+        next.sort((a, b) => {
+          const parse = (name) => {
+            const match = String(name || "").match(/^(.*)_(\d+)\.mat$/i);
+            return match
+              ? { prefix: match[1], ordinal: Number(match[2]) }
+              : { prefix: String(name || ""), ordinal: Number.NaN };
+          };
+          const aa = parse(a.fileName);
+          const bb = parse(b.fileName);
+          if (aa.prefix === bb.prefix && Number.isFinite(aa.ordinal) && Number.isFinite(bb.ordinal)) {
+            return aa.ordinal - bb.ordinal;
+          }
+          return String(a.fileName).localeCompare(String(b.fileName));
+        });
+        return next;
+      });
+      form.setFieldValue("channelModel", "upload-sequence");
+      message.success(`已加入信道快照：${result.model.label}`);
       onSuccess?.(result);
     } catch (error) {
       message.error(error.message || "上传信道文件失败");
@@ -1291,7 +1438,7 @@ const CCSDSPlatform = () => {
           </Card>
           <Card className="kpi-card" bordered={false}>
             <Statistic
-              title="锁定率"
+              title="帧匹配率（评估）"
               value={formatMetricValue(simResult.stats.LockRatePercent)}
               suffix="%"
             />
@@ -1407,15 +1554,24 @@ const CCSDSPlatform = () => {
 
             <Col xs={24} xl={7}>
               <Descriptions title="运行信息" size="small" column={1} bordered>
-                <Descriptions.Item label="锁定率">
+                <Descriptions.Item label="帧匹配率（评估）">
                   {formatMetricValue(simResult.stats.LockRatePercent)}%
                 </Descriptions.Item>
-                <Descriptions.Item label="同步状态">
+                <Descriptions.Item label="综合当前状态">
                   <Tag
                     color={simResult.stats.LockStatus ? "success" : "warning"}
                   >
                     {formatLockStatus(simResult.stats.LockStatus)}
                   </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="载波锁定">
+                  <RuntimeLockIndicator track={simResult.stats.CarrierLock} />
+                </Descriptions.Item>
+                <Descriptions.Item label="码元锁定">
+                  <RuntimeLockIndicator track={simResult.stats.TimingLock} />
+                </Descriptions.Item>
+                <Descriptions.Item label="帧同步">
+                  <RuntimeLockIndicator track={simResult.stats.FrameSyncLock} />
                 </Descriptions.Item>
                 <Descriptions.Item label="残余CFO">
                   {simResult.stats.ResidCFOValid &&
@@ -2271,18 +2427,23 @@ const CCSDSPlatform = () => {
                         {model.label}{model.available ? "" : "（文件不存在）"}
                       </Option>
                     ))}
-                    {uploadedChannelModel && (
-                      <Option value={uploadedChannelModel.id}>
-                        自定义：{uploadedChannelModel.label}
+                    {uploadedChannelModels.length > 0 && (
+                      <Option value="upload-sequence">
+                        自定义快照序列（{uploadedChannelModels.length} 个）
                       </Option>
                     )}
+                    {uploadedChannelModels.map((model) => (
+                      <Option key={model.id} value={model.id}>
+                        单个快照：{model.label}
+                      </Option>
+                    ))}
                   </Select>
                 </Form.Item>
               </Col>
               <Col span={5}>
-                <Form.Item label="自定义信道" extra="MAT 至少应包含 H_Martix_tMode 或 H_Matrix_tMode">
-                  <Upload accept=".mat" maxCount={1} showUploadList={false} customRequest={handleChannelUpload}>
-                    <Button icon={<UploadOutlined />}>上传 MAT</Button>
+                <Form.Item label="自定义信道" extra="多文件须为同一天线、按末尾 _1、_2…编号的连续快照">
+                  <Upload accept=".mat" multiple showUploadList={false} customRequest={handleChannelUpload}>
+                    <Button icon={<UploadOutlined />}>上传 MAT 快照</Button>
                   </Upload>
                 </Form.Item>
               </Col>
@@ -2296,6 +2457,27 @@ const CCSDSPlatform = () => {
                 </Form.Item>
               </Col>
             </Row>
+            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.channelModel !== cur.channelModel}>
+              {({ getFieldValue }) => {
+                const selected = getFieldValue("channelModel");
+                if (!selected || selected === "none" || selected.startsWith("synthetic_")) {
+                  return null;
+                }
+                return (
+                  <Row gutter={16}>
+                    <Col span={6}>
+                      <Form.Item
+                        name="channelSampleRateHz"
+                        label="H 采样率 (Hz)"
+                        extra="新信道当前为 100000；以后优先读取 MAT 元数据"
+                      >
+                        <InputNumber min={1} precision={0} style={{ width: "100%" }} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                );
+              }}
+            </Form.Item>
             <Row gutter={16} align="bottom">
               <Col span={8} offset={8}>
                 <Form.Item label=" ">
@@ -2475,7 +2657,7 @@ const CCSDSPlatform = () => {
                         </Card>
                         <Card className="kpi-card" bordered={false}>
                           <Statistic
-                            title="锁定率"
+                            title="帧匹配率（评估）"
                             value={formatMetricValue(
                               simResult.stats.LockRatePercent,
                             )}
@@ -2567,7 +2749,7 @@ const CCSDSPlatform = () => {
                               column={1}
                               bordered
                             >
-                              <Descriptions.Item label="锁定状态">
+                              <Descriptions.Item label="综合当前状态">
                                 <Tag
                                   color={
                                     simResult.stats.LockStatus
@@ -2577,6 +2759,21 @@ const CCSDSPlatform = () => {
                                 >
                                   {formatLockStatus(simResult.stats.LockStatus)}
                                 </Tag>
+                              </Descriptions.Item>
+                              <Descriptions.Item label="载波锁定">
+                                <RuntimeLockIndicator
+                                  track={simResult.stats.CarrierLock}
+                                />
+                              </Descriptions.Item>
+                              <Descriptions.Item label="码元锁定">
+                                <RuntimeLockIndicator
+                                  track={simResult.stats.TimingLock}
+                                />
+                              </Descriptions.Item>
+                              <Descriptions.Item label="帧同步">
+                                <RuntimeLockIndicator
+                                  track={simResult.stats.FrameSyncLock}
+                                />
                               </Descriptions.Item>
                               <Descriptions.Item label="残余CFO">
                                 {simResult.stats.ResidCFOValid &&
@@ -2620,6 +2817,16 @@ const CCSDSPlatform = () => {
                               <Descriptions.Item label="出错帧数">
                                 {simResult.stats.FrameErrors ?? 0}
                               </Descriptions.Item>
+                              {isFiniteNumber(simResult.stats.ChannelSnapshotCount) && (
+                                <Descriptions.Item label="H 快照数">
+                                  {simResult.stats.ChannelSnapshotCount}
+                                </Descriptions.Item>
+                              )}
+                              {simResult.stats.ChannelSequenceContinuity && (
+                                <Descriptions.Item label="H 时间连续性">
+                                  {simResult.stats.ChannelSequenceContinuity}
+                                </Descriptions.Item>
+                              )}
                               <Descriptions.Item label="结论">
                                 {(simResult.stats.CountedFrames ??
                                   simResult.stats.ComparedFrames ??
