@@ -51,6 +51,7 @@ if logical(cfg.ListOnly)
     NewChannelPSDSweepCatalog = catalog;
     NewChannelPSDSweepResults = table();
     NewChannelPSDSweepLogs = cell(0,1);
+    NewChannelPSDSweepTimelines = cell(0,1);
     fprintf('ListOnly=true: no receiver simulation was run.\n');
     return;
 end
@@ -107,6 +108,8 @@ fprintf(['Verdict        : short synchronization screen only. ', ...
 
 rows = repmat(localEmptyRow(),numel(selected),1);
 logs = cell(numel(selected),1);
+% Retain each selected case's timeline; do not keep full waveforms.
+NewChannelPSDSweepTimelines = cell(numel(selected),1);
 
 for k = 1:numel(selected)
     fileIndex = selected(k);
@@ -121,11 +124,17 @@ for k = 1:numel(selected)
     p = localMerge(p,cfg.ReceiverOverrides);
     fprintf('[%02d/%02d] %-4s | %s ...\n', ...
         fileIndex,nFiles,char(row.Family),char(row.FileName));
+    NewChannelPSDSweepTimelines{k} = struct('Available',false, ...
+        'Reason','receiver did not return a timeline', ...
+        'Mode','offline-simulation-timeline');
     runTimer = tic;
     try
         rng(double(cfg.Seed),'twister');
         result = struct();
         logs{k} = evalc('[result,~] = run_ccsds_tm_evaluation(p);');
+        if isfield(result,'ReceiverTimeline')
+            NewChannelPSDSweepTimelines{k} = result.ReceiverTimeline;
+        end
         row.Elapsed_s = toc(runTimer);
         row.Success = localLogical(result,'success',false);
         if ~row.Success
@@ -164,6 +173,7 @@ end
 NewChannelPSDSweepResults = struct2table(rows,'AsArray',true);
 NewChannelPSDSweepLogs = logs;
 NewChannelPSDSweepCatalog = catalog;
+fprintf('Per-case offline timelines: NewChannelPSDSweepTimelines (same row order as results).\n');
 
 fprintf('\n================ PSD SYNC SWEEP SUMMARY ================\n');
 summaryGroups = groupsummary(NewChannelPSDSweepResults,'Verdict');
@@ -189,7 +199,10 @@ disp(NewChannelPSDSweepResults(:,{ ...
     'CarrierLosses','TimingLosses','FrameLosses','FrameReacquisitions', ...
     'HDelaySpreadSymbols','HFSESpanSymbols','HFSESpanMarginSymbols', ...
     'HFrequencyMin_dB','HFrequencyP01_dB', ...
-    'HPathPowerMode','HDynamicRange_dB','HDeepFadeBelow20_pct','Verdict'}));
+    'HPathPowerMode','HDynamicRange_dB','HDeepFadeBelow20_pct', ...
+    'MeasurementComparedFrames','MeasurementExpectedFrames', ...
+    'MeasurementCoverage_pct','UnrecoveredMeasurementFrames', ...
+    'RecoveredNotComparedFrames','MeasurementCoverageStatus','Verdict'}));
 
 if logical(cfg.SaveCSV)
     csvPath = char(string(cfg.CSVPath));
@@ -352,6 +365,14 @@ row.BER = localNumber(result,'BER',NaN);
 row.FER = localNumber(result,'FER',NaN);
 row.CountedFrames = localNumber(result,'CountedFrames',NaN);
 row.FrameErrors = localNumber(result,'FrameErrors',NaN);
+coverage = localStruct(result,'MeasurementCoverage');
+row.MeasurementCoverageStatus = localString(coverage,'Status',"UNAVAILABLE");
+row.MeasurementExpectedFrames = localNumber(coverage,'ExpectedFrames',NaN);
+row.MeasurementComparedFrames = localNumber(coverage,'ComparedFrames',NaN);
+row.MeasurementCoverage_pct = 100*localNumber(coverage,'Fraction',NaN);
+row.UnrecoveredMeasurementFrames = localNumber(coverage,'UnrecoveredFrames',NaN);
+row.RecoveredNotComparedFrames = localNumber(coverage,'RecoveredNotComparedFrames',NaN);
+row.MeasurementDuration_s = localNumber(result,'MeasurementDuration_s',NaN);
 row.LegacyFrameMatch_pct = 100*localNumber(result,'LockRate',NaN);
 row.CoarseCFOEstimate_Hz = localNumber(result,'cfo_est_Hz',NaN);
 row.PSKCoarseCFOApplied = localLogical( ...
@@ -496,6 +517,9 @@ telemetry = localStruct(result,'RuntimeLockTelemetry');
 
 bitsObserved = max(0,row.CountedFrames) * ...
     round(double(cfg.NumBytesInTransferFrame))*8;
+if localLogical(coverage,'Available',false)
+    bitsObserved=localNumber(coverage,'ComparedBits',bitsObserved);
+end
 row.BitsObservedApprox = bitsObserved;
 if row.BER == 0 && bitsObserved > 0
     row.ZeroErrorUpper95 = -log(0.05)/bitsObserved;
@@ -520,6 +544,10 @@ elseif (row.CarrierAvailable && ~row.CarrierLockedAtEnd) || ...
     row.Verdict = "LOOP_UNLOCKED_AT_END";
 elseif row.BER > 0 || row.FER > 0
     row.Verdict = "DECODE_ERRORS";
+elseif ~localLogical(coverage,'Available',false)
+    row.Verdict = "MEASUREMENT_COVERAGE_UNAVAILABLE";
+elseif ~localLogical(coverage,'Complete',false)
+    row.Verdict = "MEASUREMENT_INCOMPLETE";
 else
     row.Verdict = "SHORT_PASS";
 end
@@ -539,6 +567,10 @@ row = struct( ...
     'FileIndex',NaN,'Family',"",'Profile',"",'FileName',"", ...
     'Success',false,'BER',NaN,'FER',NaN, ...
     'CountedFrames',NaN,'FrameErrors',NaN, ...
+    'MeasurementCoverageStatus',"UNAVAILABLE", ...
+    'MeasurementExpectedFrames',NaN,'MeasurementComparedFrames',NaN, ...
+    'MeasurementCoverage_pct',NaN,'UnrecoveredMeasurementFrames',NaN, ...
+    'RecoveredNotComparedFrames',NaN,'MeasurementDuration_s',NaN, ...
     'BitsObservedApprox',NaN,'ZeroErrorUpper95',NaN, ...
     'LegacyFrameMatch_pct',NaN, ...
     'CoarseCFOEstimate_Hz',NaN,'PSKCoarseCFOApplied',false, ...

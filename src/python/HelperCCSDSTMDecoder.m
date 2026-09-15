@@ -125,6 +125,10 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         pFrameSyncPositionTrace = zeros(0,1)
         pFrameSyncPhaseTrace = zeros(0,1)
         pFrameSyncTelemetrySource = 'unavailable'
+        % Side-band provenance only: never used to alter synchronization/FEC.
+        pInputBitsSeen = 0
+        pPendingFrameStartBits = zeros(0,1)
+        pDecodedFrameStartBits = zeros(0,1)
     end
 
     properties
@@ -165,6 +169,15 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         function obj = HelperCCSDSTMDecoder(varargin)
             % Support name-value pair arguments when constructing object
             setProperties(obj,numel(varargin),varargin{:})
+        end
+
+        function positions = getDecodedFramePositions(obj)
+            % One entry per decoded TF returned by the latest call. NaN is
+            % an invalid/dummy output, not a received physical frame.
+            positions = struct('Available',true, ...
+                'Source','decoder-input-bit-position', ...
+                'InputStartBit',obj.pDecodedFrameStartBits(:), ...
+                'InputFrameLength',double(obj.pFullInputBufferLength));
         end
 
         function telemetry = getFrameSyncTelemetry(obj)
@@ -592,6 +605,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             % discrete states.
 
             randomizerEnabled = obj.RandomizerEnabled;
+            obj.pDecodedFrameStartBits = zeros(0,1);
+            inputStartBit = obj.pInputBitsSeen - numel(obj.pInputBuffer) + 1;
+            nextInputBitsSeen = obj.pInputBitsSeen + numel(llr);
             if strcmpi(obj.DataPathMode, 'dualIQ')
                 error('HelperCCSDSTMDecoder:SplitNotImplemented', ...
                     ['DataPathMode="dualIQ" must be deinterleaved by the ' ...
@@ -707,12 +723,15 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     bestFrames >= 2 && bestMeanErr <= asmlen/2;
                 if periodicSyncAccepted
                     syncInput = syncInput(bestPos:end);
+                    inputStartBit = inputStartBit + bestPos - 1;
                 end
                 if bestPolarity < 0
                     syncInput = -syncInput;
                 end
 
                 [frames, obj.pInputBuffer] = buffer(syncInput, obj.pFullInputBufferLength);
+                frameStartBits = inputStartBit + ...
+                    (0:size(frames,2)-1).' * obj.pFullInputBufferLength;
                 syncLostFlag = false;
 
                 % Export the same per-frame ASM evidence that a hardware
@@ -767,20 +786,28 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 end
             elseif obj.HasASM && obj.DisableFrameSynchronization
                 [frames, obj.pInputBuffer] = buffer([obj.pInputBuffer; llr], obj.pFullInputBufferLength);
+                frameStartBits = inputStartBit + ...
+                    (0:size(frames,2)-1).' * obj.pFullInputBufferLength;
                 syncLostFlag = false;
                 % An upstream stage established the boundary.  Do not
                 % fabricate per-frame ASM observations here; that stage
                 % must explicitly export its own telemetry.
             elseif obj.HasASM
-                [frames, syncLostFlag] = frameSynchronize(obj, llr);
+                [frames, syncLostFlag,~,~,frameStartBits] = ...
+                    frameSynchronize(obj, llr, inputStartBit);
             else
                 [frames, obj.pInputBuffer] = buffer([obj.pInputBuffer; llr], obj.pFullInputBufferLength);
+                frameStartBits = inputStartBit + ...
+                    (0:size(frames,2)-1).' * obj.pFullInputBufferLength;
                 syncLostFlag = false;
 
 
             end
 
 
+            obj.pInputBitsSeen = nextInputBitsSeen;
+            obj.pPendingFrameStartBits = [obj.pPendingFrameStartBits; frameStartBits];
+            n = 0;
             if any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'}))
                 u = frames;
             else
@@ -1155,12 +1182,23 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     y = zeros(0, 1, 'int8');
                 end
             end
+            numDecoded = floor(numel(y)/(obj.pTFLen*8));
+            obj.pDecodedFrameStartBits = nan(numDecoded,1);
+            if ~syncLostFlag && ~isempty(u) && n>0 && ...
+                    numDecoded<=numel(obj.pPendingFrameStartBits)
+                obj.pDecodedFrameStartBits = obj.pPendingFrameStartBits(1:numDecoded);
+                obj.pPendingFrameStartBits(1:numDecoded) = [];
+            end
         end
 
-        function [v, syncFailed, pos, PhaseIndex] = frameSynchronize(obj,u)
+        function [v, syncFailed, pos, PhaseIndex, frameStartBits] = ...
+                frameSynchronize(obj,u,inputStartBit)
             % Do frame synchronization and phase ambiguity resolution
 
             [frames, obj.pInputBuffer] = buffer([obj.pInputBuffer;u], obj.pFullInputBufferLength);
+            frameStartBits = inputStartBit + ...
+                (0:size(frames,2)-1).' * obj.pFullInputBufferLength;
+            pos = 1; PhaseIndex = 1;
             n = size(frames, 2);
             v = zeros(obj.pFullInputBufferLength, n);
             validOutput = false(1, n);
@@ -1331,9 +1369,13 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 else
                     tempInputBuffer = obj.pInputBuffer;
                     resetImpl(obj);
+                    realignedStart = inputStartBit + ...
+                        (iFrame-1)*obj.pFullInputBufferLength + pos - 1;
                     if strcmpi(string(obj.Modulation), "GMSK") && strcmpi(string(obj.ChannelCoding), "turbo")
                         tempFrames = [reshape(frames(:,iFrame:end),[],1); tempInputBuffer];
                         [newFrames, obj.pInputBuffer] = buffer(tempFrames(pos:end), obj.pFullInputBufferLength);
+                        frameStartBits = realignedStart + ...
+                            (0:size(newFrames,2)-1).' * obj.pFullInputBufferLength;
                         if isempty(newFrames)
                             syncFailed = true;
                             v = zeros(obj.pFullInputBufferLength, 0);
@@ -1355,6 +1397,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     % Adjust the next frame accordingly
                     tempFrames = [reshape(frames(:,iFrame:end),[],1);tempInputBuffer];
                     [newFrames, obj.pInputBuffer] = buffer(tempFrames(pos:end), obj.pFullInputBufferLength);
+                    frameStartBits = realignedStart + ...
+                        (0:size(newFrames,2)-1).' * obj.pFullInputBufferLength;
                     if isempty(newFrames)
                         v = zeros(obj.pFullInputBufferLength, 0);
                     else
@@ -1377,10 +1421,12 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
 
             if n > 0
                 v = v(:,validOutput);
+                frameStartBits = frameStartBits(validOutput);
                 syncFailed = isempty(v);
             else
                 syncFailed = true;
                 v = zeros(obj.pFullInputBufferLength, 0);
+                frameStartBits = zeros(0,1);
             end
         end
 
@@ -1589,6 +1635,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             end
 %             reset(obj.pDec);
             obj.pFirstTimeStepCalling = true;
+            obj.pInputBitsSeen = 0;
+            obj.pPendingFrameStartBits = zeros(0,1);
+            obj.pDecodedFrameStartBits = zeros(0,1);
             obj.pInputBuffer = [];
             obj.pOutputBuffer = [];
             obj.pDifferentialDecoderBit = 0;
@@ -1650,6 +1699,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 s.pFirstTimeStepCalling = obj.pFirstTimeStepCalling;
                 s.pInputBuffer = obj.pInputBuffer;
                 s.pOutputBuffer = obj.pOutputBuffer;
+                s.pInputBitsSeen = obj.pInputBitsSeen;
+                s.pPendingFrameStartBits = obj.pPendingFrameStartBits;
+                s.pDecodedFrameStartBits = obj.pDecodedFrameStartBits;
                 s.pDifferentialDecoderBit = obj.pDifferentialDecoderBit;
                 s.pFrameSyncLocked = obj.pFrameSyncLocked;
                 s.pFrameSyncGoodCount = obj.pFrameSyncGoodCount;
@@ -1721,6 +1773,11 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 obj.pFirstTimeStepCalling = s.pFirstTimeStepCalling;
                 obj.pInputBuffer = s.pInputBuffer;
                 obj.pOutputBuffer = s.pOutputBuffer;
+                if isfield(s,'pInputBitsSeen')
+                    obj.pInputBitsSeen = s.pInputBitsSeen;
+                    obj.pPendingFrameStartBits = s.pPendingFrameStartBits;
+                    obj.pDecodedFrameStartBits = s.pDecodedFrameStartBits;
+                end
                 obj.pDifferentialDecoderBit = s.pDifferentialDecoderBit;
                 if isfield(s,'pFrameSyncLocked')
                     obj.pFrameSyncLocked = s.pFrameSyncLocked;

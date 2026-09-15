@@ -24,6 +24,28 @@ telemetry = struct( ...
 telemetry.Carrier = localCarrierTrack(cfg,options,statusPeriod);
 telemetry.Timing = localTimingTrack(cfg,options,statusPeriod);
 telemetry.Frame = localFrameTrack(cfg,statusPeriod);
+% Unmeasured burst-continuation data must not change the reported end of
+% the observation window. This clips telemetry only, never receiver samples.
+observationEnd = localNumber(cfg,'ObservationEndTime_s',Inf);
+telemetry.ObservationEndTime_s = observationEnd;
+if isfinite(observationEnd)
+    names={'Carrier','Timing','Frame'};
+    for k=1:numel(names)
+        track=telemetry.(names{k});
+        if ~track.Available, continue; end
+        keep=track.Time_s<=observationEnd;
+        if ~any(keep)
+            track=localEmptyTrack(names{k});
+            track.Reason='no lock observations inside the measured burst';
+        else
+            fields={'Time_s','State','EvidenceGood','Quality'};
+            for j=1:numel(fields), track.(fields{j})=track.(fields{j})(keep); end
+            track.FirstLockTime_s=NaN;
+            track=localFinalizeTrack(track,statusPeriod);
+        end
+        telemetry.(names{k})=track;
+    end
+end
 end
 
 function track = localCarrierTrack(cfg,options,statusPeriod)

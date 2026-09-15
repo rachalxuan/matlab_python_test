@@ -191,6 +191,17 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     if isfield(res,'RuntimeLockTelemetry')
         frontResult.RuntimeLockTelemetry = res.RuntimeLockTelemetry;
     end
+    if isfield(res,'ReceiverTimeline')
+        frontResult.ReceiverTimeline = res.ReceiverTimeline;
+    end
+    if isfield(res,'FrameAssociation')
+        frontResult.FrameAssociation = res.FrameAssociation;
+    end
+    if isfield(res,'BurstCompletion')
+        frontResult.BurstCompletion = res.BurstCompletion;
+        frontResult.MeasurementDuration_s = res.MeasurementDuration_s;
+        frontResult.MeasurementCoverage = res.MeasurementCoverage;
+    end
     runtimeLockScalarFields = { ...
         'CarrierLockRate','CarrierLockedAtEnd','CarrierReacquisitions', ...
         'TimingLockRate','TimingLockedAtEnd','TimingReacquisitions', ...
@@ -294,6 +305,9 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
         frontResult.GMSKResidualWindowDebug = res.GMSKResidualWindowDebug;
     end
     if isfield(res,'AcquisitionFrames'), frontResult.AcquisitionFrames = res.AcquisitionFrames; end
+    if isfield(res,'FSEDiagnostics')
+        frontResult.FSEDiagnostics = res.FSEDiagnostics;
+    end
     if isfield(res,'AcquisitionTime_s'), frontResult.AcquisitionTime_s = res.AcquisitionTime_s; end
     qamBPSFadeBERFields = localQAMBPSFadeBERResultFields();
     for iQAMBPSFadeBER = 1:numel(qamBPSFadeBERFields)
@@ -1829,10 +1843,18 @@ function [res, ctx] = runOneShot(opt)
         end
     end
     [txWaveform, encodedBits] = tmWaveGen(msg);
+    [txWaveform, burstCompletion] = HelperTMCompleteBurst( ...
+        tmWaveGen,txWaveform,encodedBits,msg,Fs,opt);
+    measurementDuration_s = burstCompletion.MeasurementDuration_s;
     actualWaveformDuration_s = numel(txWaveform) / Fs;
     fprintf(['[Test length] waveform=%.3f ms | warmup=%d | ', ...
         'BER=%d | total=%d frames\n'], ...
         1e3*actualWaveformDuration_s, numWarmUp, numRealFrames, totalFrames);
+    fprintf(['[Burst completion] applied=%d buffered TX bits=%g | ', ...
+        'guard groups=%d (NOT measured) | measurement=%.6f ms, waveform=%.6f ms\n'], ...
+        burstCompletion.Applied,burstCompletion.BufferedModulationBits, ...
+        burstCompletion.GuardInputGroups,1e3*measurementDuration_s, ...
+        1e3*actualWaveformDuration_s);
     debugCodedBoundary = getLogicalField(opt, 'debugCodedBoundary', false);
     collectPredecoderStats = debugCodedBoundary || ...
         getLogicalField(opt, 'collectPredecoderStats', false);
@@ -1958,7 +1980,8 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
     actualCodeRateForHStats = getfieldnumeric(tmWaveInfo, 'ActualCodeRate', NaN);
     bitsPerSymbolForHStats = getfieldnumeric(tmWaveInfo, 'NumBitsPerSymbol', NaN);
     hMatrixFrameStats = localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, ...
-        actualCodeRateForHStats, bitsPerSymbolForHStats, totalFrames);
+        actualCodeRateForHStats, bitsPerSymbolForHStats, totalFrames, ...
+        measurementDuration_s*Fs);
 
     noisePlacement = getNoisePlacementMode(opt);
     noiseInfo = makeLegacyNoiseInfo(snr_val);
@@ -2202,7 +2225,9 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
         'SharedReliabilityHoldSymbols',0, ...
         'SharedReliabilityHoldFraction',0);
     pilotlessAPSKState = struct();
-    runtimeLockRequested = getLogicalField(opt, ...
+    receiverTimelineRequested = getLogicalField(opt, ...
+        'enableReceiverTimeline',getLogicalField(opt,'enableRuntimeLockTelemetry',false));
+    runtimeLockRequested = receiverTimelineRequested || getLogicalField(opt, ...
         'enableRuntimeLockTelemetry',false);
     timingErrorTrace = zeros(0,1);
     timingLockSource = 'unavailable';
@@ -2210,6 +2235,9 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
         'selected receiver path does not expose a continuous timing error';
     syncDebugRequested = getLogicalField(opt, 'debugSynchronizationChain', ...
         getLogicalField(opt, 'debugSyncChain', false));
+    fseDiagnosticEnabled = isfield(opt,'FSEDiagnostics') && ...
+        isstruct(opt.FSEDiagnostics);
+    fseDiagnosticStages = struct();
     syncDebugStages = struct( ...
         'CoarseEstimate_Hz',NaN, ...
         'FilterSamplesPerSymbol',NaN, ...
@@ -3423,6 +3451,10 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
                     'OutputSamples',numel(TimeSynced), ...
                     'RateError_ppm',1e6*( ...
                         numel(TimeSynced)/(numel(filtered)/sps_after)-1));
+                if fseDiagnosticEnabled
+                    fseDiagnosticStages.FSERaw = ...
+                        HelperTMFSEDiagnosticCapture(TimeSynced,opt);
+                end
                 timingErrorTrace = zeros(0,1);
                 timingLockSource = ...
                     '2-sps fractionally spaced CMA equalizer';
@@ -3550,6 +3582,10 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
             end
             fineLoopBW = getfieldnumeric( ...
                 opt, 'carrierLoopBandwidth', fineLoopBW);
+            if fseDiagnosticEnabled && useFractional2SPSEqualizer
+                fseDiagnosticStages.FSEAfterCoarseCFO = ...
+                    HelperTMFSEDiagnosticCapture(TimeSynced,opt);
+            end
             if ~isscalar(fineLoopBW) || ~isfinite(fineLoopBW) || ...
                     fineLoopBW <= 0 || fineLoopBW > 0.2
                 error('run_ccsds_tm_evaluation:InvalidCarrierLoopBandwidth', ...
@@ -3617,6 +3653,29 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
 
             if isempty(carrierSync)
                 fineSynced = TimeSynced;
+            elseif fseDiagnosticEnabled && useFractional2SPSEqualizer && ...
+                    isfield(opt.FSEDiagnostics,'CarrierReplayEndSymbol')
+                % Diagnostic-only prefix capture: preserve the ORIGINAL PLL
+                % history. Replay happens offline, never in tap adaptation.
+                replayEnd = double(opt.FSEDiagnostics.CarrierReplayEndSymbol);
+                assert(isscalar(replayEnd) && isfinite(replayEnd) && ...
+                    replayEnd >= 1 && replayEnd <= 2e6 && ...
+                    replayEnd == floor(replayEnd), ...
+                    'FSEDiagnostics:ReplayLimit', ...
+                    'Carrier replay prefix must contain 1 to 2e6 symbols.');
+                [fineSynced,diagnosticCarrierPhase] = carrierSync(TimeSynced);
+                replayEnd = min(replayEnd,numel(TimeSynced));
+                fseDiagnosticStages.CarrierReplay = struct( ...
+                    'Input',TimeSynced(1:replayEnd), ...
+                    'OriginalOutput',fineSynced(1:replayEnd), ...
+                    'OriginalPhaseEstimate',diagnosticCarrierPhase(1:replayEnd), ...
+                    'Modulation',carrierSync.Modulation, ...
+                    'SamplesPerSymbol',carrierSync.SamplesPerSymbol, ...
+                    'DampingFactor',carrierSync.DampingFactor, ...
+                    'NormalizedLoopBandwidth',carrierSync.NormalizedLoopBandwidth, ...
+                    'ModulationPhaseOffset',carrierSync.ModulationPhaseOffset, ...
+                    'CustomPhaseOffset',carrierSync.CustomPhaseOffset);
+                clear diagnosticCarrierPhase;
             else
                 fineSynced = carrierSync(TimeSynced);
             end
@@ -3631,6 +3690,10 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
                 [fineSynced,pilotlessAPSKInfo,pilotlessAPSKState] = ...
                     HelperTMAPSKPilotlessFrontEnd( ...
                     fineSynced,char(modStr),pilotlessOpt);
+            end
+            if fseDiagnosticEnabled && useFractional2SPSEqualizer
+                fseDiagnosticStages.Carrier = ...
+                    HelperTMFSEDiagnosticCapture(fineSynced,opt);
             end
             % After several consistent post-fade observations the
                     % new phase is established evidence, not a noisy loop
@@ -4348,6 +4411,13 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
             qamBlindPhaseState.Centers, numel(fineSyncedForBER));
     end
     [berVal, lockRate, bestRot, berStats] = computeBER(fineSyncedForBER, validTxFrames, modStr, opt, randomizerEnabled, hasASM, btVal, numWarmUp);
+    if fseDiagnosticEnabled
+        fseDiagnosticStages.BeforeASM = ...
+            HelperTMFSEDiagnosticCapture(fineSyncedForBER,opt);
+        if isfield(berStats,'FSEDiagnosticAfterASM')
+            fseDiagnosticStages.AfterASM = berStats.FSEDiagnosticAfterASM;
+        end
+    end
     if getLogicalField(opt,'debugQAMBPSFadeBER',false)
         localPrintQAMBPSFadeBER(berStats);
     end
@@ -4371,6 +4441,13 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
                  "16APSK","32APSK"])
             carrierSignalForLock = fineSynced(:);
         end
+        runtimeFrameDuration = localAcquisitionTimeSeconds( ...
+            1,bitsPerFrame,modStr,codeStr,opt);
+        if strcmpi(string(opt.DataPathMode),'single') && totalFrames>0
+            % Uniform frame-grid estimate includes realized ASM/FEC overhead.
+            % It is not a calibrated sample-level decoder latency correction.
+            runtimeFrameDuration = measurementDuration_s/totalFrames;
+        end
         runtimeLockCfg = struct( ...
             'Options',opt, ...
             'Modulation',char(modStr), ...
@@ -4384,8 +4461,8 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
             'TimingSource',timingLockSource, ...
             'TimingUnavailableReason',timingUnavailableReason, ...
             'FrameSyncTelemetry',runtimeFrameSyncTelemetry, ...
-            'FrameDuration_s',localAcquisitionTimeSeconds( ...
-                1,bitsPerFrame,modStr,codeStr,opt));
+            'ObservationEndTime_s',measurementDuration_s, ...
+            'FrameDuration_s',runtimeFrameDuration);
         runtimeLockTelemetry = ...
             HelperTMRuntimeLockTelemetry(runtimeLockCfg);
         if getLogicalField(opt,'debugRuntimeLockTelemetry',false)
@@ -4443,8 +4520,22 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
 
     % ===== 打包返回 =====
     res = struct();
+    if fseDiagnosticEnabled
+        res.FSEDiagnostics = struct('Stages',fseDiagnosticStages);
+        if isfield(fractionalEqInfo,'Diagnostics')
+            res.FSEDiagnostics.Dual = fractionalEqInfo.Diagnostics;
+        end
+        if isfield(berStats,'FSEDiagnosticDecodedFrames')
+            res.FSEDiagnostics.DecodedFrames = berStats.FSEDiagnosticDecodedFrames;
+        end
+        if isfield(berStats,'FSEDiagnosticDemapper')
+            res.FSEDiagnostics.Demapper = berStats.FSEDiagnosticDemapper;
+        end
+    end
     res.modType  = char(modStr);
     res.ActualWaveformDuration_s = actualWaveformDuration_s;
+    res.MeasurementDuration_s = measurementDuration_s;
+    res.BurstCompletion = burstCompletion;
     res.snr_in   = snr_val;
     res.NoisePlacement = char(noisePlacement);
     res.NoiseMode = char(noiseInfo.Mode);
@@ -4828,6 +4919,51 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
     res.LegacyLockRateMeaning = ...
         'evaluator TX/RX frame-match rate; not a receiver lock detector';
     res.RuntimeLockTelemetry = runtimeLockTelemetry;
+    if isfield(berStats,'FrameAssociation')
+        res.FrameAssociation = berStats.FrameAssociation;
+    end
+    observationSets = {};
+    if isfield(berStats,'ReceiverFrameObservations')
+        observationSets = berStats.ReceiverFrameObservations;
+    end
+    res.MeasurementCoverage = HelperTMMeasurementCoverage(observationSets);
+    fprintf('[Measurement coverage] %s: compared=%g/%g, unrecovered=%g, recovered-not-compared=%g\n', ...
+        res.MeasurementCoverage.Status,res.MeasurementCoverage.ComparedFrames, ...
+        res.MeasurementCoverage.ExpectedFrames,res.MeasurementCoverage.UnrecoveredFrames, ...
+        res.MeasurementCoverage.RecoveredNotComparedFrames);
+    if receiverTimelineRequested
+        try
+            res.ReceiverTimeline = HelperTMReceiverTimeline( ...
+                observationSets,runtimeLockTelemetry,measurementDuration_s, ...
+                berStats.CountedFrames,berStats.FrameErrors,berVal);
+        catch timelineError
+            % Monitoring must not turn a working decoder into a failed run.
+            % Report unavailable explicitly; never manufacture zero errors.
+            res.ReceiverTimeline = struct('SchemaVersion',1, ...
+                'Mode','offline-simulation-timeline','Available',false, ...
+                'Reason',timelineError.message,'ErrorIdentifier',timelineError.identifier, ...
+                'Rows',struct([]),'Summary',struct());
+            fprintf(2,'[Receiver timeline unavailable] %s\n',timelineError.message);
+        end
+        res.ReceiverTimeline.ChannelCoding = char(string(codeStr));
+        res.ReceiverTimeline.DecoderMode = 'not-applicable';
+        if strcmpi(string(codeStr),'TPC')
+            res.ReceiverTimeline.DecoderMode = char(string(getfieldwithdefault( ...
+                opt,'TPCDecoderMode','iterative')));
+        end
+        res.ReceiverTimeline.MetricDomain = 'decoded-transfer-frame-bits';
+        if strcmpi(string(codeStr),'none')
+            res.ReceiverTimeline.MetricDomain = 'uncoded-transfer-frame-bits';
+        elseif strcmpi(string(codeStr),'TPC') && ...
+                strcmpi(res.ReceiverTimeline.DecoderMode,'hard-systematic-debug')
+            res.ReceiverTimeline.MetricDomain = 'hard-systematic-debug-not-FEC-BER';
+        end
+        if getLogicalField(opt,'debugReceiverTimeline',false)
+            fprintf('\n[Receiver timeline] mode=%s available=%d\n', ...
+                res.ReceiverTimeline.Mode,res.ReceiverTimeline.Available);
+            disp(res.ReceiverTimeline.Summary);
+        end
+    end
     if runtimeLockRequested
         res.CarrierLockRate = runtimeLockTelemetry.Carrier.LockRate;
         res.CarrierLockedAtEnd = ...
@@ -6092,7 +6228,7 @@ function yOut = equalizeKnownHMatrixChannel(yIn, hState, opt, snrForReg_dB)
     end
 end
 
-function frameStats = localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, actualCodeRate, bitsPerSymbol, totalFrames)
+function frameStats = localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerFrame, actualCodeRate, bitsPerSymbol, totalFrames, measurementSamples)
     frameStats = struct('Frame', {}, 'TimeStart_s', {}, 'TimeEnd_s', {}, ...
         'MinAbsH', {}, 'RmsAbsH', {}, 'MedianAbsH', {}, 'MaxAbsH', {}, ...
         'MinAbsH_dB', {}, 'RmsAbsH_dB', {}, 'MedianAbsH_dB', {}, 'MaxAbsH_dB', {}, ...
@@ -6136,7 +6272,8 @@ function frameStats = localPrintHMatrixFrameStats(hState, opt, Fs, sps, bitsPerF
     % overhead (for convolutional GMSK: 17840 versus 17904 symbols/frame),
     % which shifts a late error frame away from the actual H notch.
     if isfinite(totalFrames) && totalFrames >= 1
-        realizedSamplesPerFrame = floor(numel(hAbs)/round(totalFrames));
+        if nargin<9, measurementSamples=numel(hAbs); end
+        realizedSamplesPerFrame = floor(measurementSamples/round(totalFrames));
         if realizedSamplesPerFrame >= 1
             samplesPerFrame = realizedSamplesPerFrame;
         end
@@ -8753,6 +8890,10 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
             berStats.ASMPhaseTimeline = asmResolveInfo.timeline;
         end
         berStats.ASMFramePhaseCorrection = asmFramePhaseCorrectionInfo;
+        if isfield(opt,'FSEDiagnostics') && isstruct(opt.FSEDiagnostics)
+            berStats.FSEDiagnosticAfterASM = ...
+                HelperTMFSEDiagnosticCapture(fineSynced*exp(1j*bestRot),opt);
+        end
         if any(strcmpi(dataPathModeBER, ...
                 {'dualIQ','unequalDualIQ'})) && ...
                 getLogicalField(opt, 'splitPathDebug', false)
@@ -9738,7 +9879,8 @@ function tf = localIsBetterSplitCandidate(candBer, candLock, candBits, bestBer, 
 end
 
 function [berVal, lockRate, errs, bitsComp, stats, perFrameBER] = ...
-        localCountSplitRailBER(decodedI, decodedQ, validTxFrames, bitsPerFrame, numWarmUp, tmMod, tmCode, opt)
+        localCountSplitRailBER(decodedI, decodedQ, validTxFrames, bitsPerFrame, numWarmUp, tmMod, tmCode, opt, positionsI, positionsQ)
+    if nargin<10, positionsI=struct('Available',false); positionsQ=positionsI; end
     txFramesI = validTxFrames(1:2:end);
     txFramesQ = validTxFrames(2:2:end);
 
@@ -9749,10 +9891,10 @@ function [berVal, lockRate, errs, bitsComp, stats, perFrameBER] = ...
 
     [statsI, errsI, bitsI, berI] = localCountOneSplitRailBER( ...
         decodedI, txFramesI, bitsPerFrame, numWarmUp, 2, opt, ...
-        measurementWarmUpFrames);
+        measurementWarmUpFrames,positionsI);
     [statsQ, errsQ, bitsQ, berQ] = localCountOneSplitRailBER( ...
         decodedQ, txFramesQ, bitsPerFrame, numWarmUp, 2, opt, ...
-        measurementWarmUpFrames);
+        measurementWarmUpFrames,positionsQ);
 
     errs = errsI + errsQ;
     bitsComp = bitsI + bitsQ;
@@ -9875,7 +10017,8 @@ end
 
 function [berVal, lockRate, errs, bitsComp, stats, perFrameBER] = ...
         localCountUnequalUQPSKRailBER(decodedI, decodedQ, validTxFrames, ...
-        bitsPerFrame, numWarmUp, tmMod, tmCode, opt)
+        bitsPerFrame, numWarmUp, tmMod, tmCode, opt, positionsI, positionsQ)
+    if nargin<10, positionsI=struct('Available',false); positionsQ=positionsI; end
     if mod(numel(validTxFrames), 3) ~= 0
         error('run_ccsds_tm_evaluation:UnequalReferenceLayout', ...
             ['unequalDualIQ references must use ', ...
@@ -9897,9 +10040,9 @@ function [berVal, lockRate, errs, bitsComp, stats, perFrameBER] = ...
         warmUpQ = numWarmUp;
     end
     [statsI, errsI, bitsI, berI] = localCountOneSplitRailBER( ...
-        decodedI, txFramesI, bitsPerFrame, 2*numWarmUp, 1, opt, warmUpI);
+        decodedI, txFramesI, bitsPerFrame, 2*numWarmUp, 1, opt, warmUpI,positionsI);
     [statsQ, errsQ, bitsQ, berQ] = localCountOneSplitRailBER( ...
-        decodedQ, txFramesQ, bitsPerFrame, numWarmUp, 1, opt, warmUpQ);
+        decodedQ, txFramesQ, bitsPerFrame, numWarmUp, 1, opt, warmUpQ,positionsQ);
 
     errs = errsI + errsQ;
     bitsComp = bitsI + bitsQ;
@@ -9958,6 +10101,9 @@ end
 
 function stats = localAttachOneRailStats(stats, railName, railStats, errs, bitsComp)
     prefix = upper(char(string(railName)));
+    if isfield(railStats,'FrameAssociation')
+        stats.FrameAssociation.(prefix) = railStats.FrameAssociation;
+    end
     if bitsComp > 0
         railBER = errs / bitsComp;
     else
@@ -9979,6 +10125,14 @@ function stats = localAttachOneRailStats(stats, railName, railStats, errs, bitsC
     stats.([prefix '_MatchedFrames']) = railStats.MatchedFrames;
     stats.([prefix '_DecodedFrames']) = railStats.NumRxFrames;
     stats.([prefix '_AcquisitionFrames']) = railStats.AcquisitionFrames;
+    if isfield(railStats,'ReceiverFrameObservations')
+        if ~isfield(stats,'ReceiverFrameObservations')
+            stats.ReceiverFrameObservations = {};
+        end
+        observations = railStats.ReceiverFrameObservations{1};
+        observations.Lane = prefix;
+        stats.ReceiverFrameObservations{end+1} = observations;
+    end
 end
 
 function stats = localAttachSplitPredecoderStats(stats, predecoderStats)
@@ -10022,7 +10176,8 @@ function localPrintSplitRailStats(label, iqPhase, stats)
 end
 
 function [stats, errs, bitsComp, perFrameBER] = ...
-        localCountOneSplitRailBER(decodedBits, txFrames, bitsPerFrame, numWarmUp, idStep, opt, measurementWarmUpFrames)
+        localCountOneSplitRailBER(decodedBits, txFrames, bitsPerFrame, numWarmUp, idStep, opt, measurementWarmUpFrames, positions)
+    if nargin<8, positions=struct('Available',false); end
     stats = localEmptyBERStats();
     errs = 0;
     bitsComp = 0;
@@ -10038,6 +10193,11 @@ function [stats, errs, bitsComp, perFrameBER] = ...
     numRx = floor(numel(decodedBits) / bitsPerFrame);
     perFrameBER = nan(1, numRx);
     stats.NumRxFrames = numRx;
+    recordFrames = true; % Lightweight coverage accounting is always required.
+    if recordFrames
+        observations = localReceiverFrameObservations( ...
+            numRx,numel(txFrames),bitsPerFrame,firstMeasurementFrame);
+    end
 
     hasLastId = false;
     lastRxId = 0;
@@ -10048,14 +10208,23 @@ function [stats, errs, bitsComp, perFrameBER] = ...
     matchedAfterAcquisition = 0;
     lastMatchedTxIndex = NaN;
 
+    association=HelperTMBERFrameAssociation(decodedBits,txFrames,positions, ...
+        acquisitionConsecutiveFrames,acquisitionMaxFrameBER);
+    stats.FrameAssociation=association;
     for j = 1:numRx
         idx = (j-1)*bitsPerFrame + (1:bitsPerFrame);
         rxFr = double(decodedBits(idx));
         rxId = localTMFrameID(rxFr);
 
-        [frameMatched, txFrame, txFrameIndex] = ...
-            localMatchTMFrameOccurrence( ...
-                rxFr, txFrames, txCatalog, lastMatchedTxIndex);
+        if association.Available
+            txFrameIndex=association.TxFrameIndex(j);
+            frameMatched=isfinite(txFrameIndex); txFrame=[];
+            if frameMatched, txFrame=txFrames{txFrameIndex}; end
+        else
+            [frameMatched, txFrame, txFrameIndex] = ...
+                localMatchTMFrameOccurrence( ...
+                    rxFr, txFrames, txCatalog, lastMatchedTxIndex);
+        end
         if ~frameMatched
             hasLastId = false;
             consecIdCount = 0;
@@ -10101,6 +10270,11 @@ function [stats, errs, bitsComp, perFrameBER] = ...
         % acquisition 通过后，后续匹配帧直接计入 BER/FER。
         % 防假锁靠上面的连续 ID + per-frame BER 门限完成，不再要求连续 numWarmUp 帧。
         counted = acquiredForBER && txFrameIndex >= firstMeasurementFrame;
+        if recordFrames
+            observations.TxFrameIndex(j) = txFrameIndex;
+            observations.ErrorBits(j) = thisErrs;
+            observations.Counted(j) = counted;
+        end
         if counted
             stats.CountedFrames = stats.CountedFrames + 1;
             stats = localUpdateCRCStats(stats, rxFr, opt);
@@ -10115,6 +10289,18 @@ function [stats, errs, bitsComp, perFrameBER] = ...
     if stats.CountedFrames > 0
         stats.FER = stats.FrameErrors / stats.CountedFrames;
     end
+    if recordFrames
+        observations.Association=association;
+        stats.ReceiverFrameObservations = {observations};
+    end
+end
+
+function observations = localReceiverFrameObservations(numRx,numTx,bitsPerFrame,firstMeasured)
+% Offline evaluator observations. Never feed these TX matches to a tracker.
+    observations = struct('Lane','single','ExpectedFrames',numTx, ...
+        'PayloadBitsPerFrame',bitsPerFrame,'FirstMeasurementFrame',firstMeasured, ...
+        'RxFrameIndex',(1:numRx).','TxFrameIndex',nan(numRx,1), ...
+        'ErrorBits',nan(numRx,1),'Counted',false(numRx,1));
 end
 
 function localPrintPerFrameBER(perFrameBER, opt)
@@ -11050,6 +11236,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     bitsComp = 0;
     frameStats = localEmptyBERStats();
     predecoderStats = localEmptyPredecoderStats();
+    decodedFramePositions = struct('Available',false);
     numBytesTF = 1115;
     if isfield(opt,'NumBytesInTransferFrame') && ~isempty(opt.NumBytesInTransferFrame)
         numBytesTF = double(opt.NumBytesInTransferFrame);
@@ -11545,6 +11732,9 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             'ASMTrimBits', predecoderASMTrim, ...
             'MaxBurstFrames', max(1, round(getfieldnumeric(opt, ...
                 'debugPredecoderMaxBurstFrames', 12))));
+        if isfield(opt,'FSEDiagnostics') && isstruct(opt.FSEDiagnostics)
+            predecoderContext.FSEDiagnostics = opt.FSEDiagnostics;
+        end
         if ~strcmpi(string(dataPathMode), "single")
             % A packed split stream does not have one contiguous encoded
             % frame per validTxFrames entry.  Keep the global metric but do
@@ -11732,6 +11922,8 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             'IQPhase', 0, ...
             'Debug', false);
         splitResult = splitReceiver.decode(demodData);
+        positionsI = splitResult.FramePositionsI;
+        positionsQ = splitResult.FramePositionsQ;
         demodI = splitResult.DemodI;
         demodQ = splitResult.DemodQ;
         decodedI = splitResult.DecodedI;
@@ -11768,7 +11960,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         [berVal, lockRate, errs, bitsComp, frameStats, perFrameBER] = ...
             localCountUnequalUQPSKRailBER( ...
                 decodedI, decodedQ, validTxFrames, bitsPerFrame, ...
-                numWarmUp, tmMod, tmCode, opt);
+                numWarmUp, tmMod, tmCode, opt,positionsI,positionsQ);
         frameStats = localAttachSplitPredecoderStats(frameStats, predecoderStats);
         frameStats = localAttachSplitReceiverStructureEvidence( ...
             frameStats, unequalStructureEvidence, 'tmHeaderStructure');
@@ -11837,7 +12029,8 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         [berVal, lockRate, errs, bitsComp, frameStats, perFrameBER] = ...
             localCountUnequalUQPSKRailBER( ...
             decodedI, decodedQ, validTxFrames, bitsPerFrame, ...
-            numWarmUp, tmMod, tmCode, opt);
+            numWarmUp, tmMod, tmCode, opt, ...
+            decoderI.getDecodedFramePositions(),decoderQ.getDecodedFramePositions());
         frameStats = localAttachSplitPredecoderStats( ...
             frameStats, predecoderStats);
         frameStats = localAttachSplitReceiverStructureEvidence( ...
@@ -11947,6 +12140,8 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                     'IQPhase', iqPhase, ...
                     'Debug', false);
                 splitResult = splitReceiver.decode(demodData);
+                positionsI = splitResult.FramePositionsI;
+                positionsQ = splitResult.FramePositionsQ;
                 demodI = splitResult.DemodI;
                 demodQ = splitResult.DemodQ;
                 decodedI = splitResult.DecodedI;
@@ -11989,7 +12184,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                     localPrepareSplitRSPeriodicASMAlignment( ...
                     demodI, demodQ, decArgs, dataPathMode, tmMod, tmCode, hasASM, opt);
 
-                [decodedI, decodedQ, decodedBits] = localDecodeSplitRails( ...
+                [decodedI, decodedQ, decodedBits, positionsI, positionsQ] = localDecodeSplitRails( ...
                     demodIForDecoder, demodQForDecoder, bitsPerFrame, decArgsI, decArgsQ);
                 splitRSASM = localAttachSplitRSTMStructureScore( ...
                     splitRSASM, decodedI, decodedQ, bitsPerFrame, opt);
@@ -12011,7 +12206,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
 
             [candBer, candLock, candErrs, candBits, candStats, candPerFrameBER] = ...
                 localCountSplitRailBER(decodedI, decodedQ, validTxFrames, ...
-                bitsPerFrame, numWarmUp, tmMod, tmCode, opt);
+                bitsPerFrame, numWarmUp, tmMod, tmCode, opt,positionsI,positionsQ);
             candStats = localAttachSplitPredecoderStats( ...
                 candStats, predecoderStats);
             candStats = localAttachSplitReceiverStructureEvidence( ...
@@ -12187,6 +12382,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             bestRun = -1;
             bestMatched = -1;
             bestDecodedBits = [];
+            bestDecodedFramePositions = struct('Available',false);
             bestDecoderFrameSyncTelemetry = ...
                 localEmptyReceiverFrameSyncTelemetry();
             codedShiftList = localCodedPhaseShiftList(codedSearchRate);
@@ -12228,12 +12424,14 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                         bestShift = codedShift;
                         bestSyncOffset = syncOffset;
                         bestDecodedBits = decodedCandidate;
+                        bestDecodedFramePositions = decoderobj.getDecodedFramePositions();
                         bestDecoderFrameSyncTelemetry = ...
                             candidateFrameSyncTelemetry;
                     end
                 end
             end
             decodedBits = bestDecodedBits;
+            decodedFramePositions = bestDecodedFramePositions;
             decoderFrameSyncTelemetry = bestDecoderFrameSyncTelemetry;
             if getLogicalField(opt, 'debugCodedBoundary', false)
                 fprintf('   [Coded phase search] selected shift=%d syncOffset=%+d, good=%d, matched=%d, run=%d, err=%d\n', ...
@@ -12242,6 +12440,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         else
             decoderobj = HelperCCSDSTMDecoder(decArgs{:});
             decodedBits = decoderobj(demodData);
+            decodedFramePositions = decoderobj.getDecodedFramePositions();
             decoderFrameSyncTelemetry = ...
                 decoderobj.getFrameSyncTelemetry();
         end
@@ -12277,6 +12476,18 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             'MinConsecutiveFrames', minConsecutive, ...
             'MinCandidateConsecutiveFrames', minCandidateConsecutive, ...
             'Debug', alignDebug);
+        if tpcAlignInfo.Applied && decodedFramePositions.Available
+            % Preserve source-frame slots, not a fictitious linear conversion
+            % from decoded bit offsets into coded bit offsets. A shifted TF
+            % spanning a missing input frame has no valid provenance.
+            nAligned=floor(numel(decodedBits)/bitsPerFrame);
+            starts=decodedFramePositions.InputStartBit;
+            contiguous=abs(diff(starts)/decodedFramePositions.InputFrameLength-1)<1e-8;
+            decodedFramePositions.InputStartBit=starts(1:nAligned);
+            decodedFramePositions.InputStartBit(~contiguous(1:nAligned))=NaN;
+            decodedFramePositions.DecodedBitShift=tpcAlignInfo.SelectedShift;
+            decodedFramePositions.Source='decoder-frame-slots-after-bit-realignment';
+        end
         if alignDebug && ~tpcAlignInfo.Applied && ...
                 tpcAlignInfo.BaselineMaxRun < minConsecutive
             fprintf(['   [TPC ALIGN] no verified replacement; keeping decoder ', ...
@@ -12371,7 +12582,23 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     lastMatchedTxIndex = NaN;
 
     framesMatched=0;
+    frameAssociation = HelperTMBERFrameAssociation( ...
+        decodedBits,validTxFrames,decodedFramePositions, ...
+        acquisitionConsecutiveFrames,acquisitionMaxFrameBER);
+    frameStats.FrameAssociation = frameAssociation;
+    if getLogicalField(opt,'debugCodedBoundary',false)
+        fprintf(['   [BER frame association] method=%s available=%d mapped=%d/%d ', ...
+            'VCFC disagreements=%d firstMeasurementTxFrame=%d\n'], ...
+            frameAssociation.Method,frameAssociation.Available, ...
+            nnz(isfinite(frameAssociation.TxFrameIndex)),numRx, ...
+            nnz(frameAssociation.VCFCValid==0),firstMeasurementFrame);
+    end
     perFrameBER = nan(1,numRx);
+    recordFrames = true; % Guard frames must never inflate measurement coverage.
+    if recordFrames
+        observations = localReceiverFrameObservations( ...
+            numRx,numel(validTxFrames),bitsPerFrame,firstMeasurementFrame);
+    end
     countedFrames = 0;
     frameErrors = 0;
     acquisitionFrames = NaN;
@@ -12382,16 +12609,22 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         getLogicalField(opt,'debugGMSKErrorBits',false);
     gmskErrorFrames = localEmptyGMSKErrorFrames();
 
-    % 从 decodedBits 里按 bitsPerFrame 切一帧。
-    % 取 TM Primary Header 中 bit 25~32 的 Virtual Channel Frame Count，
-    % 转成 rxId。如果这个 ID 在发送帧 Map 里，说明"认为这帧锁到了"。
-    % 用 biterr() 比较接收帧和对应发送帧。
+    % Pair complete decoded TFs using decoder-input positions and a verified
+    % offline reference anchor. VCFC remains an acquisition/diagnostic field;
+    % after anchoring it cannot replace the physical reference or warm-up slot.
     for j=1:numRx
         rxFr = double(decodedBits((j-1)*bitsPerFrame+1:j*bitsPerFrame));
         rxId = localTMFrameID(rxFr);
-        [frameMatched, txFrame, txFrameIndex] = ...
-            localMatchTMFrameOccurrence( ...
-                rxFr, validTxFrames, txCatalog, lastMatchedTxIndex);
+        if frameAssociation.Available
+            txFrameIndex = frameAssociation.TxFrameIndex(j);
+            frameMatched = isfinite(txFrameIndex);
+            txFrame = [];
+            if frameMatched, txFrame = validTxFrames{txFrameIndex}; end
+        else
+            [frameMatched, txFrame, txFrameIndex] = ...
+                localMatchTMFrameOccurrence( ...
+                    rxFr, validTxFrames, txCatalog, lastMatchedTxIndex);
+        end
         if frameMatched
             framesMatched = framesMatched + 1;          % 所有匹配帧计入 lockRate
             thisErrs = biterr(txFrame, rxFr);
@@ -12435,10 +12668,15 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                 matchedAfterAcquisition = matchedAfterAcquisition + 1;
             end
 
-            % acquisition 已通过 5 连续帧检测（防假锁），之后所有匹配帧都计入 BER。
-            % 不再要求 matchedAfterAcquisition > numWarmUp —— 因为 numWarmUp 语义现在
-            % 是 "总匹配帧至少 N 才算有意义的样本量"，用 acquiredForBER 已经覆盖。
+            % Preserve the TX-domain warm-up window. After a physical anchor,
+            % a damaged VCFC cannot move this frame into/out of measurement.
+            % Count bad frames too; do not condition steady BER on correctness.
             counted = acquiredForBER && txFrameIndex >= firstMeasurementFrame;
+            if recordFrames
+                observations.TxFrameIndex(j) = txFrameIndex;
+                observations.ErrorBits(j) = thisErrs;
+                observations.Counted(j) = counted;
+            end
 
 %             fprintf('\n   [FrameCheck] j=%d, rxId=%d, perBER=%.3f, counted=%d', ...
 %                 j, rxId, perFrameBER(j), counted);
@@ -12512,6 +12750,15 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
     end
     frameStats = localFinalizeQAMBPSFadeBER(frameStats);
     frameStats = localAttachPredecoderStats(frameStats, predecoderStats);
+    if recordFrames
+        observations.Association = frameAssociation;
+        frameStats.ReceiverFrameObservations = {observations};
+    end
+    if isfield(opt,'FSEDiagnostics') && isstruct(opt.FSEDiagnostics)
+        frameStats.FSEDiagnosticDecodedFrames = struct( ...
+            'RxFrameIndex',(1:numel(perFrameBER)).', ...
+            'BER',perFrameBER(:));
+    end
     % numRx 太少说明解码器同步失败,只输出了 1 帧 zeros (header=0 偶然命中 warmup 帧 0),
     % 这种"虚假 100% lockRate"不能参与竞选,直接置零
     if countedFrames == 0
@@ -13153,6 +13400,21 @@ function stats = localMeasureEncodedBoundaryStats( ...
         stats.PredecoderPolarity = best.polarity;
         stats.PredecoderBitErrors = best.err;
         stats.PredecoderBitsCompared = best.len;
+        if isfield(context,'FSEDiagnostics')
+            cropOpt = struct('FSEDiagnostics',context.FSEDiagnostics);
+            % Use symbol-index capture to select the matching raw demapper
+            % bit positions; the diagnostic ASM trim is accounted for once.
+            bps = localBitsPerSymbolForDebug(tmMod);
+            nRawBits = numel(rxHard0)+getfieldnumeric(context,'ASMTrimBits',0);
+            crop = HelperTMFSEDiagnosticCapture(zeros(floor(nRawBits/bps),1),cropOpt);
+            bitIndex = reshape((crop.SymbolIndex.'-1)*bps+(1:bps).',[],1);
+            trimmedIndex = bitIndex-getfieldnumeric(context,'ASMTrimBits',0);
+            valid = trimmedIndex>=1 & trimmedIndex<=numel(rxHard0);
+            stats.FSEDiagnosticDemapper = struct( ...
+                'BitIndex',bitIndex(valid),'HardBits',rxHard0(trimmedIndex(valid)), ...
+                'ASMTrimBits',getfieldnumeric(context,'ASMTrimBits',0), ...
+                'TxFrameOffset',best.txFrameOffset,'Polarity',best.polarity);
+        end
         stats = localAttachPredecoderFrameStats( ...
             stats, rxHard0, txBits, best, context);
         if getLogicalField(context,'CaptureTPCWorstCodeword',false) && ...
@@ -13894,6 +14156,9 @@ function stats = localAttachPredecoderStats(stats, predecoderStats)
             stats.(name) = predecoderStats.(name);
         end
     end
+    if isfield(predecoderStats,'FSEDiagnosticDemapper')
+        stats.FSEDiagnosticDemapper = predecoderStats.FSEDiagnosticDemapper;
+    end
 end
 
 function [dataSym, info, uncorrectedDataSym] = ...
@@ -14545,6 +14810,8 @@ end
 function [matched, txFrame, txFrameIndex] = ...
         localMatchTMFrameOccurrence( ...
             rxFrame, txFrames, catalog, lastMatchedTxIndex)
+    % Legacy fallback ONLY for a route without decoder frame provenance.
+    % Its limitation is exported through FrameAssociation.Available=false.
     matched = false;
     txFrame = [];
     txFrameIndex = NaN;
@@ -16867,7 +17134,7 @@ function txt = localSoftBitVectorString(values, maxLen)
     txt = char('0' + double(hardBits(:).'));
 end
 
-function [decodedI, decodedQ, decodedBits] = localDecodeSplitRails( ...
+function [decodedI, decodedQ, decodedBits, positionsI, positionsQ] = localDecodeSplitRails( ...
         demodI, demodQ, bitsPerFrame, decArgsI, decArgsQ)
     if nargin < 5 || isempty(decArgsQ)
         decArgsQ = decArgsI;
@@ -16876,6 +17143,8 @@ function [decodedI, decodedQ, decodedBits] = localDecodeSplitRails( ...
     decoderQ = HelperCCSDSTMDecoder(decArgsQ{:});
     decodedI = decoderI(demodI);
     decodedQ = decoderQ(demodQ);
+    positionsI = decoderI.getDecodedFramePositions();
+    positionsQ = decoderQ.getDecodedFramePositions();
     decodedBits = tm_data_path_frame_interleave( ...
         int8(decodedI), int8(decodedQ), bitsPerFrame, 'truncate');
 end

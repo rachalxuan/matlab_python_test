@@ -197,12 +197,51 @@ rejected = false(nSymbols,1);
 rejectedTapUpdates = 0;
 phaseState = phaseOffset;
 
+% Instrumentation only: no TX reference enters this helper. Keep window
+% aggregates and bounded sample crops, not another full-record state trace.
+diagnosticEnabled = isfield(options,'FSEDiagnostics') && ...
+    isstruct(options.FSEDiagnostics);
+if diagnosticEnabled
+    diagnosticCapture = HelperTMFSEDiagnosticCapture(yEq,options);
+    diagnosticIndices = diagnosticCapture.SymbolIndex;
+    diagnosticCapture.CorrectedForDecision = complex(NaN(size(diagnosticIndices)));
+    diagnosticCapture.Decision = complex(NaN(size(diagnosticIndices)));
+    diagnosticCapture.GatePassed = false(size(diagnosticIndices));
+    diagnosticCapture.UpdateApplied = false(size(diagnosticIndices));
+    diagnosticCapture.FeedbackIdentityResidual = NaN(size(diagnosticIndices));
+    diagnosticPosition = 1;
+    diagnosticWindow = 2048;
+    diagnosticNumWindows = ceil(nSymbols/diagnosticWindow);
+    diagnosticSums = zeros(diagnosticNumWindows,8);
+    diagnosticTapNorm = NaN(diagnosticNumWindows,1);
+    diagnosticTapChange = NaN(diagnosticNumWindows,1);
+    diagnosticPhaseJump = NaN(diagnosticNumWindows,1);
+    diagnosticPreviousBin = 0;
+end
+
 % comm.LinearEqualizer's 2-sps tap ordering is pair-wise:
 % [x(2k-1),x(2k),x(2k-3),x(2k-2),...]. Reuse that exact ordering so the
 % exported CMA weights continue in DD without a hidden permutation.
 tapNumber = (0:nTaps-1).';
 sampleOffsets = -2*floor(tapNumber/2)-1+mod(tapNumber,2);
 for k = cmaSymbols+1:nSymbols
+    if diagnosticEnabled
+        diagnosticBin = floor((k-1)/diagnosticWindow)+1;
+        if diagnosticBin ~= diagnosticPreviousBin
+            diagnosticWindowWeights = w;
+            diagnosticPreviousBin = diagnosticBin;
+            diagnosticPhaseJump(diagnosticBin) = 0;
+        end
+        diagnosticOldPhase = phaseState;
+        diagnosticUpdated = false;
+        diagnosticFeedbackResidual = NaN;
+        while diagnosticPosition <= numel(diagnosticIndices) && ...
+                diagnosticIndices(diagnosticPosition) < k
+            diagnosticPosition = diagnosticPosition+1;
+        end
+        diagnosticKeep = diagnosticPosition <= numel(diagnosticIndices) && ...
+            diagnosticIndices(diagnosticPosition) == k;
+    end
     indices = inputSPS*k+sampleOffsets;
     xv = xWork(indices);
     y = w'*xv;
@@ -223,6 +262,15 @@ for k = cmaSymbols+1:nSymbols
             powerX = real(xv'*xv)+epsilon;
             candidate = w+(muDD/powerX)*xv*conj(errAtTapOutput);
             if all(isfinite(candidate)) && norm(candidate) <= maxTapNorm
+                if diagnosticEnabled
+                    diagnosticUpdated = true;
+                    if diagnosticKeep
+                        % Delta output predicted using the SAME x(k). A
+                        % downstream CarrierSynchronizer is not in this loop.
+                        diagnosticFeedbackResidual = abs((candidate-w)'*xv - ...
+                            muDD*errAtTapOutput*real(xv'*xv)/powerX);
+                    end
+                end
                 w = candidate;
                 accepted(k) = true;
             else
@@ -238,6 +286,28 @@ for k = cmaSymbols+1:nSymbols
         rejected(k) = true;
     end
     yEq(k) = y;
+    if diagnosticEnabled
+        diagnosticAngle = abs(angle(z*conj(dHat)));
+        diagnosticSums(diagnosticBin,:) = diagnosticSums(diagnosticBin,:) + ...
+            [1, distance, pi/phaseOrder-diagnosticAngle, ...
+             double(distance<=decisionGate), double(diagnosticUpdated), ...
+             diagnosticAngle, abs(errDecision)^2, double(accepted(k))];
+        diagnosticPhaseJump(diagnosticBin) = max( ...
+            diagnosticPhaseJump(diagnosticBin), ...
+            abs(localWrapPhase(phaseState-diagnosticOldPhase))*180/pi);
+        if diagnosticKeep
+            diagnosticCapture.CorrectedForDecision(diagnosticPosition) = z;
+            diagnosticCapture.Decision(diagnosticPosition) = dHat;
+            diagnosticCapture.GatePassed(diagnosticPosition) = distance<=decisionGate;
+            diagnosticCapture.UpdateApplied(diagnosticPosition) = diagnosticUpdated;
+            diagnosticCapture.FeedbackIdentityResidual(diagnosticPosition) = ...
+                diagnosticFeedbackResidual;
+        end
+        if mod(k,diagnosticWindow)==0 || k==nSymbols
+            diagnosticTapNorm(diagnosticBin) = norm(w);
+            diagnosticTapChange(diagnosticBin) = norm(w-diagnosticWindowWeights);
+        end
+    end
 end
 
 if any(~isfinite(real(yEq))) || any(~isfinite(imag(yEq)))
@@ -294,6 +364,33 @@ info.RejectedTapUpdates = rejectedTapUpdates;
 info.Converged = isfinite(info.DDMSE) && acceptanceRate >= 0.50;
 info.Reason = ['same 2-sps taps: baseline CMA acquisition -> ', ...
     'phase-aided gated DD-NLMS tracking'];
+if diagnosticEnabled
+    diagnosticCapture.Samples = yEq(diagnosticIndices);
+    denom = diagnosticSums(:,1);
+    denom(denom==0) = NaN;
+    starts = (0:diagnosticNumWindows-1).'*diagnosticWindow+1;
+    ends = min(starts+diagnosticWindow-1,nSymbols);
+    cmaMSE = NaN(size(starts));
+    for ib = 1:diagnosticNumWindows
+        cmaMSE(ib) = localFiniteMean(abs(cmaError( ...
+            starts(ib):min(ends(ib),cmaSymbols))).^2);
+    end
+    info.Diagnostics = struct();
+    info.Diagnostics.WindowSymbols = diagnosticWindow;
+    info.Diagnostics.Trace = table(starts,ends,cmaMSE, ...
+        diagnosticSums(:,7)./denom,100*diagnosticSums(:,4)./denom, ...
+        100*diagnosticSums(:,5)./denom,diagnosticSums(:,2)./denom, ...
+        diagnosticSums(:,3)./denom*180/pi,diagnosticTapNorm, ...
+        diagnosticTapChange,diagnosticSums(:,6)./denom*180/pi, ...
+        diagnosticPhaseJump, ...
+        'VariableNames',{'SymbolStart','SymbolEnd','CMAMSE','DDMSE', ...
+        'DecisionGatePassPct','DDUpdatePct','MeanDecisionDistance', ...
+        'MeanAngularMargin_deg','TapNorm','TapChangeNorm', ...
+        'MeanAbsNearestPhaseError_deg','CarrierPhaseJump_deg'});
+    info.Diagnostics.Samples = diagnosticCapture;
+    info.Diagnostics.Meaning = ['Gate rates are not decision correctness; ', ...
+        'TX comparisons must be attached OFFLINE after receiver completion.'];
+end
 end
 
 function info = localFromBaseline(baseline)

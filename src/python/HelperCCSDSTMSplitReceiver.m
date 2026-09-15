@@ -96,7 +96,7 @@ classdef HelperCCSDSTMSplitReceiver < handle
 
             [decArgsI, decArgsQ] = ...
                 obj.localPrepareSplitConvolutionalFrameSync(decArgsI, decArgsQ);
-            [decodedI, decodedQ, railPolarityI, railPolarityQ, polarityEvidence] = ...
+            [decodedI, decodedQ, railPolarityI, railPolarityQ, polarityEvidence, positionsI, positionsQ] = ...
                 obj.localDecodeRailsWithPolarity( ...
                     demodIForDecoder, demodQForDecoder, decArgsI, decArgsQ);
 
@@ -109,6 +109,8 @@ classdef HelperCCSDSTMSplitReceiver < handle
             result.DecoderArgsQ = decArgsQ;
             result.DecodedI = int8(decodedI(:));
             result.DecodedQ = int8(decodedQ(:));
+            result.FramePositionsI = positionsI;
+            result.FramePositionsQ = positionsQ;
             result.RailPolarityI = railPolarityI;
             result.RailPolarityQ = railPolarityQ;
             result.RailPolarityEvidence = polarityEvidence;
@@ -225,7 +227,7 @@ classdef HelperCCSDSTMSplitReceiver < handle
             end
         end
 
-        function [decodedI, decodedQ, polarityI, polarityQ, bestEvidence] = ...
+        function [decodedI, decodedQ, polarityI, polarityQ, bestEvidence, positionsI, positionsQ] = ...
                 localDecodeRailsWithPolarity(obj, demodI, demodQ, decArgsI, decArgsQ)
             polarityList = 1;
             if obj.localUseSplitConvolutionalPolaritySearch()
@@ -234,6 +236,8 @@ classdef HelperCCSDSTMSplitReceiver < handle
 
             decodedICandidates = cell(size(polarityList));
             decodedQCandidates = cell(size(polarityList));
+            positionICandidates = cell(size(polarityList));
+            positionQCandidates = cell(size(polarityList));
             for k = 1:numel(polarityList)
                 decoderI = HelperCCSDSTMDecoder(decArgsI{:});
                 decoderQ = HelperCCSDSTMDecoder(decArgsQ{:});
@@ -241,6 +245,8 @@ classdef HelperCCSDSTMSplitReceiver < handle
                     polarityList(k) .* demodI));
                 decodedQCandidates{k} = int8(decoderQ( ...
                     polarityList(k) .* demodQ));
+                positionICandidates{k} = decoderI.getDecodedFramePositions();
+                positionQCandidates{k} = decoderQ.getDecodedFramePositions();
             end
 
             bestI = 1;
@@ -276,6 +282,8 @@ classdef HelperCCSDSTMSplitReceiver < handle
 
             decodedI = decodedICandidates{bestI};
             decodedQ = decodedQCandidates{bestQ};
+            positionsI = positionICandidates{bestI};
+            positionsQ = positionQCandidates{bestQ};
             polarityI = polarityList(bestI);
             polarityQ = polarityList(bestQ);
             if obj.Debug || HelperCCSDSTMSplitReceiver.localLogicalOption( ...
