@@ -683,7 +683,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 (isRawASMBlockCode && ~isGMSKModulation) || ...
                 isRawASMUncoded || ...
                 (strcmp(obj.ChannelCoding, "RS") && contains(string(obj.Modulation), "APSK"));
-            if obj.HasASM && usePeriodicASMSync
+            if obj.HasASM && usePeriodicASMSync && ~obj.DisableFrameSynchronization
                 syncInput = [obj.pInputBuffer; llr(:)];
                 asmBits = int8(obj.pASM(:) ~= 0);
                 searchLimit = min(obj.pFullInputBufferLength, numel(syncInput) - asmlen + 1);
@@ -790,8 +790,23 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     (0:size(frames,2)-1).' * obj.pFullInputBufferLength;
                 syncLostFlag = false;
                 % An upstream stage established the boundary.  Do not
-                % fabricate per-frame ASM observations here; that stage
-                % must explicitly export its own telemetry.
+                % search, shift or invert an already aligned stream. Raw
+                % LDPC markers can still be observed at these FIXED slots:
+                % telemetry must report actual evidence, not assumed lock.
+                if strcmpi(obj.ChannelCoding,'LDPC') && ~isGMSKModulation
+                    marker=double(2*obj.pASM(:)-1);
+                    maxErrors=min(max(0,round(double(obj.FrameSyncASMErrorThreshold))), ...
+                        floor(asmlen/2));
+                    threshold=1-2*maxErrors/asmlen;
+                    for iFrame=1:size(frames,2)
+                        sample=double(frames(1:asmlen,iFrame));
+                        correlation=sum(marker.*sample)/(sum(abs(sample))+eps);
+                        accepted=isfinite(correlation) && correlation>=threshold;
+                        updateFrameSyncMonitorState(obj,accepted);
+                        recordFrameSyncObservation(obj,accepted,false, ...
+                            correlation,threshold,1,1,'upstream-aligned-raw-asm');
+                    end
+                end
             elseif obj.HasASM
                 [frames, syncLostFlag,~,~,frameStartBits] = ...
                     frameSynchronize(obj, llr, inputStartBit);
@@ -1068,7 +1083,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
 
                         case "LDPC"
                             % frames 是已经 frameSynchronize 后的一帧或多帧 soft coded frame
-                            % 如果 HasASM=true，前 32 bits 是 ASM，后面是 LDPC codeword
+                            % ASM length is code/rate dependent (e.g. 64
+                            % bits for AR4JA 1/2), followed by the codeword.
                             if obj.DebugLDPC
                                 fprintf('[LDPC step] frames=%dx%d, syncLen=%d, cwLen=%d, msgLen=%d\n', ...
                                     size(frames,1), size(frames,2), ...

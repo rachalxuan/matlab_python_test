@@ -4377,7 +4377,18 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
 
     % BER + Frame Lock（沿用主脚本逻辑的简化版）
     demodNoiseVariance = NaN;
-    if isOQPSKMod
+    if HelperTMUsesCalibratedPSKLLR(modStr,codeStr)
+        % Shared APP/BP soft-input contract. Calibration is receive-only;
+        % convolutional/TPC/RS metrics retain their established convention.
+        if isfield(opt,'DemodNoiseVariance') && ~isempty(opt.DemodNoiseVariance)
+            validateattributes(opt.DemodNoiseVariance,{'numeric'}, ...
+                {'scalar','real','finite','positive'},mfilename,'DemodNoiseVariance');
+            demodNoiseVariance=double(opt.DemodNoiseVariance);
+        else
+            demodNoiseVariance=HelperTMPSKResidualVariance(fineSyncedForBER,refConst);
+        end
+        opt.DemodNoiseVariance=demodNoiseVariance;
+    elseif isOQPSKMod
         demodNoiseVariance = max(1e-4, min(1, ...
             (max(evm_post,0)/100)^2));
         opt.DemodNoiseVariance = demodNoiseVariance;
@@ -10803,6 +10814,10 @@ function demodData = localDemodForASM(fineSynced, tmMod, tmCode, opt, btVal)
         demodData = real(demodobj(fineSynced));
     else
         demodArgs = {'Modulation', tmMod, 'ChannelCoding', tmCode};
+        if HelperTMUsesCalibratedPSKLLR(tmMod,tmCode) && ...
+                isfield(opt,'DemodNoiseVariance') && ~isempty(opt.DemodNoiseVariance)
+            demodArgs=[demodArgs,{'NoiseVariance',double(opt.DemodNoiseVariance)}];
+        end
         if localUsesOrdinaryPCMLineCoding(tmMod)
             demodArgs = [demodArgs, {'PCMFormat', pcmFormatRx}];
         end
@@ -11637,7 +11652,8 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         if localUsesOrdinaryPCMLineCoding(tmMod)
             demodArgs = [demodArgs, {'PCMFormat',pcmFormatRx}];
         end
-        if (contains(tmMod,'QAM') || contains(tmMod,'APSK')) && ...
+        if (contains(tmMod,'QAM') || contains(tmMod,'APSK') || ...
+                HelperTMUsesCalibratedPSKLLR(tmMod,tmCode)) && ...
                 isfield(opt,'DemodNoiseVariance') && ...
                 ~isempty(opt.DemodNoiseVariance)
             demodArgs = [demodArgs, ...
@@ -11724,7 +11740,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             'NumTxFrames', numel(validTxFrames), ...
             'WarmUpFrames', max(0, round(double(numWarmUp))), ...
             'ChannelCoding', char(string(tmCode)), ...
-            'ASMLength', numel(localTMASM(opt))*logical(hasASM), ...
+            'ASMLength', numel(localTMASM(opt,tmCode))*logical(hasASM), ...
             'TPCBlocksPerTF', getfieldnumeric(opt,'TPCBlocksPerTF',1), ...
             'CaptureTPCWorstCodeword', getLogicalField(opt, ...
                 'debugTPCCaptureWorstCodeword',false), ...
@@ -12320,6 +12336,11 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             "BPSK", "QPSK", "OQPSK", "8PSK", "16QAM", "32QAM"];
         rsNeedsExternalASMAlign = any(modKeyForAlign == rsPeriodicLinearMods);
         rsPeriodicASMAlign = isRSForAlign && rsNeedsExternalASMAlign;
+        % Ordinary LDPC must consume the verified multi-frame marker
+        % boundary, not reacquire it from the startup-damaged first frames.
+        % Dedicated CPM/FM receivers retain their own alignment contracts.
+        ldpcPeriodicASMAlign = codeKeyForAlign == "ldpc" && ...
+            any(modKeyForAlign == [rsPeriodicLinearMods,"16APSK","32APSK"]);
         if isfield(opt,'enableRSPeriodicASMAlign') && ~isempty(opt.enableRSPeriodicASMAlign)
             rsPeriodicASMAlign = logical(opt.enableRSPeriodicASMAlign);
         elseif isfield(opt,'EnableRSPeriodicASMAlign') && ~isempty(opt.EnableRSPeriodicASMAlign)
@@ -12330,7 +12351,8 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             rateForAlign = string(opt.ConvolutionalCodeRate);
         end
         needsPeriodicASMAlign = hasASM && ...
-            (strcmpi(string(tmCode), "none") || isConvForAlign || rsPeriodicASMAlign);
+            (strcmpi(string(tmCode), "none") || isConvForAlign || ...
+             rsPeriodicASMAlign || ldpcPeriodicASMAlign);
         if gmskFrameResetAligned
             decArgs = [decArgs, {'DisableFrameSynchronization', true}];
             if getLogicalField(opt, 'debugCodedBoundary', false) || ...
@@ -12340,11 +12362,15 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             end
         elseif needsPeriodicASMAlign
             [demodData, asmTrim, asmFound] = localTrimDemodToPeriodicASM(demodData, tmMod, tmCode, opt);
-            externalASMAligned = asmTrim > 0 || (rsPeriodicASMAlign && asmFound);
+            externalASMAligned = asmTrim > 0 || ...
+                ((rsPeriodicASMAlign || ldpcPeriodicASMAlign) && asmFound);
             if getLogicalField(opt, 'debugCodedBoundary', false) && asmFound
                 if rsPeriodicASMAlign
                     fprintf('   [ASM bit-align] %s/%s byte-sensitive RS path: bps=%d, trim=%d demod bits before decoder\n', ...
                         char(tmMod), char(tmCode), bitsPerSymForAlign, asmTrim);
+                elseif ldpcPeriodicASMAlign
+                    fprintf('   [ASM bit-align] %s/LDPC verified periodic ASM: trim=%d; preserve boundary and LLR polarity\n', ...
+                        char(tmMod), asmTrim);
                 elseif asmTrim > 0
                     fprintf('   [ASM bit-align] %s/%s trimmed %d demod bits before decoder\n', ...
                         char(tmMod), char(tmCode), asmTrim);

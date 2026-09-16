@@ -72,12 +72,21 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             else
                 obj.pAPSKACMFormat = 0;
             end
+            % Preserve existing Viterbi/TPC/RS metrics. APP/BP decoders
+            % consume calibrated LLRs, supplied by the common receiver.
+            pskVariance=1;
+            if HelperTMUsesCalibratedPSKLLR(obj.Modulation,obj.ChannelCoding)
+                validateattributes(obj.NoiseVariance,{'numeric'}, ...
+                    {'scalar','real','finite','positive'});
+                pskVariance=double(obj.NoiseVariance);
+            end
             if strcmp(obj.Modulation, 'QPSK')
                 obj.pDemod = comm.PSKDemodulator( ...
                     'PhaseOffset',pi/4, ...
                     'ModulationOrder',4, ...
                     'BitOutput',true, ...
                     'DecisionMethod',"Approximate log-likelihood ratio", ...
+                    'Variance',pskVariance, ...
                     'SymbolMapping','Custom', ...
                     'CustomSymbolMapping',[0;2;3;1]);
             
@@ -89,6 +98,7 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             elseif strcmp(obj.Modulation, '8PSK')
                 obj.pDemod = comm.PSKDemodulator('PhaseOffset', pi/8, 'ModulationOrder', 8, ...
                     'BitOutput', true, 'DecisionMethod', "Approximate log-likelihood ratio", ...
+                    'Variance',pskVariance, ...
                     'SymbolMapping', 'Custom', 'CustomSymbolMapping', [0 4 6 2 3 7 5 1]); 
             elseif obj.pIsQAM
                 obj.pDemod = [];
@@ -378,6 +388,11 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                 end
             elseif strcmp(obj.Modulation, 'BPSK')
                 y = double(real(u));
+                if HelperTMUsesCalibratedPSKLLR(obj.Modulation,obj.ChannelCoding)
+                    % TX convention: bit 1 -> +1. For complex variance N0,
+                    % log(P(bit1|y)/P(bit0|y)) = 4*real(y)/N0.
+                    y=4*y/double(obj.NoiseVariance);
+                end
 
             else
                 y = obj.pDemod(u);
@@ -392,6 +407,10 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                 end
             end
 
+            if HelperTMUsesCalibratedPSKLLR(obj.Modulation,obj.ChannelCoding)
+                % Finite confidence in clean records; never change signs.
+                y=max(-50,min(50,y));
+            end
             if any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'})) && ...
                     ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && ...
                      ~obj.pIsGMSK && ...
@@ -443,7 +462,8 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             elseif strcmp(prop, 'NoiseVariance')
                 flag = ~(contains(string(obj.Modulation), 'QAM') || ...
                     contains(string(obj.Modulation), 'APSK') || ...
-                    strcmp(obj.Modulation, 'OQPSK'));
+                    strcmp(obj.Modulation, 'OQPSK') || ...
+                    HelperTMUsesCalibratedPSKLLR(obj.Modulation,obj.ChannelCoding));
             end
         end
     end
