@@ -222,6 +222,21 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     if isfield(res,'CountedFrames'), frontResult.CountedFrames = res.CountedFrames; end
     if isfield(res,'MatchedFrames'), frontResult.MatchedFrames = res.MatchedFrames; end
     if isfield(res,'DecodedFrames'), frontResult.DecodedFrames = res.DecodedFrames; end
+    continuousConvFields = { ...
+        'ConvolutionalReceiveMode', ...
+        'ContinuousConvReceiverAvailable', ...
+        'ContinuousConvSelectedOffset', ...
+        'ContinuousConvLongestGoodASMRun', ...
+        'ContinuousConvGoodASMCount', ...
+        'ContinuousConvMeanASMErrors', ...
+        'ContinuousConvRecoveredFrames'};
+    for iContinuousConvField = 1:numel(continuousConvFields)
+        continuousConvField = continuousConvFields{iContinuousConvField};
+        if isfield(res,continuousConvField)
+            frontResult.(continuousConvField) = ...
+                res.(continuousConvField);
+        end
+    end
     if isfield(res,'GMSKDetectorUsed'), frontResult.GMSKDetectorUsed = res.GMSKDetectorUsed; end
     gmskPLLFields = { ...
         'GMSKSecondOrderPLLApplied','GMSKSecondOrderPLLReason', ...
@@ -1418,6 +1433,11 @@ function [res, ctx] = runOneShot(opt)
 %                        'NumBytesInTransferFrame', 1115, 'Modulation', modStr}];
         if isfield(opt,'channelCoding'), codeStr = canonicalChannelCoding(opt.channelCoding); else, codeStr = 'none'; end
         codeKey = lower(string(codeStr));
+        % Validate the opt-in stream receiver before constructing a long TX
+        % waveform.  The same helper is called again at the decoder boundary
+        % to decide the route; legacy/default calls return immediately.
+        localUseContinuousConvStreamReceiver( ...
+            opt,char(modStr),char(codeStr),hasASM,randomizerEnabled);
         isLDPCOnSMTF = contains(codeKey,'ldpc') && isfield(opt,'IsLDPCOnSMTF') && logical(opt.IsLDPCOnSMTF);
         args = [args, {'WaveformSource','synchronization and channel coding', ...
                        'Modulation', modStr}];
@@ -4939,6 +4959,22 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
     res.CountedFrames = berStats.CountedFrames;
     res.MatchedFrames = berStats.MatchedFrames;
     res.DecodedFrames = berStats.NumRxFrames;
+    res.ConvolutionalReceiveMode = char(string(getfieldwithdefault( ...
+        opt,'ConvolutionalReceiveMode','legacy-coded-asm')));
+    if isfield(berStats,'ContinuousConvReceiverInfo')
+        continuousEvidence = ...
+            localContinuousConvStructureEvidence(berStats);
+        res.ContinuousConvReceiverAvailable = ...
+            logical(continuousEvidence.Available);
+        res.ContinuousConvSelectedOffset = continuousEvidence.Offset;
+        res.ContinuousConvLongestGoodASMRun = ...
+            continuousEvidence.LongestGoodRun;
+        res.ContinuousConvGoodASMCount = continuousEvidence.GoodASMCount;
+        res.ContinuousConvMeanASMErrors = ...
+            continuousEvidence.MeanASMErrors;
+        res.ContinuousConvRecoveredFrames = ...
+            continuousEvidence.RecoveredFrames;
+    end
     res.LegacyLockRateMeaning = ...
         'evaluator TX/RX frame-match rate; not a receiver lock detector';
     res.RuntimeLockTelemetry = runtimeLockTelemetry;
@@ -8486,6 +8522,19 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
             phaseResolveMode = "ber";
         end
 
+        % Experimental continuous punctured-convolutional reception owns
+        % phase selection after Viterbi decoding.  A coded-ASM template is
+        % not periodic when the puncture phase crosses TM-frame boundaries,
+        % so the legacy preselector is deliberately bypassed.  The winning
+        % rotation is selected from decoded raw-ASM evidence below, never
+        % from evaluator BER.
+        useContinuousConvStructureSelection = ...
+            localUseContinuousConvStreamReceiver( ...
+                opt,tmMod,tmCode,hasASM,randomizerEnabled);
+        if useContinuousConvStructureSelection
+            phaseResolveMode = "ber";
+        end
+
         rotationOrder = 1:length(rotations);
         asmResolveInfo = struct('enabled', false, 'selectedIdx', rotationOrder, ...
             'fallbackToBER', false, 'message', "");
@@ -8661,6 +8710,9 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
             % 只要锁帧率还可以，就优先选择 BER 最低的角度
             if useSplitReceiverStructureSelection
                 isUsableCandidate = localHasCredibleSplitReceiverStructure(stats);
+            elseif useContinuousConvStructureSelection
+                isUsableCandidate = ...
+                    localHasCredibleContinuousConvStructure(stats);
             else
                 isUsableCandidate = isfinite(ber) && (bitsComp > 0) && ...
                     (lock >= 0.80 || (strcmp(tmCodeKey,'tpc') && lock > 0 && ber < 0.25));
@@ -8671,6 +8723,10 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                 if useSplitReceiverStructureSelection
                     betterCandidate = bitsComparedBest <= 0 || ...
                         localIsBetterSplitReceiverStructureStats(stats, bestStats);
+                elseif useContinuousConvStructureSelection
+                    betterCandidate = bitsComparedBest <= 0 || ...
+                        localIsBetterContinuousConvStructureStats( ...
+                            stats,bestStats);
                 else
                     betterCandidate = bitsComparedBest <= 0 || ~isfinite(bestBer) || ...
                         ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock);
@@ -8696,7 +8752,8 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                     splitIQRoundSucceeded = true;
                     break;
                 end
-                if ~useSplitReceiverStructureSelection && ber == 0 && ...
+                if ~useSplitReceiverStructureSelection && ...
+                        ~useContinuousConvStructureSelection && ber == 0 && ...
                         (lock >= 0.999 || (strcmp(tmCodeKey,'tpc') && lock >= 0.50)) && bitsComp > 0
                     break;
                 end
@@ -8738,6 +8795,9 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
 
                 if useSplitReceiverStructureSelection
                     isUsableCandidate = localHasCredibleSplitReceiverStructure(stats);
+                elseif useContinuousConvStructureSelection
+                    isUsableCandidate = ...
+                        localHasCredibleContinuousConvStructure(stats);
                 else
                     isUsableCandidate = isfinite(ber) && (bitsComp > 0) && ...
                         (lock >= 0.80 || (strcmp(tmCodeKey,'tpc') && lock > 0 && ber < 0.25));
@@ -8746,6 +8806,10 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                     if useSplitReceiverStructureSelection
                         betterCandidate = bitsComparedBest <= 0 || ...
                             localIsBetterSplitReceiverStructureStats(stats, bestStats);
+                    elseif useContinuousConvStructureSelection
+                        betterCandidate = bitsComparedBest <= 0 || ...
+                            localIsBetterContinuousConvStructureStats( ...
+                                stats,bestStats);
                     else
                         betterCandidate = bitsComparedBest <= 0 || ~isfinite(bestBer) || ...
                             ber < bestBer || (abs(ber - bestBer) < eps && lock > bestLock);
@@ -8768,7 +8832,8 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                         splitIQRoundSucceeded = true;
                         break;
                     end
-                    if ~useSplitReceiverStructureSelection && ber == 0 && ...
+                    if ~useSplitReceiverStructureSelection && ...
+                            ~useContinuousConvStructureSelection && ber == 0 && ...
                             (lock >= 0.999 || (strcmp(tmCodeKey,'tpc') && lock >= 0.50)) && bitsComp > 0
                         break;
                     end
@@ -10605,6 +10670,196 @@ function telemetry = localEmptyReceiverFrameSyncTelemetry()
         'Reacquisitions',0);
 end
 
+function enabled = localUseContinuousConvStreamReceiver( ...
+        opt,tmMod,tmCode,hasASM,randomizerEnabled)
+    mode = lower(strtrim(string(getfieldwithdefault( ...
+        opt,'ConvolutionalReceiveMode','legacy-coded-asm'))));
+    if any(mode == ["legacy","legacy-coded-asm","coded-asm"])
+        enabled = false;
+        return;
+    end
+    if ~any(mode == ["stream-raw-asm","continuous-stream", ...
+            "continuous-raw-asm"])
+        error('run_ccsds_tm_evaluation:InvalidConvolutionalReceiveMode', ...
+            ['Unsupported ConvolutionalReceiveMode="%s". Use ', ...
+             '"legacy-coded-asm" or "stream-raw-asm".'],char(mode));
+    end
+
+    enabled = true;
+    requirements = strings(0,1);
+    if ~strcmpi(strtrim(string(tmMod)),"QPSK")
+        requirements(end+1) = "Modulation must be QPSK"; %#ok<AGROW>
+    end
+    if ~strcmpi(strtrim(string(tmCode)),"convolutional")
+        requirements(end+1) = ...
+            "ChannelCoding must be convolutional"; %#ok<AGROW>
+    end
+    if ~strcmpi(strtrim(string(getfieldwithdefault( ...
+            opt,'ConvolutionalCodeRate',''))),"3/4")
+        requirements(end+1) = ...
+            "ConvolutionalCodeRate must be 3/4"; %#ok<AGROW>
+    end
+    if ~strcmpi(strtrim(string(getfieldwithdefault( ...
+            opt,'DataPathMode','single'))),"single")
+        requirements(end+1) = "DataPathMode must be single"; %#ok<AGROW>
+    end
+    if ~strcmpi(strtrim(string(getfieldwithdefault( ...
+            opt,'PCMFormat','NRZ-L'))),"NRZ-L")
+        requirements(end+1) = "PCMFormat must be NRZ-L"; %#ok<AGROW>
+    end
+    if ~logical(hasASM)
+        requirements(end+1) = "HasASM must be true"; %#ok<AGROW>
+    end
+    if logical(randomizerEnabled)
+        requirements(end+1) = ...
+            "RandomizerEnabled must be false in the first experiment"; %#ok<AGROW>
+    end
+    if ~isempty(requirements)
+        error('run_ccsds_tm_evaluation:ContinuousConvUnsupportedProfile', ...
+            ['ConvolutionalReceiveMode="stream-raw-asm" is currently an ', ...
+             'isolated QPSK convolutional-3/4 experiment. %s.'], ...
+            char(strjoin(requirements,'; ')));
+    end
+end
+
+function tf = localHasCredibleContinuousConvStructure(stats)
+    evidence = localContinuousConvStructureEvidence(stats);
+    tf = evidence.Available && evidence.Locked && ...
+        evidence.LongestGoodRun >= evidence.MinASMFrames;
+end
+
+function tf = localIsBetterContinuousConvStructureStats(candidate,best)
+    a = localContinuousConvStructureEvidence(candidate);
+    b = localContinuousConvStructureEvidence(best);
+    av = [double(a.Available),double(a.Locked),a.LongestGoodRun, ...
+        a.GoodASMCount,-a.MeanASMErrors,a.RecoveredFrames,-a.Offset];
+    bv = [double(b.Available),double(b.Locked),b.LongestGoodRun, ...
+        b.GoodASMCount,-b.MeanASMErrors,b.RecoveredFrames,-b.Offset];
+    av(~isfinite(av)) = -realmax;
+    bv(~isfinite(bv)) = -realmax;
+    tf = false;
+    for k = 1:numel(av)
+        if av(k) > bv(k)
+            tf = true;
+            return;
+        elseif av(k) < bv(k)
+            return;
+        end
+    end
+end
+
+function evidence = localContinuousConvStructureEvidence(stats)
+    evidence = struct('Available',false,'Locked',false, ...
+        'LongestGoodRun',0,'GoodASMCount',0,'MeanASMErrors',Inf, ...
+        'RecoveredFrames',0,'Offset',Inf,'MinASMFrames',Inf);
+    if ~isstruct(stats) || ...
+            ~isfield(stats,'ContinuousConvReceiverInfo') || ...
+            ~isstruct(stats.ContinuousConvReceiverInfo)
+        return;
+    end
+    info = stats.ContinuousConvReceiverInfo;
+    evidence.Available = getLogicalField(info,'Available',false);
+    evidence.RecoveredFrames = getfieldnumeric(info,'RecoveredFrames',0);
+    evidence.MinASMFrames = getfieldnumeric(info,'MinASMFrames',4);
+    selected = round(getfieldnumeric(info,'SelectedCandidate',NaN));
+    if ~isfield(info,'Candidates') || ~isfinite(selected) || ...
+            selected < 1 || selected > numel(info.Candidates)
+        return;
+    end
+    c = info.Candidates(selected);
+    evidence.Locked = getLogicalField(c,'Locked',false);
+    evidence.LongestGoodRun = getfieldnumeric(c,'LongestGoodRun',0);
+    evidence.GoodASMCount = getfieldnumeric(c,'GoodASMCount',0);
+    evidence.MeanASMErrors = getfieldnumeric(c,'MeanASMErrors',Inf);
+    evidence.Offset = getfieldnumeric(c,'Offset',Inf);
+end
+
+function telemetry = localContinuousConvFrameSyncTelemetry(info,opt)
+    telemetry = localEmptyReceiverFrameSyncTelemetry();
+    if ~isstruct(info) || ~isfield(info,'Candidates') || ...
+            isempty(info.Candidates)
+        return;
+    end
+    selected = round(getfieldnumeric(info,'SelectedCandidate',1));
+    selected = max(1,min(numel(info.Candidates),selected));
+    c = info.Candidates(selected);
+    errors = double(c.ASMErrors(:));
+    positions = double(c.FrameStarts(:));
+    n = min(numel(errors),numel(positions));
+    errors = errors(1:n);
+    positions = positions(1:n);
+    threshold = getfieldnumeric(info,'ASMErrorThreshold',3);
+    accepted = errors <= threshold;
+    acquireThreshold = max(1,round(getfieldnumeric( ...
+        opt,'FrameSyncLockThreshold',2)));
+    loseThreshold = max(1,round(getfieldnumeric( ...
+        opt,'FrameSyncUnlockThreshold',3)));
+    locked = false(n,1);
+    holdover = false(n,1);
+    state = false;
+    goodRun = 0;
+    badRun = 0;
+    lockEvents = 0;
+    lossEvents = 0;
+    for k = 1:n
+        if accepted(k)
+            goodRun = goodRun + 1;
+            badRun = 0;
+            if ~state && goodRun >= acquireThreshold
+                state = true;
+                lockEvents = lockEvents + 1;
+            end
+        else
+            goodRun = 0;
+            if state
+                badRun = badRun + 1;
+                holdover(k) = badRun < loseThreshold;
+                if badRun >= loseThreshold
+                    state = false;
+                    badRun = 0;
+                    lossEvents = lossEvents + 1;
+                end
+            end
+        end
+        locked(k) = state;
+    end
+    asmLength = numel(localTMASM(opt));
+    telemetry.Available = n > 0;
+    telemetry.Source = 'continuous-viterbi-raw-asm';
+    telemetry.ObservationIndex = (1:n).';
+    telemetry.ASMObservationAccepted = accepted;
+    telemetry.Locked = locked;
+    telemetry.Holdover = holdover;
+    telemetry.Correlation = asmLength - 2*errors;
+    telemetry.MinimumCorrelation = repmat( ...
+        asmLength-2*threshold,n,1);
+    telemetry.PeakPosition = positions;
+    telemetry.PhaseIndex = repmat(double(c.Offset),n,1);
+    telemetry.AcquireThresholdFrames = acquireThreshold;
+    telemetry.LoseThresholdFrames = loseThreshold;
+    if n > 0
+        telemetry.LockRate = mean(locked);
+        telemetry.LockedAtEnd = locked(end);
+    end
+    telemetry.LockEvents = lockEvents;
+    telemetry.LossEvents = lossEvents;
+    telemetry.Reacquisitions = max(0,lockEvents-1);
+end
+
+function localPrintContinuousConvReceiverInfo(info)
+    selected = round(getfieldnumeric(info,'SelectedCandidate',1));
+    selected = max(1,min(numel(info.Candidates),selected));
+    c = info.Candidates(selected);
+    fprintf(['   [continuous conv RX] available=%d reason=%s ', ...
+        'drop=%d run=%d goodASM=%d meanErr=%.3g recovered=%d ', ...
+        'input=%d consumed=%d pending=%d\n'], ...
+        getLogicalField(info,'Available',false),char(string(info.Reason)), ...
+        c.Offset,c.LongestGoodRun,c.GoodASMCount,c.MeanASMErrors, ...
+        getfieldnumeric(info,'RecoveredFrames',0), ...
+        getfieldnumeric(info,'InputBitsSeen',0),c.InputBitsConsumed, ...
+        c.PendingInputBits);
+end
+
 function telemetry = localGMSKFrameResetSyncTelemetry(frameReset,opt)
     telemetry = localEmptyReceiverFrameSyncTelemetry();
     if ~isstruct(frameReset) || ...
@@ -12326,6 +12581,56 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         end
         return;
     else
+        useContinuousConvReceiver = localUseContinuousConvStreamReceiver( ...
+            opt,tmMod,tmCode,hasASM,randomizerEnabled);
+        if useContinuousConvReceiver
+            streamPeak = max(abs(double(demodData(:))));
+            if isempty(streamPeak) || ~isfinite(streamPeak) || streamPeak <= 0
+                streamPeak = 1;
+            end
+            streamReceiver = HelperTMContinuousConvReceiver( ...
+                'CodeRate',char(getfieldwithdefault( ...
+                    opt,'ConvolutionalCodeRate','3/4')), ...
+                'ASM',localTMASM(opt,tmCode), ...
+                'FramePayloadBits',bitsPerFrame, ...
+                'TracebackDepth',round(getfieldnumeric( ...
+                    opt,'ViterbiTraceBackDepth',60)), ...
+                'SoftInputWordLength',round(getfieldnumeric( ...
+                    opt,'ViterbiWordLength',8)), ...
+                'SoftClip',streamPeak, ...
+                'ASMErrorThreshold',round(getfieldnumeric( ...
+                    opt,'ContinuousConvASMErrorThreshold',3)), ...
+                'MinASMFrames',round(getfieldnumeric( ...
+                    opt,'ContinuousConvMinASMFrames',4)), ...
+                'ConvolutionalG1G2Mode',char(getfieldwithdefault( ...
+                    opt,'ConvolutionalG1G2Mode','auto-ccsds')), ...
+                'Verbose',getLogicalField(opt, ...
+                    'debugContinuousConvReceiver',false));
+            streamReceiver.append(demodData);
+            [streamPayload,streamInfo] = streamReceiver.finalize();
+            decodedBits = streamPayload(:);
+            decoderFrameSyncTelemetry = ...
+                localContinuousConvFrameSyncTelemetry(streamInfo,opt);
+            decodedFramePositions = struct('Available',false);
+            if streamInfo.Available
+                selectedStreamCandidate = ...
+                    streamInfo.Candidates(streamInfo.SelectedCandidate);
+                decodedFramePositions = struct( ...
+                    'Available',true, ...
+                    'InputStartBit',double( ...
+                        selectedStreamCandidate.FrameStarts(:)), ...
+                    'InputFrameLength',double( ...
+                        streamInfo.FrameLengthRawBits), ...
+                    'PositionDomain','decoded-raw-bit', ...
+                    'Source','continuous-viterbi-raw-asm');
+            end
+            frameStats.ContinuousConvReceiverInfo = streamInfo;
+            frameStats.ContinuousConvReceiverMode = 'stream-raw-asm';
+            if getLogicalField(opt,'debugCodedBoundary',false) || ...
+                    getLogicalField(opt,'debugContinuousConvReceiver',false)
+                localPrintContinuousConvReceiverInfo(streamInfo);
+            end
+        else
         externalASMAligned = gmskFrameResetAligned;
         asmTrim = 0;
         asmFound = false;
@@ -12488,6 +12793,7 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                     'Available',false)
             decoderFrameSyncTelemetry = ...
                 opt.ReceiverFrameSyncTelemetry;
+        end
         end
     end
 

@@ -1,13 +1,14 @@
-function [waveform, info] = HelperTMCompleteBurst(generator, waveform, encodedBits, inputBits, Fs, options)
+function [waveform, info, continuationEncodedBits] = HelperTMCompleteBurst(generator, waveform, encodedBits, inputBits, Fs, options)
 % Complete the MEASURED burst by transmitting an unmeasured continuation.
 % Keep the original waveform prefix bit-for-bit. Reuse the SAME generator
 % (encoder, mapper and pulse-shaping states); padding RX soft bits cannot
 % recover information that is still buffered at TX. Guard data are NOT
 % appended to the evaluator's TX reference or encoded-bit reference.
+continuationEncodedBits = zeros(0,1,'int8');
 info = struct('Applied',false,'Reason','dedicated waveform path unchanged', ...
     'OriginalWaveformSamples',numel(waveform),'OriginalEncodedBits',numel(encodedBits), ...
     'OriginalModulatedBits',NaN,'BufferedModulationBits',NaN, ...
-    'GuardInputGroups',0,'AppendedSamples',0, ...
+    'GuardInputGroups',0,'AppendedSamples',0,'AppendedEncodedBits',0, ...
     'MeasurementDuration_s',numel(waveform)/Fs);
 linearMods = ["BPSK","QPSK","8PSK","16QAM","32QAM","16APSK","32APSK"];
 if ~any(string(generator.Modulation)==linearMods) || ...
@@ -47,12 +48,13 @@ end
 % Guard headers need not describe a business TF: they are never measured.
 guard = int8(1)-guard;
 % This consumes no RNG and changes no measured header/payload.
-continuation = generator(guard);
+[continuation, continuationEncodedBits] = generator(guard);
 waveform = [waveform(:);continuation(:)];
 info.Applied = true;
 info.Reason = 'state-preserving TX continuation; guard groups excluded from measurement';
 info.GuardInputGroups = guardGroups;
 info.AppendedSamples = numel(continuation);
+info.AppendedEncodedBits = numel(continuationEncodedBits);
 end
 
 function s = infoOf(g)
