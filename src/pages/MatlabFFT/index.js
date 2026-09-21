@@ -31,6 +31,7 @@ import {
   Descriptions,
   Alert,
   Upload,
+  Modal,
 } from "antd";
 import {
   RocketOutlined,
@@ -49,6 +50,7 @@ import {
 } from "@ant-design/icons";
 import * as echarts from "echarts";
 import "./index.scss";
+import { finalizeTMRequest, codingDefaults, PCM_MODS, TURBO_BLOCKS, constellationExplanation } from "./parameterContract";
 
 const { Option } = Select;
 const RS_PRESETS = {
@@ -107,6 +109,11 @@ const DEFAULT_CCSDS_PARAMS = {
   TZZS: 0.715,
   SubcarrierWaveform: "sine",
   snr: 15,
+  noiseMode: "snr",
+  noisePSDdBmHz: -115.3,
+  berWarmUpFrames: 8,
+  berFrames: 100,
+  adaptiveEqualizerSamplingMode: "2sps",
   cfo: 0,
   phaseOffset: 0,
   delay: 0,
@@ -123,6 +130,7 @@ const DEFAULT_CCSDS_PARAMS = {
   rsPreset: "rs-255-223-i5",
   channelModel: "none",
   channelSampleRateHz: 100000,
+  normalizeHChannel: false,
   enableEqualizer: false,
   // 仅导出仿真时间轴上的同步状态，不参与接收机校正。
   enableRuntimeLockTelemetry: true,
@@ -168,7 +176,7 @@ const CHANNEL_CODING_OPTIONS = [
 
 const PCM_FORMAT_OPTIONS = ["NRZ-L", "NRZ-M", "NRZ-S"];
 
-const MODES_WITH_PCM_FORMAT = ["BPSK", "QPSK", "8PSK", "OQPSK", "UQPSK"];
+const MODES_WITH_PCM_FORMAT = PCM_MODS;
 
 const H_DAMAGE_PRESETS = {
   none: null,
@@ -398,9 +406,12 @@ const getMetricTone = (value, thresholds = {}) => {
 
 const EVM_TONE_THRESHOLDS = { good: 8, warn: 15 };
 
-const getBerSummary = (ber) => {
+const getBerSummary = (ber, coverage) => {
+  if (coverage?.Available && !coverage.Complete) {
+    return `测量覆盖不足（${coverage.ComparedFrames}/${coverage.ExpectedFrames} 帧），BER 只代表已比较部分，不能判定整段无误码。`;
+  }
   if (!isFiniteNumber(ber) || ber < 0) return "当前场景下未得到有效 BER。";
-  if (ber === 0) return "当前链路误码表现很好，接收端已基本稳定。";
+  if (ber === 0) return "本次已比较数据未检测到误码；不等于长期 BER 为零，也不能代替锁定检测。";
   if (ber < 1e-4) return "链路质量较好，误码已经很低。";
   if (ber < 1e-2) return "链路可用，但已经能看到明显损伤影响。";
   return "链路误码偏高，建议优先检查同步或信道损伤设置。";
@@ -576,6 +587,11 @@ const normalizeSimulationResult = (raw) => {
         FrameSyncLock: runtimeLock?.frame || null,
         LockStatus: combinedLockStatus,
         InputSNR: raw.snr_in,
+        NoiseMode: raw.NoiseMode,
+        NoiseEquivalentSNR: raw.NoiseEquivalentSNR_dB,
+        APSKReceiverMode: raw.APSKReceiverMode,
+        AdaptiveEqualizerMode: raw.AdaptiveEqualizerMode,
+        MeasurementCoverage: raw.ReceiverTimeline?.MeasurementCoverage,
         InputCFO: raw.cfo_in,
         InputPhase: raw.phase_in,
         InputDelay: raw.delay_in,
@@ -625,6 +641,8 @@ const CCSDSPlatform = () => {
   const [currentTaskId, setCurrentTaskId] = useState(null);
   const [taskStatusText, setTaskStatusText] = useState("");
   const [simResult, setSimResult] = useState(null);
+  const [errorNotice, setErrorNotice] = useState(null);
+  const showError = (detail) => setErrorNotice(String(detail));
   const hasRemoteImages =
     !simResult?.spectrum &&
     Boolean(
@@ -712,7 +730,7 @@ const CCSDSPlatform = () => {
       const completedValues = applyDefaultParams(values);
       form.setFieldsValue(completedValues);
 
-      const payload = {
+      let payload = {
         ...completedValues,
         taskType: "ccsds_tm",
         NumBytesInTransferFrame: Number(
@@ -736,6 +754,7 @@ const CCSDSPlatform = () => {
         "UQPSK",
       ];
       if (!splitCapableModulations.includes(payload.modType)) {
+        if (requestedPath !== "single") throw new Error(`${payload.modType} 当前仅支持合路，请修改数据通路。`);
         payload.DataPathMode = "single";
       } else if (payload.modType === "UQPSK" && requestedPath === "dualIQ") {
         payload.DataPathMode = "unequalDualIQ";
@@ -779,11 +798,6 @@ const CCSDSPlatform = () => {
         // leaving the backend at its generic one-block default.
         payload.TPCBlocksPerTF = payload.TPCCodeRate === "1/2" ? 8 : 4;
         payload.CodeRate = "N/A";
-        payload.berWarmUpFrames = Math.max(
-          2,
-          Number(payload.berWarmUpFrames ?? 2),
-        );
-        payload.berFrames = Number(payload.berFrames ?? 6);
       } else {
         delete payload.TPCCodeRate;
         delete payload.TPCBlocksPerTF;
@@ -846,6 +860,9 @@ const CCSDSPlatform = () => {
         uploadedSequence ||
         uploadedChannelModels.find((item) => item.id === selectedChannel) ||
         null;
+      if (selectedChannel !== "none" && !hPreset && !matrixChannel) {
+        throw new Error("所选信道未找到，请重新选择或上传 MAT 文件；不会自动改成无 H 信道。");
+      }
       payload.enableHChannel = Boolean(hPreset || matrixChannel);
       if (hPreset) {
         payload.HMode = "siso_multipath";
@@ -868,7 +885,7 @@ const CCSDSPlatform = () => {
         // declared end; insufficient H duration is a configuration error.
         payload.channelOutOfRangeMode = channelPaths.length > 1 ? "error" : "wrap";
         payload.interpolateChannelDelays = channelPaths.length > 1;
-        payload.normalizeHChannel = false;
+        payload.normalizeHChannel = Boolean(payload.normalizeHChannel);
         delete payload.H;
       } else {
         payload.HMode = "none";
@@ -877,21 +894,9 @@ const CCSDSPlatform = () => {
         delete payload.channelFilePath;
         delete payload.channelFilePaths;
       }
-      payload.enableEqualizer = payload.enableHChannel && Boolean(payload.enableEqualizer);
+      payload.enableEqualizer = Boolean(payload.enableEqualizer);
       payload.normalizeEqualizerOutput = true;
-      payload.equalizerMode = "mmse";
-      payload.enableFACMEqualizer = Boolean(payload.enableEqualizer);
-      payload.facmEqualizerMode = "pilot-ls";
-      payload.facmEqualizerTaps = 11;
-      payload.facmEqualizerReg = 1e-2;
       delete payload.channelModel;
-
-      if (payload.modType === "16APSK" || payload.modType === "32APSK") {
-        payload.HasTMAPSKPilots = true;
-        payload.TMAPSKPilotInterval = 512;
-        payload.TMAPSKPilotLength = 32;
-        payload.TMAPSKPilotPreambleLength = 64;
-      }
       delete payload.acmFormat;
 
       if (payload.modType === "FM") {
@@ -910,6 +915,7 @@ const CCSDSPlatform = () => {
         payload.DataPathMode = "single";
       }
 
+      payload = finalizeTMRequest(payload);
       console.log("正在通过 HTTP 请求仿真...", payload);
       const submitRes = await runMatlabSimulation(payload);
       if (!submitRes?.success || !submitRes?.taskId) {
@@ -917,6 +923,8 @@ const CCSDSPlatform = () => {
       }
 
       setCurrentTaskId(submitRes.taskId);
+      try { localStorage.setItem("receiverMonitorTaskId", submitRes.taskId); }
+      catch { /* A disabled browser store must not stop the simulation. */ }
       setTaskStatusText(
         submitRes.position
           ? `排队中，第 ${submitRes.position} 位`
@@ -925,6 +933,7 @@ const CCSDSPlatform = () => {
 
       const res = await waitForSimulationTask(submitRes.taskId);
       const normalizedRes = normalizeSimulationResult(res);
+      if (normalizedRes) normalizedRes.taskId = submitRes.taskId;
       console.log("Residual CFO fields:", {
         rawResidualCFO: res?.ResidualCFO_Hz,
         rawResidualCFOValid: res?.ResidualCFO_valid,
@@ -938,13 +947,14 @@ const CCSDSPlatform = () => {
         renderCharts(normalizedRes);
 
         //  保存到 localStorage
-        localStorage.setItem("latestSimResult", JSON.stringify(normalizedRes));
+        try { localStorage.setItem("latestSimResult", JSON.stringify(normalizedRes)); }
+        catch { /* Large PNG results can exceed browser storage; reception still succeeded. */ }
 
         if (normalizedRes.stats?.ElapsedTime) {
           console.log(`后端计算耗时: ${normalizedRes.stats.ElapsedTime}s`);
         }
       } else {
-        message.error("仿真失败: " + (normalizedRes?.error || "未知错误"));
+        showError("仿真失败: " + (normalizedRes?.error || "未知错误"));
       }
     } catch (error) {
       console.error("调用失败:", error);
@@ -954,7 +964,7 @@ const CCSDSPlatform = () => {
       ) {
         message.info("任务已停止");
       } else {
-        message.error(error.message || "请求失败，请检查 Python 服务是否启动");
+        showError(error.message || "请求失败，请检查 Python 服务是否启动");
       }
     } finally {
       setLoading(false);
@@ -980,7 +990,7 @@ const CCSDSPlatform = () => {
       message.info("已请求停止任务");
     } catch (error) {
       console.error("停止任务失败:", error);
-      message.error("停止任务失败，请检查 Python 服务");
+      showError("停止任务失败，请检查 Python 服务");
     }
   };
 
@@ -988,7 +998,7 @@ const CCSDSPlatform = () => {
     if (errorFields?.length) {
       form.scrollToField(errorFields[0].name);
     }
-    message.warning("参数不合法，请先修改标红字段");
+    showError("参数不合法，请修改标红字段：\n" + (errorFields || []).flatMap(field => field.errors || []).join("\n"));
   };
 
   const fillDefaultParams = () => {
@@ -1028,7 +1038,7 @@ const CCSDSPlatform = () => {
       message.success(`已加入信道快照：${result.model.label}`);
       onSuccess?.(result);
     } catch (error) {
-      message.error(error.message || "上传信道文件失败");
+      showError(error.message || "上传信道文件失败");
       onError?.(error);
     }
   };
@@ -1056,7 +1066,7 @@ const CCSDSPlatform = () => {
       }
     } catch (error) {
       console.error(error);
-      message.error("保存失败，请检查后端连接");
+      showError("保存失败，请检查后端连接");
     }
   };
 
@@ -1076,7 +1086,7 @@ const CCSDSPlatform = () => {
         setHistoryList([]);
       }
     } catch (error) {
-      message.error("获取历史记录失败");
+      showError("获取历史记录失败");
     }
   };
 
@@ -1108,7 +1118,7 @@ const CCSDSPlatform = () => {
       }
     } catch (error) {
       console.error(error);
-      message.error("加载失败");
+      showError("加载失败");
     } finally {
       hide();
     }
@@ -1506,6 +1516,12 @@ const CCSDSPlatform = () => {
                 <Descriptions.Item label="实际码率">
                   {simResult.stats.CodeRate}
                 </Descriptions.Item>
+                {/APSK/i.test(simResult.modType || "") && simResult.stats.APSKReceiverMode && <Descriptions.Item label="APSK 实际接收模式">
+                  {simResult.stats.APSKReceiverMode === "pilotless" ? "普通 TM · 无导频" : simResult.stats.APSKReceiverMode}
+                </Descriptions.Item>}
+                <Descriptions.Item label="实际自适应均衡">
+                  {simResult.stats.AdaptiveEqualizerMode || "未报告"}
+                </Descriptions.Item>
                 <Descriptions.Item label="数据通路">
                   {simResult.stats.DataPathMode === "unequalDualIQ"
                     ? "UQPSK 不等速 I/Q 分路"
@@ -1537,8 +1553,13 @@ const CCSDSPlatform = () => {
 
             <Col xs={24} xl={7}>
               <Descriptions title="输入损伤" size="small" column={1} bordered>
+                <Descriptions.Item label="实际噪声模式">
+                  {{off:"关闭噪声",psd:"固定 PSD",measuredsnr:"按 SNR 加噪",snr:"按 SNR 加噪"}[simResult.stats.NoiseMode] || simResult.stats.NoiseMode || "未报告（旧结果）"}
+                </Descriptions.Item>
                 <Descriptions.Item label="输入SNR">
-                  {formatMetricValue(simResult.stats.InputSNR)} dB
+                  {["off","psd"].includes(simResult.stats.NoiseMode)
+                    ? "未使用（由实际噪声模式决定）"
+                    : `${formatMetricValue(simResult.stats.InputSNR)} dB`}
                 </Descriptions.Item>
                 <Descriptions.Item label="输入CFO">
                   {formatMetricValue(simResult.stats.InputCFO)} Hz
@@ -1601,9 +1622,11 @@ const CCSDSPlatform = () => {
                   {formatMetricValue(simResult.stats.ElapsedTime, 3)} s
                 </Descriptions.Item>
                 <Descriptions.Item label="结论">
-                  {simResult.stats.LockStatus
-                    ? "链路已锁定，可结合 BER / EVM / MER 判断质量"
-                    : "优先检查同步链是否稳定锁定"}
+                  {simResult.stats.LockStatus === null
+                    ? "锁定遥测未完整观测，不能据此判定失锁"
+                    : simResult.stats.LockStatus
+                      ? "检测器报告锁定；仍需检查测量覆盖和误码"
+                      : "检测器报告未锁定，需结合时间记录检查"}
                 </Descriptions.Item>
               </Descriptions>
             </Col>
@@ -1613,6 +1636,7 @@ const CCSDSPlatform = () => {
             className="evaluation-alert"
             type={
               simResult.stats.LockStatus &&
+              simResult.stats.MeasurementCoverage?.Complete &&
               isFiniteNumber(simResult.ber) &&
               simResult.ber >= 0 &&
               simResult.ber < 1e-3
@@ -1621,7 +1645,7 @@ const CCSDSPlatform = () => {
             }
             showIcon
             message="评估解读"
-            description={`${getBerSummary(simResult.ber)} ${
+            description={`${getBerSummary(simResult.ber, simResult.stats.MeasurementCoverage)} ${
               isGMSK
                 ? getGMSKEvmSummary()
                 : getEvmSummary(simResult.stats.EVMPercent)
@@ -1634,6 +1658,13 @@ const CCSDSPlatform = () => {
 
   return (
     <div className="ccsds-platform">
+      <Modal title="操作未完成，请确认提示" open={errorNotice !== null}
+        centered closable={false} maskClosable={false} keyboard={false}
+        footer={<Button type="primary" onClick={() => setErrorNotice(null)}>确认</Button>}>
+        <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: "60vh", overflowY: "auto" }}>
+          {errorNotice}
+        </div>
+      </Modal>
       {/* 顶部 Header */}
       <div className="platform-header">
         <div className="title-area">
@@ -1665,7 +1696,7 @@ const CCSDSPlatform = () => {
               </Tag>
             ) : (
               <Tag color="orange" icon={<SyncOutlined spin={loading} />}>
-                Demo Mode
+                MATLAB HTTP 服务
               </Tag>
             )}
           </Space>
@@ -1727,15 +1758,19 @@ const CCSDSPlatform = () => {
                   />
                 </Form.Item>
               </Col>
+              <Form.Item noStyle dependencies={["noiseMode"]}>
+                {({ getFieldValue }) => (
               <Col span={3}>
                 <Form.Item
                   name="snr"
                   label={labelWithDefault("信噪比 (SNR)", "snr")}
                   rules={fieldRules("snr")}
                 >
-                  <InputNumber min={-20} max={100} style={{ width: "100%" }} />
+                  <InputNumber disabled={getFieldValue("noiseMode") !== "snr"} min={-20} max={100} style={{ width: "100%" }} />
                 </Form.Item>
               </Col>
+                )}
+              </Form.Item>
               <Col span={3}>
                 <Form.Item
                   name="sps"
@@ -1790,6 +1825,9 @@ const CCSDSPlatform = () => {
                         </Form.Item>
                       </Col>
                     );
+                  }
+                  else if (mod === "MSK") {
+                    return <Col span={6}><Alert type="info" showIcon title="MSK：连续相位调制，不使用 RRC 滚降和滤波长度参数。" /></Col>;
                   }
                   // 4. FM
                   else if (mod === "FM") {
@@ -1937,41 +1975,8 @@ const CCSDSPlatform = () => {
                 >
                   <Select
                     onChange={(value) => {
-                      // 当编码类型改变时，重置 CodeRate 字段
-                      if (value === "Turbo") {
-                        form.setFieldsValue({ CodeRate: "1/2" });
-                      } else if (value === "LDPC") {
-                        form.setFieldsValue({
-                          CodeRate: "1/2",
-                          NumBitsInInformationBlock: 1024,
-                          LDPCCodeblockSize: 1,
-                        });
-                      } else if (value === "TPC") {
-                        form.setFieldsValue({
-                          CodeRate: "N/A",
-                          TPCCodeRate: "2/3",
-                          TPCBlocksPerTF: 4,
-                          ConvolutionalCodeRate: "5/6",
-                        });
-                      } else {
-                        form.setFieldsValue({
-                          CodeRate: "N/A",
-                          TPCCodeRate: "2/3",
-                          TPCBlocksPerTF: 4,
-                        });
-                      }
-
-                      // 重置卷积码率
-                      if (
-                        value === "convolutional" ||
-                        value === "concatenated"
-                      ) {
-                        form.setFieldsValue({
-                          ConvolutionalCodeRate:
-                            form.getFieldValue("ConvolutionalCodeRate") ||
-                            "5/6",
-                        });
-                      }
+                      // Block length and rate belong to the coding family.
+                      form.setFieldsValue(codingDefaults(value));
                     }}
                   >
                     {CHANNEL_CODING_OPTIONS.map((item) => (
@@ -2080,12 +2085,21 @@ const CCSDSPlatform = () => {
 
                   return (
                     <>
+                      {["none", "convolutional"].includes(coding) && (
+                        <Col span={4}>
+                          <Form.Item name="NumBytesInTransferFrame" label="信息帧长度 (Byte)"
+                            rules={fieldRules("NumBytesInTransferFrame", {integer:true})}>
+                            <InputNumber min={6} max={65535} precision={0} style={{width:"100%"}} />
+                          </Form.Item>
+                        </Col>
+                      )}
                       {/* A. 卷积码率 */}
                       {showConvRate && (
                         <Col span={4}>
                           <Form.Item
                             name="ConvolutionalCodeRate"
                             label="卷积码率"
+                            extra={coding === "concatenated" ? "内码默认 1/2；高码率还须满足 RS 编码后帧长的打孔周期。" : undefined}
                             initialValue={convDefaultRate}
                             rules={[enumRule(convRateOptions, "卷积码率")]}
                           >
@@ -2198,6 +2212,15 @@ const CCSDSPlatform = () => {
                                 </Option>
                               ))}
                             </Select>
+                          </Form.Item>
+                        </Col>
+                      )}
+
+                      {coding === "Turbo" && (
+                        <Col span={4}>
+                          <Form.Item name="NumBitsInInformationBlock" label="Turbo K (bit)"
+                            rules={[enumRule(TURBO_BLOCKS, "Turbo 信息块长度")]}>
+                            <Select options={TURBO_BLOCKS.map(value => ({value, label: `${value} bits`}))} />
                           </Form.Item>
                         </Col>
                       )}
@@ -2453,7 +2476,36 @@ const CCSDSPlatform = () => {
                   valuePropName="checked"
                   label=" "
                 >
-                  <Checkbox>开启均衡</Checkbox>
+                  <Checkbox>开启自适应均衡（非已知 H）</Checkbox>
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={5}>
+                <Form.Item name="noiseMode" label="噪声模式">
+                  <Select options={[{value:"snr",label:"SNR（接收功率为参考）"},{value:"psd",label:"固定噪声 PSD"},{value:"off",label:"关闭噪声"}]} />
+                </Form.Item>
+              </Col>
+              <Form.Item noStyle dependencies={["noiseMode"]}>
+                {({getFieldValue}) => <Col span={5}>
+                  <Form.Item name="noisePSDdBmHz" label="噪声 PSD (dBm/Hz)" extra="仅固定 PSD 模式生效；此时 SNR 输入不参与加噪。">
+                    <InputNumber disabled={getFieldValue("noiseMode") !== "psd"} style={{width:"100%"}} />
+                  </Form.Item>
+                </Col>}
+              </Form.Item>
+              <Col span={4}>
+                <Form.Item name="berWarmUpFrames" label="预热帧数（不计 BER）">
+                  <InputNumber min={0} precision={0} style={{width:"100%"}} />
+                </Form.Item>
+              </Col>
+              <Col span={4}>
+                <Form.Item name="berFrames" label="测量帧数">
+                  <InputNumber min={1} precision={0} style={{width:"100%"}} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="adaptiveEqualizerSamplingMode" label="自适应均衡结构" extra="通用 PSK/QAM 分支；APSK、CPM、OQPSK/UQPSK 保留专用前端。">
+                  <Select options={[{value:"1sps",label:"1 sps CMA/LMS"},{value:"2sps",label:"2 sps CMA"},{value:"2sps-dual",label:"2 sps 同抽头双模（实验）"}]} />
                 </Form.Item>
               </Col>
             </Row>
@@ -2472,6 +2524,12 @@ const CCSDSPlatform = () => {
                         extra="新信道当前为 100000；以后优先读取 MAT 元数据"
                       >
                         <InputNumber min={1} precision={0} style={{ width: "100%" }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item name="normalizeHChannel" valuePropName="checked" label="H 增益处理"
+                        extra="关闭保留 MAT 原始平均增益；与归一化 sweep 对比时请开启。">
+                        <Checkbox>归一化 H 平均功率</Checkbox>
                       </Form.Item>
                     </Col>
                   </Row>
@@ -2512,7 +2570,22 @@ const CCSDSPlatform = () => {
         </Card>
 
         {/* 2. 底部：图表展示区 */}
+        <div style={{ margin: "16px 0" }}>
+          <Button
+            icon={<RadarChartOutlined />}
+            href={`#/receiver-monitor${currentTaskId || simResult?.taskId ? `?task=${encodeURIComponent(currentTaskId || simResult.taskId)}` : ""}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            打开接收监控（任务进度 / 锁定与误码时间线）
+          </Button>
+        </div>
         <div className="charts-row">
+          {simResult?.stats?.MeasurementCoverage?.Available && !simResult.stats.MeasurementCoverage.Complete && (
+            <Alert type="warning" showIcon title="测量覆盖不足，BER 仅代表已比较部分"
+              description={`已比较 ${simResult.stats.MeasurementCoverage.ComparedFrames} / ${simResult.stats.MeasurementCoverage.ExpectedFrames} 个测量帧。请打开接收监控查看未恢复或未比较记录；不能用 BER=0 判定整段无误码。`}
+              style={{marginBottom:16}} />
+          )}
           {/* 第一行：远控图片模式显示时域和星座；完整数据模式保留原 ECharts。 */}
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
             <Col span={12}>
@@ -2558,6 +2631,9 @@ const CCSDSPlatform = () => {
                     <div ref={syncedConstellationRef} className="chart-box" />
                   )}
                 </div>
+                <p style={{color:"#596579",marginTop:12}}>
+                  {constellationExplanation(simResult?.modType || simResult?.params?.modType)}
+                </p>
               </Card>
             </Col>
           </Row>
@@ -2842,6 +2918,7 @@ const CCSDSPlatform = () => {
                           className="evaluation-alert"
                           type={
                             simResult.stats.LockStatus &&
+                            simResult.stats.MeasurementCoverage?.Complete &&
                             isFiniteNumber(simResult.ber) &&
                             simResult.ber >= 0 &&
                             simResult.ber < 1e-3
@@ -2852,6 +2929,7 @@ const CCSDSPlatform = () => {
                           message="评估解读"
                           description={`${getBerSummary(
                             simResult.ber,
+                            simResult.stats.MeasurementCoverage,
                           )} ${getEvmSummary(simResult.stats.EVMPercent)}`}
                         />
                       </Card>

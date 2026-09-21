@@ -10,6 +10,7 @@ import Layout from "@/pages/Layout";
 // const Article = lazy(() => import("@/pages/Article"));
 // const Publish = lazy(() => import("@/pages/Publish"));
 const MatlabFFT = lazy(() => import("@/pages/MatlabFFT"));
+const ReceiverMonitor = lazy(() => import("@/pages/ReceiverMonitor"));
 
 const router = createHashRouter([
   {
@@ -17,6 +18,10 @@ const router = createHashRouter([
     // 当用户访问根路径 / 时，React Router 不会直接渲染 Layout，而是先渲染 AuthRoute
     element: <Layout />,
     children: [
+      {
+        path: "receiver-monitor",
+        element: <Suspense fallback={"加载监控页面…"}><ReceiverMonitor /></Suspense>,
+      },
       {
         path: "matlab",
         element: (

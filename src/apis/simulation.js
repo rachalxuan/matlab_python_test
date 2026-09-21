@@ -18,6 +18,15 @@ export const getSimulationTaskStatus = (taskId) => {
   });
 };
 
+// Lightweight monitor: no repeated Base64 images or raw receiver arrays.
+export const getReceiverMonitor = (taskId, after = 0, signal) =>
+  request({
+    url: `/task_monitor/${encodeURIComponent(taskId)}?after=${after}&limit=500`,
+    method: "GET",
+    signal,
+    quiet: true,
+  });
+
 // Cancel a queued/running MATLAB simulation task.
 export const cancelSimulationTask = (taskId) => {
   return request({

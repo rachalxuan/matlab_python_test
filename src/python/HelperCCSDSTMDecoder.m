@@ -791,9 +791,12 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 syncLostFlag = false;
                 % An upstream stage established the boundary.  Do not
                 % search, shift or invert an already aligned stream. Raw
-                % LDPC markers can still be observed at these FIXED slots:
+                % markers outside the FEC codeword can still be observed
+                % at these FIXED slots (including uncoded/RS paths):
                 % telemetry must report actual evidence, not assumed lock.
-                if strcmpi(obj.ChannelCoding,'LDPC') && ~isGMSKModulation
+                rawMarkerCoding = any(strcmpi(obj.ChannelCoding, ...
+                    {'none','RS','LDPC','Turbo','TPC'}));
+                if rawMarkerCoding && ~isGMSKModulation
                     marker=double(2*obj.pASM(:)-1);
                     maxErrors=min(max(0,round(double(obj.FrameSyncASMErrorThreshold))), ...
                         floor(asmlen/2));

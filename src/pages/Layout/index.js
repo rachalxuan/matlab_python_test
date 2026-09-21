@@ -13,6 +13,11 @@ import { useDispatch, useSelector } from "react-redux";
 const { Header, Sider } = Layout;
 
 const items = [
+  {
+    label: "接收监控",
+    key: "/receiver-monitor",
+    icon: <FundOutlined />,
+  },
   //   {
   //     label: "首页",
   //     key: "/",
@@ -59,7 +64,7 @@ const GeekLayout = () => {
           <Menu
             mode="inline"
             theme="dark"
-            defaultSelectedKeys={selectedkey}
+            selectedKeys={[selectedkey]}
             onClick={MenuClick}
             items={items}
             style={{ height: "100%", borderRight: 0 }}

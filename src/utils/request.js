@@ -25,6 +25,8 @@ const request = async (urlOrConfig, options = {}) => {
   }
 
   const fullUrl = `${BASE_URL}${url}`;
+  const quiet = config.quiet;
+  delete config.quiet;
   const defaultOptions = {
     method: "GET",
     headers: {
@@ -34,7 +36,7 @@ const request = async (urlOrConfig, options = {}) => {
   };
 
   try {
-    console.log(`[API] Request: ${fullUrl}`);
+    if (!quiet) console.log(`[API] Request: ${fullUrl}`);
     const response = await fetch(fullUrl, defaultOptions);
 
     if (!response.ok) {
@@ -43,7 +45,7 @@ const request = async (urlOrConfig, options = {}) => {
 
     return await response.json();
   } catch (error) {
-    console.error("[API] Request failed:", error);
+    if (!quiet) console.error("[API] Request failed:", error);
     throw error;
   }
 };

@@ -13,6 +13,7 @@ import uuid
 
 import sqlite3
 import datetime
+from receiver_monitor import register_monitor_routes
 
 # --- 全局单例：启动时只运行一次 MATLAB ---
 print("🚀 [Server] 正在启动 MATLAB 引擎，请耐心等待 (约 5-10秒)...")
@@ -245,6 +246,8 @@ def _worker_loop():
 worker_thread = threading.Thread(target=_worker_loop, daemon=True)
 worker_thread.start()
 
+register_monitor_routes(app, _task_snapshot, _task_result_dir)
+
 # 初始化数据库
 
 DB_FILE = os.path.join(os.path.dirname(
@@ -388,6 +391,10 @@ def run_simulation():
         params['remoteMode'] = True
         params['includeRawData'] = bool(params.get('includeRawData', False))
         params['outputDir'] = output_dir
+        # Monitoring only exports receiver evidence; it never steers DSP.
+        params['enableWebMonitor'] = True
+        params['enableRuntimeLockTelemetry'] = True
+        params['enableReceiverTimeline'] = True
         params_json = json.dumps(params)
 
         print(f"📩 [Server] 收到仿真请求: Mod={params.get('modType', 'Unknown')}")
@@ -414,6 +421,8 @@ def run_simulation():
             "RandomizerEnabled": params.get("RandomizerEnabled"),
             "RandomizerFECPosition": params.get("RandomizerFECPosition"),
             "DataPathMode": params.get("DataPathMode"),
+            "berWarmUpFrames": params.get("berWarmUpFrames"),
+            "berFrames": params.get("berFrames"),
             "TMDataSource": params.get("TMDataSource"),
             "TMDataSourceI": params.get("TMDataSourceI"),
             "TMDataSourceQ": params.get("TMDataSourceQ"),

@@ -1,0 +1,48 @@
+.receiver-monitor {
+  color: #dce9f5; background: #0b1420; min-height: 100%; flex: 0 0 auto; padding: 28px; box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  h1, h2, h3, p { margin: 0; }
+  h1 { font-size: 28px; font-weight: 650; margin: 4px 0 8px; }
+  h2 { font-size: 16px; font-weight: 600; }
+  button, .monitor-button, select, input:not([type="range"]):not([type="checkbox"]) {
+    color: #dce9f5; background: #17283b; border: 1px solid #354d65; border-radius: 6px;
+    padding: 8px 12px; font: inherit; text-decoration: none;
+  }
+  button, .monitor-button { cursor: pointer; white-space: nowrap; }
+  button:hover:not(:disabled), .monitor-button:hover { border-color: #5bd6ff; color: #8ce4ff; }
+  button:disabled { opacity: .42; cursor: not-allowed; }
+  :focus-visible { outline: 2px solid #68d8ff; outline-offset: 3px; }
+  input[type="range"] { accent-color: #5bd6ff; min-width: 100px; }
+  input[type="checkbox"] { accent-color: #5bd6ff; }
+  .monitor-heading { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-bottom: 24px; p { color: #9fb5c9; } }
+  .monitor-eyebrow { font-size: 11px; letter-spacing: 2px; color: #66d8f6 !important; }
+  .monitor-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; form { display: flex; flex: 1; align-items: center; gap: 10px; } input { min-width: 180px; flex: 1; } }
+  .monitor-badge { border: 1px solid #355568; background: #122b38; color: #83d8ed; font-size: 12px; padding: 5px 9px; border-radius: 5px; white-space: nowrap; &.danger { color: #ff9aa9; border-color: #663e4e; } }
+  .monitor-mode-note { display: flex; gap: 18px; padding: 14px 0 22px; color: #a5bacc; font-size: 13px; line-height: 1.7; strong { color: #e9cd8d; white-space: nowrap; } }
+  .monitor-panel { background: #101f2e; border: 1px solid #293c50; border-radius: 10px; padding: 20px; min-width: 0; margin-bottom: 18px; }
+  .monitor-panel-title { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; > span { color: #8fa8be; font-size: 12px; } > div { display: flex; gap: 14px; align-items: center; font-size: 13px; } }
+  .monitor-stage { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #92aabd; margin: 12px 0 18px; }
+  .monitor-pulse { width: 7px; height: 7px; border-radius: 50%; background: #66d8f6; }
+  .monitor-lamps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+  .monitor-lamp { display: flex; align-items: center; gap: 10px; padding: 14px 12px; background: #152635; border: 1px solid #314457; border-radius: 7px; font-size: 13px; flex-wrap: wrap;
+    small { display: block; margin-top: 5px; font-size: 11px; color: #8fa6b9; } strong { margin-left: auto; font-size: 12px; color: #a1b4c5; }
+    .lamp-dot { width: 10px; height: 10px; background: #677d90; border-radius: 50%; flex-shrink: 0; }
+    &.locked { border-color: #2e6753; .lamp-dot { background: #69dfa4; box-shadow: 0 0 9px #46b38166; } strong { color: #69dfa4; } }
+    &.unlocked { border-color: #713e4a; .lamp-dot { background: #fa8097; } strong { color: #fa8097; } }
+  }
+  .monitor-footnote { color: #8fa8bd; font-size: 12px; line-height: 1.8; margin-top: 12px; }
+  .monitor-replay { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 8px 0 20px; > div { display: flex; gap: 12px; align-items: center; } > input { flex: 1; } strong { font: 15px ui-monospace, monospace; } }
+  .monitor-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .monitor-metric { padding: 18px; border: 1px solid #293c50; background: #101f2e; border-radius: 8px; min-width: 0;
+    h3 { font-size: 13px; color: #a5bbcf; font-weight: 400; } > strong { font: 28px ui-monospace, "Consolas", monospace; display: block; padding: 12px 0; overflow-wrap: anywhere; } p { color: #849eb4; font-size: 11px; line-height: 1.6; }
+  }
+  .monitor-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 20px; .monitor-panel { margin: 0; } margin-bottom: 18px; }
+  .monitor-plot { height: 260px; width: 100%; margin-top: 16px; }
+  .monitor-plot.square { width: min(100%, 320px); height: auto; aspect-ratio: 1; margin-left: auto; margin-right: auto; }
+  .monitor-empty { color: #8da6bc; text-align: center; padding: 36px 18px; border: 1px dashed #344b60; border-radius: 8px; margin: 18px 0; line-height: 1.8; }
+  .monitor-alert { padding: 14px; margin: 12px 0; border: 1px solid #754252; color: #ffb1be; background: #341f2a; line-height: 1.7; border-radius: 6px; }
+  .monitor-table-scroll { overflow: auto; max-height: 430px; margin-top: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; th { position: sticky; top: 0; background: #192c3d; color: #b4cadc; font-weight: 500; text-align: left; } th, td { padding: 10px 12px; border-bottom: 1px solid #293c50; } td { font-variant-numeric: tabular-nums; } .bad-row { background: #3e293039; color: #f6bac3; } }
+  @media (max-width: 1200px) { .monitor-lamps { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 900px) { padding: 16px; .monitor-chart-grid { grid-template-columns: 1fr; } .monitor-metrics { grid-template-columns: repeat(2, 1fr); } .monitor-lamps { grid-template-columns: repeat(2, 1fr); } .monitor-toolbar form { flex-wrap: wrap; } .monitor-mode-note { flex-direction: column; gap: 6px; } }
+}

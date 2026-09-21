@@ -107,12 +107,15 @@ opt = localNormalizeOrdinaryTPCDefaults(opt);
 imagePaths = '';
 
 try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 =====
+    HelperTMMonitorPublish(opt,'starting');
     % ======== Single point simulation ========
 %     res：内部完整指标
 %     ctx：内部大数据
 %     frontResult：对外稳定接口
     [res, ctx] = runOneShot(opt);
     res = attachResidualMetrics(res, ctx);
+    % Publish selected, audited results before rendering the output images.
+    HelperTMMonitorPublish(opt,'results-ready',res,ctx);
 
     showFigures = false; % 图像开关
     if isfield(opt,'showFigures'), showFigures = logical(opt.showFigures); end
@@ -1227,6 +1230,9 @@ function imagePaths = createRemoteResultFigures(ctx, fe, res, opt)
             'Color', 'w', 'HorizontalAlignment', 'center');
     end
     channelLabel = '高斯白噪声 (AWGN)';
+    if strcmpi(string(getfieldwithdefault(res,'NoiseMode','')), 'off')
+        channelLabel = '无 H / 无噪声';
+    end
     if getLogicalField(res, 'HEnabled', false)
         channelLabel = char(string(getfieldwithdefault(res, ...
             'HMode', 'H-Matrix')));
@@ -1488,8 +1494,9 @@ function [res, ctx] = runOneShot(opt)
             args = [args, {'ModulationEfficiency', double(opt.ModulationEfficiency)}];
         end
         switch modStr
-            case {'BPSK','QPSK','8PSK','OQPSK','16QAM','32QAM','16APSK','32APSK'}
-                args = [args, {'FilterSpanInSymbols', 10}];
+            case {'BPSK','QPSK','8PSK','OQPSK','UQPSK','16QAM','32QAM','16APSK','32APSK'}
+                args = [args, {'FilterSpanInSymbols', ...
+                    getfieldnumeric(opt,'FilterSpanInSymbols',10)}];
         end
         if contains(modStr,'APSK')
             hasTMAPSKPilots = true;
@@ -1847,6 +1854,7 @@ function [res, ctx] = runOneShot(opt)
         tmWaveGen,txWaveform,encodedBits,msg,Fs,opt);
     measurementDuration_s = burstCompletion.MeasurementDuration_s;
     actualWaveformDuration_s = numel(txWaveform) / Fs;
+    HelperTMMonitorPublish(opt,'channel');
     fprintf(['[Test length] waveform=%.3f ms | warmup=%d | ', ...
         'BER=%d | total=%d frames\n'], ...
         1e3*actualWaveformDuration_s, numWarmUp, numRealFrames, totalFrames);
@@ -2121,6 +2129,7 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
         agcCfg);
 
     rxWaveformAfterAGC = rxWaveform;
+    HelperTMMonitorPublish(opt,'synchronizing');
 
 %临时AGC
 %     assignin('base', 'agcTestBefore', rxWaveformBeforeAGC);
@@ -2900,7 +2909,7 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
             rxfilter = comm.RaisedCosineReceiveFilter( ...
                 'Shape','Square root', ...
                 'RolloffFactor', rolloff, ...
-                'FilterSpanInSymbols', 10, ...
+                'FilterSpanInSymbols', getfieldnumeric(opt,'FilterSpanInSymbols',10), ...
                 'InputSamplesPerSymbol', sps, ...
                 'DecimationFactor', rxFilterDecimationFactor);
 
@@ -3096,6 +3105,7 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
                 rxFilterDecimationFactor = sps/2;
                 rxfilterDisp = comm.RaisedCosineReceiveFilter( ...
                     'RolloffFactor', rolloff, ...
+                    'FilterSpanInSymbols', getfieldnumeric(opt,'FilterSpanInSymbols',10), ...
                     'InputSamplesPerSymbol', sps, ...
                     'DecimationFactor', rxFilterDecimationFactor);
                 filteredDisp = rxfilterDisp(fineSyncedHi);
@@ -3217,6 +3227,7 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
             rxFilterDecimationFactor = sps/2;
             rxfilter = comm.RaisedCosineReceiveFilter( ...
                 'RolloffFactor', rolloff, ...
+                'FilterSpanInSymbols', getfieldnumeric(opt,'FilterSpanInSymbols',10), ...
                 'InputSamplesPerSymbol', sps, ...
                 'DecimationFactor', rxFilterDecimationFactor);
 
@@ -4421,6 +4432,7 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
             qamBlindPhaseState.FadeHold, ...
             qamBlindPhaseState.Centers, numel(fineSyncedForBER));
     end
+    HelperTMMonitorPublish(opt,'decoding');
     [berVal, lockRate, bestRot, berStats] = computeBER(fineSyncedForBER, validTxFrames, modStr, opt, randomizerEnabled, hasASM, btVal, numWarmUp);
     if fseDiagnosticEnabled
         fseDiagnosticStages.BeforeASM = ...
