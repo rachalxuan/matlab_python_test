@@ -1,0 +1,31 @@
+
+UQPSK unequal dual-I/Q contract: profile=quick, PASS=8/8
+                             CaseId                              Status    Rate     DurationSeconds                             Details                         
+    _________________________________________________________    ______    _____    _______________    _________________________________________________________
+
+    "uqpsk.unequal.bit.hard_round_trip"                          "PASS"    ""           0.015612       "exact int8 [I1,I2,Q1,...] round trip"                   
+    "uqpsk.unequal.bit.soft_round_trip"                          "PASS"    ""          0.0034364       "exact double-valued round trip"                         
+    "uqpsk.unequal.bit.rate_guard"                               "PASS"    ""          0.0087842       "rejects any input that is not I:Q=2:1"                  
+    "uqpsk.unequal.bit.tail_policy"                              "PASS"    ""          0.0030671       "strict rejects tail; RX tolerance drops one value"      
+    "uqpsk.unequal.generator.modulation_guard"                   "PASS"    "-"           0.53369       "unequalDualIQ cannot silently use equal-rate modulation"
+    "uqpsk.unequal.generator.convolutional.1_2.random.off"       "PASS"    "1/2"          1.5754       "416 I + 208 Q input bits -> 1440 grouped coded bits"    
+    "uqpsk.unequal.generator.convolutional.1_2.random.after"     "PASS"    "1/2"         0.13588       "416 I + 208 Q input bits -> 1440 grouped coded bits"    
+    "uqpsk.unequal.generator.convolutional.1_2.random.before"    "PASS"    "1/2"        0.049912       "416 I + 208 Q input bits -> 1440 grouped coded bits"    
+
+Pulse root raised cosine, sampled-ISI RMS=0.00885731
+Pulse raised cosine, sampled-ISI RMS=0.173199
+Pulse none, sampled-ISI RMS=0
+UQPSK | none | raised cosine: BER=3.31038e-05 FER=0.0254237 coverage=MEASUREMENT_INCOMPLETE frames=118 pass=0 
+UQPSK | none | none: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+    Modulation         Shape         Coding       BER          FER       ComparedFrames            Coverage            SampleRateConsistent    Pass     Error
+    __________    _______________    ______    __________    ________    ______________    ________________________    ____________________    _____    _____
+
+     "UQPSK"      "raised cosine"    "none"    3.3104e-05    0.025424         118          "MEASUREMENT_INCOMPLETE"           true             false     ""  
+     "UQPSK"      "none"             "none"             0           0         120          "COMPLETE"                         true             true      ""  
+
+{错误使用 codex_oqpsk_uqpsk_pulse_regression_v1
+At least one pulse case failed; inspect latest.mat logs.
+
+出错 run (第 91 行)
+evalin('caller', strcat(script, ';'));
+} 

@@ -1,0 +1,2 @@
+Modulation,Shape,Coding,BER,FER,ComparedFrames,Coverage,SampleRateConsistent,Pass,Error
+UQPSK,root raised cosine,none,0,0,120,COMPLETE,1,1,

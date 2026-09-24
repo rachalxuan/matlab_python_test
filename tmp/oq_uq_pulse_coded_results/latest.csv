@@ -1,0 +1,7 @@
+Modulation,Shape,Coding,BER,FER,ComparedFrames,Coverage,SampleRateConsistent,Pass,Error
+OQPSK,root raised cosine,convolutional,0,0,120,COMPLETE,1,1,
+OQPSK,raised cosine,convolutional,0,0,120,COMPLETE,1,1,
+OQPSK,none,convolutional,0,0,120,COMPLETE,1,1,
+UQPSK,root raised cosine,convolutional,0,0,120,COMPLETE,1,1,
+UQPSK,raised cosine,convolutional,0,0,120,COMPLETE,1,1,
+UQPSK,none,convolutional,0,0,120,COMPLETE,1,1,

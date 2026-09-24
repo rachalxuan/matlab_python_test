@@ -1,0 +1,34 @@
+OQPSK | none | root raised cosine | TF=254: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+OQPSK | none | raised cosine | TF=254: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+OQPSK | none | none | TF=254: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+UQPSK | none | root raised cosine | TF=254: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+UQPSK | none | raised cosine | TF=254: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+UQPSK | none | none | TF=254: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+OQPSK | none | root raised cosine | TF=256: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+OQPSK | none | raised cosine | TF=256: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+OQPSK | none | none | TF=256: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+UQPSK | none | root raised cosine | TF=256: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+UQPSK | none | raised cosine | TF=256: BER=3.31038e-05 FER=0.0254237 coverage=MEASUREMENT_INCOMPLETE frames=118 pass=0 
+UQPSK | none | none | TF=256: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+    Modulation           Shape            Coding    TFBytes       BER          FER       ComparedFrames            Coverage            SampleRateConsistent    Pass     Error
+    __________    ____________________    ______    _______    __________    ________    ______________    ________________________    ____________________    _____    _____
+
+     "OQPSK"      "root raised cosine"    "none"      254               0           0         120          "COMPLETE"                         true             true      ""  
+     "OQPSK"      "raised cosine"         "none"      254               0           0         120          "COMPLETE"                         true             true      ""  
+     "OQPSK"      "none"                  "none"      254               0           0         120          "COMPLETE"                         true             true      ""  
+     "UQPSK"      "root raised cosine"    "none"      254               0           0         120          "COMPLETE"                         true             true      ""  
+     "UQPSK"      "raised cosine"         "none"      254               0           0         120          "COMPLETE"                         true             true      ""  
+     "UQPSK"      "none"                  "none"      254               0           0         120          "COMPLETE"                         true             true      ""  
+     "OQPSK"      "root raised cosine"    "none"      256               0           0         120          "COMPLETE"                         true             true      ""  
+     "OQPSK"      "raised cosine"         "none"      256               0           0         120          "COMPLETE"                         true             true      ""  
+     "OQPSK"      "none"                  "none"      256               0           0         120          "COMPLETE"                         true             true      ""  
+     "UQPSK"      "root raised cosine"    "none"      256               0           0         120          "COMPLETE"                         true             true      ""  
+     "UQPSK"      "raised cosine"         "none"      256      3.3104e-05    0.025424         118          "MEASUREMENT_INCOMPLETE"           true             false     ""  
+     "UQPSK"      "none"                  "none"      256               0           0         120          "COMPLETE"                         true             true      ""  
+
+{错误使用 codex_oqpsk_uqpsk_pulse_regression_v1
+At least one pulse case failed; inspect latest.mat logs.
+
+出错 run (第 91 行)
+evalin('caller', strcat(script, ';'));
+} 

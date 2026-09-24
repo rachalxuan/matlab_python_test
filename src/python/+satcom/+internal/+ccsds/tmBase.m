@@ -154,13 +154,13 @@ classdef tmBase < matlab.System
         Modulation (1, 1) string {matlab.system.mustBeMember(Modulation, {'PCM/PSK/PM','PCM/PM/biphase-L','BPSK','QPSK','8PSK','16QAM','UQPSK','32QAM','16APSK','32APSK','4D-8PSK-TCM','GMSK','MSK','OQPSK','FM'})} = "QPSK"
         %PulseShapingFilter Pulse shaping filter
         %   Specify the pulse shaping filter as one of "root raised cosine"
-        %   | "none". This property is applicable when WaveformSource is
+        %   | "raised cosine" | "none". This property is applicable when WaveformSource is
         %   set to "synchronization and channel coding" and Modulation is
         %   set to either "BPSK", "QPSK", "8PSK", or "4D-8PSK-TCM". This
         %   property is also applicable when WaveformSource is set to
         %   "flexible advanced coding and modulation". The default is "root
         %   raised cosine".
-        PulseShapingFilter (1, 1) string {matlab.system.mustBeMember(PulseShapingFilter, {'root raised cosine', 'none'})} = "root raised cosine"
+        PulseShapingFilter (1, 1) string {matlab.system.mustBeMember(PulseShapingFilter, {'root raised cosine', 'raised cosine', 'none'})} = "root raised cosine"
         %RolloffFactor Rolloff factor of the baseband filter
         %   Specify the rolloff factor of the square root raised cosine
         %   (SRRC) baseband filter as a floating point number from 0 to 1,
@@ -352,7 +352,7 @@ classdef tmBase < matlab.System
         ConvolutionalCodeRate_Values = {'1/2','2/3','3/4','5/6','7/8'};
         Modulation_Values = {'GMSK','MSK','BPSK','QPSK','8PSK','16QAM','32QAM','16APSK','32APSK','UQPSK','4D-8PSK-TCM','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'};
         SubcarrierWaveform_Values = {'sine','square'};
-        PulseShapingFilter_Values = {'root raised cosine', 'none'};
+        PulseShapingFilter_Values = {'root raised cosine', 'raised cosine', 'none'};
         ConvolutionalCodesTrellis = poly2trellis(7, [171 133]); % Trellis structure for the convolutional encoder that is specified in
         TurboTrellis = poly2trellis(5,[23 33 25 37],23); % Turbo codes rate 1/7
         m_Values = [2;2;2;2;2;2;3;3;3;3;3;3;4;4;4;4;4;5;5;5;5;5;6;6;6;6;6];

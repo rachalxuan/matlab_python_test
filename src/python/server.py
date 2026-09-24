@@ -402,6 +402,7 @@ def run_simulation():
         # 2. 调用 MATLAB
         debug_params = {
             "modType": params.get("modType"),
+            "modulatorBitRateMbps": params.get("modulatorBitRateMbps"),
             "symbolRate": params.get("symbolRate"),
             "sps": params.get("sps"),
             "snr": params.get("snr"),
@@ -410,17 +411,20 @@ def run_simulation():
             "delay": params.get("delay"),
             "channelCoding": params.get("channelCoding"),
             "ConvolutionalCodeRate": params.get("ConvolutionalCodeRate"),
+            "ConvolutionalReceiveMode": params.get("ConvolutionalReceiveMode"),
             "CodeRate": params.get("CodeRate"),
             "NumBytesInTransferFrame": params.get("NumBytesInTransferFrame"),
             "RSMessageLength": params.get("RSMessageLength"),
             "RSInterleavingDepth": params.get("RSInterleavingDepth"),
             "IsRSMessageShortened": params.get("IsRSMessageShortened"),
             "RSShortenedMessageLength": params.get("RSShortenedMessageLength"),
+            "PulseShapingFilter": params.get("PulseShapingFilter"),
             "RolloffFactor": params.get("RolloffFactor"),
             "hasASM": params.get("hasASM"),
             "RandomizerEnabled": params.get("RandomizerEnabled"),
             "RandomizerFECPosition": params.get("RandomizerFECPosition"),
             "DataPathMode": params.get("DataPathMode"),
+            "PCMFormat": params.get("PCMFormat"),
             "berWarmUpFrames": params.get("berWarmUpFrames"),
             "berFrames": params.get("berFrames"),
             "TMDataSource": params.get("TMDataSource"),
@@ -523,6 +527,7 @@ def save_record():
         summary_info = {
             "modType": config.get('modType', 'Unknown'),
             "snr": config.get('snr', 0),
+            "modulatorBitRateMbps": config.get('modulatorBitRateMbps', 0),
             "symbolRate": config.get('symbolRate', 0)
         }
 

@@ -5,12 +5,23 @@ function [waveform, info, continuationEncodedBits] = HelperTMCompleteBurst(gener
 % recover information that is still buffered at TX. Guard data are NOT
 % appended to the evaluator's TX reference or encoded-bit reference.
 continuationEncodedBits = zeros(0,1,'int8');
+rawGeneratorSamples = numel(waveform);
+[waveform, rectangularHoldApplied] = localApplyUnshapedSymbolHold( ...
+    generator,waveform);
 info = struct('Applied',false,'Reason','dedicated waveform path unchanged', ...
     'OriginalWaveformSamples',numel(waveform),'OriginalEncodedBits',numel(encodedBits), ...
     'OriginalModulatedBits',NaN,'BufferedModulationBits',NaN, ...
     'GuardInputGroups',0,'AppendedSamples',0,'AppendedEncodedBits',0, ...
-    'MeasurementDuration_s',numel(waveform)/Fs);
-linearMods = ["BPSK","QPSK","8PSK","16QAM","32QAM","16APSK","32APSK"];
+    'MeasurementDuration_s',numel(waveform)/Fs, ...
+    'GeneratorOutputSamplesBeforeHold',rawGeneratorSamples, ...
+    'RectangularSymbolHoldApplied',rectangularHoldApplied);
+linearMods = ["BPSK","QPSK","8PSK","16QAM","32QAM","16APSK","32APSK","OQPSK","UQPSK"];
+% New pulse choices are validated on combined TM first. Preserve legacy
+% staggered/unequal split continuation until its per-rail contract is tested.
+if any(strcmpi(generator.Modulation,{'OQPSK','UQPSK'})) && ...
+        ~strcmpi(generator.DataPathMode,'single')
+    return;
+end
 if ~any(string(generator.Modulation)==linearMods) || ...
         string(generator.WaveformSource)~="synchronization and channel coding" || ...
         generator.HasTMAPSKPilots || ...
@@ -33,6 +44,11 @@ groupSymbols = max(1,numel(encodedBits)/groups/bitsPerSymbol);
 memorySymbols = 256 + max(0,number(options,'delay',0))/sps + ...
     max(0,number(options,'adaptiveFractionalEqualizerTaps',49))/2 + ...
     max(0,number(options,'adaptiveFractionalPostForwardTaps',9));
+if any(strcmpi(generator.Modulation,{'OQPSK','UQPSK'}))
+    pulse = HelperTMPulseShapeConfig(generator.PulseShapingFilter,sps, ...
+        double(generator.RolloffFactor),double(generator.FilterSpanInSymbols));
+    memorySymbols = memorySymbols + 2*pulse.TransientSymbols + 1;
+end
 guardGroups = max([2, double(generator.MinNumTransferFrames), ...
     1+ceil(memorySymbols/groupSymbols)]);
 inputBits = int8(inputBits(:));
@@ -49,12 +65,32 @@ end
 guard = int8(1)-guard;
 % This consumes no RNG and changes no measured header/payload.
 [continuation, continuationEncodedBits] = generator(guard);
+[continuation, continuationHoldApplied] = localApplyUnshapedSymbolHold( ...
+    generator,continuation);
+assert(continuationHoldApplied == rectangularHoldApplied, ...
+    'TMCompleteBurst:PulseShapingMismatch', ...
+    'Measured and continuation waveforms used different pulse-shaping adapters.');
 waveform = [waveform(:);continuation(:)];
 info.Applied = true;
 info.Reason = 'state-preserving TX continuation; guard groups excluded from measurement';
 info.GuardInputGroups = guardGroups;
 info.AppendedSamples = numel(continuation);
 info.AppendedEncodedBits = numel(continuationEncodedBits);
+end
+
+function [waveform, applied] = localApplyUnshapedSymbolHold(generator,waveform)
+% The generator's documented "none" mode returns one complex sample per
+% symbol.  The rest of this evaluator has a fixed Fs = symbolRate*SPS
+% contract, so represent an unshaped symbol stream as an SPS-sample
+% rectangular pulse (zero-order hold).  Do not touch CPM/OQPSK/dedicated
+% waveform paths whose generator output is already oversampled.
+supported = ["BPSK","QPSK","8PSK","16QAM","32QAM","UQPSK"];
+applied = strcmpi(string(generator.PulseShapingFilter),"none") && ...
+    any(strcmpi(string(generator.Modulation),supported));
+waveform = waveform(:);
+if applied
+    waveform = repelem(waveform,double(generator.SamplesPerSymbol));
+end
 end
 
 function s = infoOf(g)

@@ -1,6 +1,6 @@
 # 卷积码连续打孔接收改造方案：先验证 3/4，再逐项推广
 
-日期：2026-09-21。状态：3/4 的 A/B/C 三阶段已经完成。比特层 36/36 组通过，同一软输入在整段、固定分块、随机分块下严格等价；真实 `ccsdsTMWaveformGenerator` 的整批/逐帧调用、实际 guard 续发、独立连续编码参考均一致；主入口的 QPSK No-H 实验路径已接通。1149/1150/1151 Byte 三种余数均恢复 24 帧，预定测量区 16/16、BER=0、FER=0，三个错误 90° 旋转均未形成多帧 ASM 锁定；1151 Byte 的 legacy 对照也通过。新路径仍为显式实验模式，默认 legacy 未改变，尚未开放级联码、加扰、差分、分路、其他调制和其他卷积码率。
+日期：2026-09-23。状态：公共连续卷积接收器已覆盖 1/2、2/3、3/4、5/6、7/8，并与发射端共用 `ccsdsTMConvolutionalPunctureConfig`。五种码率的比特层全部打孔偏移、整段/随机分块等价性共 46/46 组通过；真实 `ccsdsTMWaveformGenerator` 的整批/逐帧输出、波形、guard 续发和独立连续编码参考在五种码率下均一致。QPSK 主入口新增 1/2、2/3 回归 6/6 通过，原 3/4 回归 3/3、5/6 和 7/8 回归 6/6 通过，测量覆盖完整且 BER/FER 均为 0。BPSK、8PSK、16QAM、32QAM 已接入同一公共入口；非缩短 RS(255,223)/(255,239) 的 I=1/2/3/4/5/8 与五种内码率矩阵已通过 No-H 长测。网页已对上述普通合路、NRZ-L、ASM 开、加扰关的组合提交 `stream-raw-asm`，并开放 12 个完整 RS 配置。尚未开放缩短 RS、I=6/7、加扰、差分、分路、APSK 和专用 CPM/OQPSK/UQPSK 连续接收路径。
 
 ## 1. 目标与边界
 
@@ -8,7 +8,7 @@
 
 借鉴 FPGA 的职责划分，而不是照搬 RTL：卷积/打孔处理连续流；ASM 同步器识别业务帧；RS 按自己的码字与交织结构译码。FPGA 目录混有不同版本，不能把其中任一模块当成设备所有模式的兼容性证明。
 
-下一轮仍只验证 3/4，最大限度复用当前主脚本：真实 TMgenerator、TM 帧生成、信道、前端同步/均衡、解调、帧关联和统计。不改同步环、均衡器、FEC 算法、扰码结构或默认接收路径。实验失败时报告失败与原因，不自动切旧路径再报成功。
+当前阶段继续最大限度复用主脚本中的真实 TMgenerator、TM 帧生成、信道、前端同步/均衡、解调、帧关联和统计。下一阶段按调制前端逐项扩展连续接收入口；不支持的组合继续明确报错，失败时不自动切旧路径再报成功。
 
 取消的是业务帧与打孔周期必须重合的额外限制，不承诺所有调制、扰码、分路配置和设备私有打孔图样都同时兼容。当前 TX 已有缓存和持续编码状态；改造重点是 RX 帧边界与连续卷积处理解耦。
 
@@ -221,7 +221,7 @@ MATLAB 连续卷积编码器保留跨调用的编码状态，适合复用现有 
 
 ## 11. 可执行交付顺序与验收
 
-以下按当前实施状态记录；A/B/C 已完成，D/E/F 尚未执行。
+以下按当前实施状态记录；A/B/C 已完成，D 已完成第一个 RS223 I=1 样板，E/F 尚未执行。
 
 ### 交付 A：严格比特层回归
 
@@ -251,6 +251,8 @@ MATLAB 连续卷积编码器保留跨调用的编码状态，适合复用现有 
 
 ### 交付 D：级联与统一码率
 
+状态：首个级联样板已完成。`tmp/codex_conv_stream_3_4_psk_rs_regression_v1.m` 同时验证 8PSK + Conv 3/4 和 QPSK + RS223 I=1 + Conv 3/4；两者均为 No-H、无噪声、无加扰，测量区 120/120、BER=0、FER=0。级联路径记录 `OuterRSDecodeApplied=true`、不可纠 RS 帧为 0，且没有用最终 BER 选择相位或打孔候选。RS223 I=5、RS239、缩短码及其他码率仍未验证。
+
 在完整 raw ASM 帧体上复用 `ccsdsRSDecode` 和现有 RS 参数；先 RS223 I=1/5，再 RS239 和当前支持的深度。校验 RS 解码前的码字、解码后 TF 均正确，记录实际缩短后块长，保持设备帧长/信息帧长/编码块长的单位区别。
 
 统一 P/Q/pattern 后按上述码率次序推进，每个速率都经历“理想比特层 → 真实 TX → QPSK No-H → 少量级联”门槛，不为每个码率复制接收算法。字节帧长加 32-bit ASM 对 2/3 本来总能整除 2，因此该速率应重点覆盖接收起点和任意调用分块，不能构造不合法字节帧去凑奇数余数。
@@ -276,4 +278,42 @@ MATLAB 连续卷积编码器保留跨调用的编码状态，适合复用现有 
 
 每次测试至少打印：实际 ReceiverPath、码率/P/Q、TF/RS/raw 长度、候选 drop 与 ASM 连续证据、TX 输入/已释放/续发量、RX discard/consume/pending、traceback 处理量、目标/恢复/比较帧数、误码 bit/比较 bit、缺口原因、warmup/guard 范围。长流仅保留有界捕获缓存与必要事件，不要求保存所有候选整段输出；离线详细抓取由测试显式请求。
 
-本次仅更新实施计划，未把上述拟新增接口或接收路径写入运行代码。
+当前代码已经写入上述 3/4 实验路由及首个级联适配，但仍以 `ConvolutionalReceiveMode='stream-raw-asm'` 显式启用；默认 `legacy-coded-asm` 保持不变。
+
+### 2026-09-22：5/6、7/8 No-H 扩展结果
+
+- `HelperTMContinuousConvReceiver` 已在同一套缓存、连续 Viterbi 和 raw-ASM 逻辑中支持 3/4、5/6、7/8；没有为高码率复制第二套接收机。
+- 新增统一协议配置 `ccsdsTMConvolutionalPunctureConfig`。RX 使用该配置；测试夹具仍以独立硬编码图样核对，避免“实现和测试共享同一个错误常量”造成假通过。
+- TM generator 的非整除放行由默认关闭的 `AllowContinuousPuncturingAcrossFrames` 控制，并且主入口只在通过 `stream-raw-asm` 配置校验后传入。legacy 非整除 5/6、7/8 仍抛出 `HighRateConvFrameLengthUnsupported`。
+- 比特层覆盖 5/6 的 6 个 coded-bit 周期偏移和 7/8 的 8 个偏移；single/random chunk 结果完全一致，共 28/28 通过，随机流负对照不锁定。
+- 真实 TM generator 的 batch 调用与逐帧调用逐 bit/逐样本一致，并分别与独立母码卷积＋全局连续打孔参考逐 bit 相等；5/6 和 7/8 的测量尾部均由同一个 TX 对象发送真实 guard 后释放，没有在 RX 伪造补零。
+- 实际主链路 QPSK 5/6、7/8 的非整除与整除对照均完成 120/120 帧比较，BER=0、FER=0、未恢复帧=0；两个 aligned legacy 对照保持通过。
+- 8PSK 5/6、7/8 非整除，以及 RS223 I=1 + 5/6 非整除均完成 120/120 帧比较且 BER/FER=0。RS223 I=1 + 7/8 因 `2072 mod 7 = 0` 仅作为整除外码对照，不能冒充 7/8 串联非整除证明。
+- 当前结论仍限定于 No-H、无噪声、single、NRZ-L、无加扰的已验收普通调制范围；尚未据此把 stream 路径改为默认，也未宣称通过时变信道回归。
+
+### 2026-09-22：BPSK、16QAM、32QAM 第一批普通调制接入结果
+
+- 主入口的显式 `stream-raw-asm` 支持名单新增 BPSK、16QAM、32QAM；默认 `legacy-coded-asm`、旧帧长保护和不支持配置的显式报错保持不变。
+- 没有为三种调制复制接收器，也没有修改原有 BPSK/QAM 解调映射。三者继续通过 `HelperCCSDSTMDemodulator` 产生“正软值代表 bit 1”的连续软比特，再进入同一个 `HelperTMContinuousConvReceiver`。
+- `tmp/codex_first_mods_conv_stream_regression_v1.m` 使用真实 TM generator、真实波形前端和主接收链，覆盖三种调制 × 五种卷积码率。TF=1150 Byte 时，3/4、5/6、7/8 的 raw 帧余数分别为 1、2、6；15/15 case 均恢复 128 帧、完整比较 120/120 测量帧、未恢复 0 帧、BER=0、FER=0。
+- 以上结果同时证明当前 QAM `qamdemod` 输出展平顺序与 TX 的 symbol-major bit 顺序相符，软信息极性与连续 Viterbi 相符；没有为获得通过而翻转个别调制的 LLR 或重排 bit。
+- `tmp/codex_first_mods_conv_stream_phase_regression_v1.m` 额外给 BPSK 注入 +180°、给 16QAM/32QAM 注入 +90°。接收机分别依据译码后 raw ASM 连续结构选中 +180°、−90°、−90°，三组均完整比较 16/16 且 BER/FER=0；错误候选没有可信帧证据。该候选选择不使用最终 BER 或 TX 比特。
+- 结果结构新增 `PhaseAmbiguityRotation_deg`，用于明确记录最终相位候选；这是遥测，不改变相位选择算法。
+- 本轮仍只是 No-H、无噪声接口验收。尚未验证三种调制在 CFO、噪声、CDL/TDL 时变信道下的连续模式表现，也未把该模式改成默认路径。
+
+### 2026-09-23：完整 RS 配置矩阵接入
+
+- 本轮明确不接入缩短 RS。`stream-raw-asm` 的级联路径仅接受完整 `RS(255,223)`、`RS(255,239)`，以及代码已有的交织深度 `1、2、3、4、5、8`；`I=6、7` 和任何缩短配置继续显式报不支持，不能由设备能力反推项目已经支持。
+- 两种 RS、六种交织深度和五种内层卷积码率均复用同一条连续 Viterbi → raw ASM → RS codeword → RS decode → TM frame 路径，没有针对某个交织深度复制接收算法，也没有恢复业务帧整除限制。
+- 新增 RS 前码字一致性遥测：对每个 Viterbi/ASM 恢复出的 RS 码字，使用译码消息重新编码并与接收码字逐 bit 比较；该检查只做离线诊断，不参与候选选择或接收反馈。`ccsdsRSDecode` 返回的是纠正 symbol 数，因此新增字段使用 `CorrectedSymbols`，原 `CorrectedBits` 仅保留为兼容别名。
+- RS 前验收统计通过固定物理帧关联限定到正式测量区。预热帧和 burst-completion guard 产生的额外译码输出仍保留在全输出诊断中，但既不能污染测量区结论，也不能被计为正式零误码帧。
+- `tmp/codex_full_rs_conv_stream_matrix_v1.m` 是完整矩阵脚本，默认每项预热 8 帧、测量 120 帧；`tmp/codex_run_full_rs_matrix_smoke_v1.m` 是每项 4+4 帧的快速结构回归。快速回归和默认长测均通过：QPSK 60/60 组合、BPSK/8PSK/16QAM/32QAM 四个代表组合全部满足测量区 RS 前 0 bit 错误、RS 修正 0 symbol、RS 后 BER=0/FER=0、测量覆盖完整；长测每项均为 120/120 测量帧。
+- `tmp/codex_full_rs_unsupported_contract_v1.m` 负向验证缩短 RS、I=6、I=7 均返回 `ContinuousConvUnsupportedProfile`，防止未来放宽参数时把尚未实现的设备配置静默标成支持。
+- 当前结论仍限定为 No-H、无噪声、无加扰、single、NRZ-L 的普通调制接口验收；没有据此宣称缩短 RS、I=6/7、APSK、分路、加扰或损伤信道已经通过，也没有切换默认 legacy 接收路径。
+
+### 2026-09-23：网页 RS 配置与可视化接入
+
+- RS 下拉框由 4 项扩展为 12 项：RS(255,223)/(255,239) 分别覆盖 I=1/2/3/4/5/8；页面不发送缩短码长度，也不开放 I=6/7。
+- QPSK、8PSK、16QAM、32QAM（以及已验证的 BPSK）在合路、NRZ-L、ASM 开、加扰关时由参数契约明确选择 `stream-raw-asm`。不满足条件时保留 legacy 路径及其非整除保护，不静默关闭用户配置来换取通过。
+- 结果页继续由同一次 MATLAB 运行产生时域、输入/输出 PSD、同步后实际星座、BER/FER、测量覆盖和载波/码元/帧锁定遥测；链路评估区新增实际连续接收路径与 RS 配置显示。监控页星座叠加理想判决点，但理想点只用于画图，不参与同步、译码或候选选择。
+- `tmp/codex_frontend_rs_visual_smoke_v1.m` 通过与 `server.py` 相同的主入口验证四种调制的代表配置：均为 BER=0、FER=0、4/4 覆盖完整，三种锁定遥测可用，每项实际生成三张非空 PNG。该脚本是页面接口/绘图短测，不替代前述 120 帧 RS 矩阵资格测试。

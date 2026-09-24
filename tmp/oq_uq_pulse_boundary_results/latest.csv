@@ -1,0 +1,13 @@
+Modulation,Shape,Coding,TFBytes,BER,FER,ComparedFrames,Coverage,SampleRateConsistent,Pass,Error
+OQPSK,root raised cosine,none,254,0,0,120,COMPLETE,1,1,
+OQPSK,raised cosine,none,254,0,0,120,COMPLETE,1,1,
+OQPSK,none,none,254,0,0,120,COMPLETE,1,1,
+UQPSK,root raised cosine,none,254,0,0,120,COMPLETE,1,1,
+UQPSK,raised cosine,none,254,0,0,120,COMPLETE,1,1,
+UQPSK,none,none,254,0,0,120,COMPLETE,1,1,
+OQPSK,root raised cosine,none,256,0,0,120,COMPLETE,1,1,
+OQPSK,raised cosine,none,256,0,0,120,COMPLETE,1,1,
+OQPSK,none,none,256,0,0,120,COMPLETE,1,1,
+UQPSK,root raised cosine,none,256,0,0,120,COMPLETE,1,1,
+UQPSK,raised cosine,none,256,3.3103813559322e-05,0.0254237288135593,118,MEASUREMENT_INCOMPLETE,1,0,
+UQPSK,none,none,256,0,0,120,COMPLETE,1,1,

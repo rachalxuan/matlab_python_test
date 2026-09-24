@@ -269,7 +269,7 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                 y = localOQPSKSoftLLR(u, double(obj.SamplesPerSymbol), ...
                     double(obj.RolloffFactor), ...
                     double(obj.FilterSpanInSymbols), ...
-                    double(obj.NoiseVariance));
+                    double(obj.NoiseVariance),obj.PulseShapingFilter);
             elseif obj.pIsUQPSK
                 % =========================================================
                 % UQPSK soft demap
@@ -453,6 +453,8 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             elseif strcmp(prop, 'SamplesPerSymbol')
                 flag = ~strcmp(obj.Modulation, 'OQPSK');
             
+            elseif strcmp(prop, 'PulseShapingFilter')
+                flag = ~strcmp(obj.Modulation, 'OQPSK');
             elseif strcmp(prop, 'RolloffFactor')
                 flag = ~strcmp(obj.Modulation, 'OQPSK');
             elseif strcmp(prop, 'FilterSpanInSymbols')
@@ -489,7 +491,7 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
     end
 end
 
-function softBits = localOQPSKSoftLLR(x, sps, rolloff, span, noiseVar)
+function softBits = localOQPSKSoftLLR(x, sps, rolloff, span, noiseVar, pulseShape)
 %LOCALOQPSKSOFTLLR Matched-filter OQPSK demapper with staggered I/Q rails.
 % The transmitter emits the I bit at the symbol epoch and the Q bit one
 % half-symbol later.  Sampling both rails at one common instant turns the
@@ -501,13 +503,14 @@ function softBits = localOQPSKSoftLLR(x, sps, rolloff, span, noiseVar)
         error('HelperCCSDSTMDemodulator:OQPSKRequiresEvenSPS', ...
             'OQPSK soft demodulation requires an even SamplesPerSymbol.');
     end
-    span = max(1, round(span));
+    pulse = HelperTMPulseShapeConfig(pulseShape,sps,rolloff,span);
+    span = pulse.TransientSymbols;
     if mod(span*sps,2) ~= 0
         error('HelperCCSDSTMDemodulator:OQPSKInvalidFilterSpan', ...
-            'OQPSK RRC span*sps must be even.');
+            'OQPSK pulse span*sps must be even.');
     end
 
-    h = rcosdesign(rolloff, span, sps, 'sqrt');
+    h = pulse.ReceiveTaps;
     matched = filter(h, 1, x);
     [iSamples, qSamples] = localOQPSKSelectRailTiming( ...
         matched, sps, span);

@@ -1,0 +1,37 @@
+OQPSK | none | root raised cosine: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+OQPSK | none | raised cosine: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+OQPSK | none | none: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+UQPSK | none | root raised cosine: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+UQPSK | none | raised cosine: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+UQPSK | none | none: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+    Modulation           Shape            Coding    BER    FER    ComparedFrames     Coverage     SampleRateConsistent    Pass     Error
+    __________    ____________________    ______    ___    ___    ______________    __________    ____________________    _____    _____
+
+     "OQPSK"      "root raised cosine"    "none"     0      0          120          "COMPLETE"           true             true      ""  
+     "OQPSK"      "raised cosine"         "none"     0      0          120          "COMPLETE"           true             true      ""  
+     "OQPSK"      "none"                  "none"     0      0          120          "COMPLETE"           true             true      ""  
+     "UQPSK"      "root raised cosine"    "none"     0      0          120          "COMPLETE"           true             true      ""  
+     "UQPSK"      "raised cosine"         "none"     0      0          120          "COMPLETE"           true             true      ""  
+     "UQPSK"      "none"                  "none"     0      0          120          "COMPLETE"           true             true      ""  
+
+[警告: RolloffFactor 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: ccsdsTMWaveformGenerator (第 381 行)
+位置: codex_oqpsk_uqpsk_pulse_regression_v1 (第 62 行)
+位置: run (第 91 行)] 
+[警告: FilterSpanInSymbols 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: ccsdsTMWaveformGenerator (第 381 行)
+位置: codex_oqpsk_uqpsk_pulse_regression_v1 (第 62 行)
+位置: run (第 91 行)] 
+[警告: RolloffFactor 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: ccsdsTMWaveformGenerator (第 381 行)
+位置: codex_oqpsk_uqpsk_pulse_regression_v1 (第 62 行)
+位置: run (第 91 行)] 
+[警告: FilterSpanInSymbols 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: ccsdsTMWaveformGenerator (第 381 行)
+位置: codex_oqpsk_uqpsk_pulse_regression_v1 (第 62 行)
+位置: run (第 91 行)] 
+PASS: all requested pulses, complete coverage, TX continuity and rate checks.

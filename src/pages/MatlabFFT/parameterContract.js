@@ -3,6 +3,66 @@
 export const ADAPTIVE_EQ_MODS = ["BPSK", "QPSK", "8PSK", "16QAM", "32QAM"];
 export const PCM_MODS = ["BPSK", "QPSK", "8PSK", "OQPSK", "UQPSK", "16QAM", "32QAM", "16APSK", "32APSK"];
 export const TURBO_BLOCKS = [1784, 3568, 7136, 8920];
+export const FULL_RS_MESSAGE_LENGTHS = [223, 239];
+export const FULL_RS_INTERLEAVING_DEPTHS = [1, 2, 3, 4, 5, 8];
+export const CONTINUOUS_CONV_MODS = ["BPSK", "QPSK", "8PSK", "16QAM", "32QAM"];
+export const SELECTABLE_PULSE_SHAPING_MODS = ["BPSK", "QPSK", "8PSK", "16QAM", "32QAM", "OQPSK", "UQPSK"];
+
+// This is the number of coded bits presented to the mapper for one symbol.
+// It is deliberately separate from the FEC code rate.  The equipment UI calls
+// codedBitRate "码率 (Mbps)", while the MATLAB DSP chain needs symbolRate (Hz).
+export function modulationBitsPerSymbol(modType, modulationEfficiency = 2) {
+  const mod = String(modType || "").toUpperCase();
+  if (mod.includes("4D-8PSK-TCM")) {
+    const efficiency = Number(modulationEfficiency);
+    return Number.isFinite(efficiency) && efficiency > 0 ? efficiency : 2;
+  }
+  if (mod.includes("UQPSK")) return 1.5;
+  if (mod.includes("32QAM") || mod.includes("32APSK")) return 5;
+  if (mod.includes("16QAM") || mod.includes("16APSK")) return 4;
+  if (mod.includes("8PSK")) return 3;
+  if (mod.includes("QPSK") || mod.includes("OQPSK")) return 2;
+  return 1;
+}
+
+export function resolveModulationRates(input) {
+  const p = { ...input };
+  const bitsPerSymbol = modulationBitsPerSymbol(
+    p.modType,
+    p.ModulationEfficiency,
+  );
+  const bitRateMbps = Number(p.modulatorBitRateMbps);
+  const legacySymbolRate = Number(p.symbolRate);
+
+  if (Number.isFinite(bitRateMbps) && bitRateMbps > 0) {
+    p.NominalBitsPerSymbol = bitsPerSymbol;
+    p.ModulatorBitRate_bps = bitRateMbps * 1e6;
+    p.symbolRate = p.ModulatorBitRate_bps / bitsPerSymbol;
+    p.RateInputMode = "modulator-bit-rate";
+  } else if (Number.isFinite(legacySymbolRate) && legacySymbolRate > 0) {
+    // Backward compatibility for saved jobs and MATLAB-oriented callers.
+    p.NominalBitsPerSymbol = bitsPerSymbol;
+    p.ModulatorBitRate_bps = legacySymbolRate * bitsPerSymbol;
+    p.modulatorBitRateMbps = p.ModulatorBitRate_bps / 1e6;
+    p.RateInputMode = "symbol-rate";
+  }
+  return p;
+}
+
+export const RS_PRESETS = Object.fromEntries(
+  FULL_RS_MESSAGE_LENGTHS.flatMap((messageLength) =>
+    FULL_RS_INTERLEAVING_DEPTHS.map((interleavingDepth) => [
+      `rs-255-${messageLength}-i${interleavingDepth}`,
+      {
+        label: `RS(255,${messageLength}), I=${interleavingDepth}, TF=${messageLength * interleavingDepth}`,
+        RSMessageLength: messageLength,
+        RSInterleavingDepth: interleavingDepth,
+        IsRSMessageShortened: false,
+        NumBytesInTransferFrame: messageLength * interleavingDepth,
+      },
+    ]),
+  ),
+);
 
 export function codingDefaults(coding) {
   if (coding === "Turbo") return { CodeRate: "1/2", NumBitsInInformationBlock: 3568 };
@@ -13,7 +73,10 @@ export function codingDefaults(coding) {
 }
 
 export function finalizeTMRequest(input) {
-  const p = { ...input, WaveformMode: "ordinaryTM" };
+  const p = resolveModulationRates({ ...input, WaveformMode: "ordinaryTM" });
+  if (!Number.isFinite(Number(p.symbolRate)) || Number(p.symbolRate) < 1e3 || Number(p.symbolRate) > 1e9) {
+    throw new Error("由调制码率换算出的符号率必须在 1 ksym/s～1 Gsym/s 之间。");
+  }
   if (p.DataPathMode !== "single" && p.DataPathMode) {
     if (!["QPSK", "OQPSK", "8PSK", "16QAM", "32QAM", "16APSK", "32APSK", "UQPSK"].includes(p.modType)) {
       throw new Error(`${p.modType} 当前仅支持合路，请将数据通路改为合路。`);
@@ -28,21 +91,83 @@ export function finalizeTMRequest(input) {
   if (!Number.isInteger(Number(p.sps)) || Number(p.sps) < 2 || Number(p.sps) % 2) {
     throw new Error("当前页面接收前端要求 SPS 为不小于 2 的偶数。");
   }
+  const pulseShapeKey = String(
+    p.PulseShapingFilter || "root raised cosine",
+  )
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+  if (["root raised cosine", "square root raised cosine", "rrc", "sqrt raised cosine"].includes(pulseShapeKey)) {
+    p.PulseShapingFilter = "root raised cosine";
+  } else if (["raised cosine", "normal raised cosine", "rc"].includes(pulseShapeKey)) {
+    p.PulseShapingFilter = "raised cosine";
+  } else if (["none", "off", "bypass", "no shaping"].includes(pulseShapeKey)) {
+    p.PulseShapingFilter = "none";
+  } else {
+    throw new Error("成型滤波支持平方根升余弦（RRC）、升余弦（RC）或旁路（none）。");
+  }
+  if (p.PulseShapingFilter === "raised cosine" && !["OQPSK", "UQPSK"].includes(p.modType)) {
+    throw new Error("升余弦（RC）本轮仅开放 OQPSK/UQPSK。");
+  }
+  if (p.PulseShapingFilter !== "root raised cosine") {
+    if (!SELECTABLE_PULSE_SHAPING_MODS.includes(p.modType)) {
+      throw new Error(`${p.modType} 使用专用波形前端，当前不能选择成型滤波旁路。`);
+    }
+    if (p.DataPathMode && p.DataPathMode !== "single") {
+      throw new Error("新增 RC/旁路成型当前只支持合路（单路 TM）数据通路。");
+    }
+  }
   if (p.channelCoding === "Turbo" && !TURBO_BLOCKS.includes(Number(p.NumBitsInInformationBlock))) {
     throw new Error("Turbo 信息块长度须为 1784、3568、7136 或 8920 bit；不能沿用 LDPC 的 K=1024。");
   }
-  if (["convolutional", "concatenated"].includes(p.channelCoding) && p.hasASM !== false) {
-    const period = { "5/6": 5, "7/8": 7 }[p.ConvolutionalCodeRate];
-    const isRS = p.channelCoding === "concatenated";
+  if (["RS", "concatenated"].includes(p.channelCoding)) {
     const rsK = Number(p.RSMessageLength || 223);
-    const rsS = p.IsRSMessageShortened ? Number(p.RSShortenedMessageLength) : rsK;
-    const frameBytes = isRS ? (255 - rsK + rsS) * Number(p.RSInterleavingDepth || 1) : Number(p.NumBytesInTransferFrame);
-    const convInputBits = 32 + 8 * frameBytes;
-    if (period && convInputBits % period !== 0) {
-      throw new Error(isRS
-        ? `级联码配置不兼容：ASM + RS 编码后数据为 ${convInputBits} bit，不能整除卷积 ${p.ConvolutionalCodeRate} 的打孔输入周期 ${period}。请优先使用内码 1/2；不要把 RS 信息帧任意改成 1116 字节。`
-        : `卷积 ${p.ConvolutionalCodeRate} 要求 ASM + 信息帧长度可整除 ${period}。当前为 ${convInputBits} bit；可选 TF=1151 字节。`);
+    const rsI = Number(p.RSInterleavingDepth || 1);
+    if (p.IsRSMessageShortened) {
+      throw new Error("当前前端只开放已验证的非缩短 RS 配置；缩短 RS 尚未接入。");
     }
+    if (!FULL_RS_MESSAGE_LENGTHS.includes(rsK)) {
+      throw new Error("非缩短 RS 仅支持 RS(255,223) 或 RS(255,239)。");
+    }
+    if (!FULL_RS_INTERLEAVING_DEPTHS.includes(rsI)) {
+      throw new Error("RS 交织深度仅开放已验证的 1、2、3、4、5、8。");
+    }
+    p.RSMessageLength = rsK;
+    p.RSInterleavingDepth = rsI;
+    p.IsRSMessageShortened = false;
+    p.NumBytesInTransferFrame = rsK * rsI;
+    delete p.RSShortenedMessageLength;
+  }
+  if (["convolutional", "concatenated"].includes(p.channelCoding)) {
+    const continuousStreamEligible =
+      p.hasASM !== false &&
+      CONTINUOUS_CONV_MODS.includes(p.modType) &&
+      (!p.DataPathMode || p.DataPathMode === "single") &&
+      (!p.PCMFormat || p.PCMFormat === "NRZ-L") &&
+      !p.RandomizerEnabled;
+    p.ConvolutionalReceiveMode = continuousStreamEligible
+      ? "stream-raw-asm"
+      : "legacy-coded-asm";
+
+    // The stream receiver carries encoder, puncture and Viterbi state across
+    // TM-frame boundaries.  Only the legacy coded-ASM path still requires a
+    // frame to end on the high-rate puncture period.
+    if (p.ConvolutionalReceiveMode === "legacy-coded-asm" && p.hasASM !== false) {
+      const period = { "5/6": 5, "7/8": 7 }[p.ConvolutionalCodeRate];
+      const isRS = p.channelCoding === "concatenated";
+      const frameBytes = isRS
+        ? 255 * Number(p.RSInterleavingDepth || 1)
+        : Number(p.NumBytesInTransferFrame);
+      const convInputBits = 32 + 8 * frameBytes;
+      if (period && convInputBits % period !== 0) {
+        throw new Error(isRS
+          ? `当前配置不能使用旧 coded-ASM 接收路径：ASM + RS 码字为 ${convInputBits} bit，不能整除卷积 ${p.ConvolutionalCodeRate} 的打孔输入周期 ${period}。请选择已接入连续接收器的普通合路调制、NRZ-L、关闭加扰。`
+          : `当前配置不能使用旧 coded-ASM 接收路径：卷积 ${p.ConvolutionalCodeRate} 的 ${convInputBits} bit 输入不能整除打孔周期 ${period}。请选择已接入连续接收器的普通合路调制、NRZ-L、关闭加扰。`);
+      }
+    }
+  } else {
+    delete p.ConvolutionalReceiveMode;
   }
   if (/APSK$/.test(p.modType)) {
     p.APSKReceiverMode = "pilotless";

@@ -1,0 +1,402 @@
+OQPSK | convolutional | root raised cosine: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+OQPSK | convolutional | raised cosine: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+OQPSK | convolutional | none: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+UQPSK | convolutional | root raised cosine: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+UQPSK | convolutional | raised cosine: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+UQPSK | convolutional | none: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+    Modulation           Shape                Coding         BER    FER    ComparedFrames     Coverage     SampleRateConsistent    Pass     Error
+    __________    ____________________    _______________    ___    ___    ______________    __________    ____________________    _____    _____
+
+     "OQPSK"      "root raised cosine"    "convolutional"     0      0          120          "COMPLETE"           true             true      ""  
+     "OQPSK"      "raised cosine"         "convolutional"     0      0          120          "COMPLETE"           true             true      ""  
+     "OQPSK"      "none"                  "convolutional"     0      0          120          "COMPLETE"           true             true      ""  
+     "UQPSK"      "root raised cosine"    "convolutional"     0      0          120          "COMPLETE"           true             true      ""  
+     "UQPSK"      "raised cosine"         "convolutional"     0      0          120          "COMPLETE"           true             true      ""  
+     "UQPSK"      "none"                  "convolutional"     0      0          120          "COMPLETE"           true             true      ""  
+
+PASS: all requested pulses, complete coverage, TX continuity and rate checks.
+
+[pulse shaping 1/6] QPSK + root raised cosine
+  ccsdsTMWaveformGenerator - 属性:
+
+                           WaveformSource: "synchronization and channel coding"
+                  NumBytesInTransferFrame: 256
+                        RandomizerEnabled: false
+                    RandomizerFECPosition: 'afterEncoding'
+                             DataPathMode: 'single'
+                           SplitPathDebug: 0
+                                   HasASM: true
+                                ASMLength: []
+                                   ASMHex: ''
+                                PCMFormat: "NRZ-L"
+
+   Channel coding
+                            ChannelCoding: "none"
+    AllowContinuousPuncturingAcrossFrames: 0
+
+   Digital modulation and filter
+                               Modulation: "QPSK"
+                       PulseShapingFilter: "root raised cosine"
+                            RolloffFactor: 0.3500
+                      FilterSpanInSymbols: 10
+                         SamplesPerSymbol: 8
+
+  使用 get 显示所有属性
+
+         ActualCodeRate: 1
+       NumBitsPerSymbol: 2
+    SubcarrierFrequency: []
+
+[TX none] NumInputBits=2048, ActualCodeRate=1.000000
+[Rate setup] input=symbol-rate, modulation rate=20.000000 Mbps, bits/symbol=2, symbol rate=10.000000 Msym/s
+[Pulse shaping] requested=root raised cosine, TX=root raised cosine, RX=root raised cosine matched filter
+[Actual TF] NumInputBits=2048, NumInputBytes=256.000
+[Test length] waveform=1.872 ms | warmup=4 | BER=12 | total=16 frames
+[Burst completion] applied=1 buffered TX bits=0 | guard groups=2 (NOT measured) | measurement=1.664000 ms, waveform=1.872000 ms
+[POST-H TEST GAIN] +0 dB, amplitude x 1.000000
+   [ASM phase] periodic ASM ambiguous; decode top 2 rotations: best rot=+0.0 deg err=0 mean=0.00 frames=8, second err=0, gap=0.0
+   [Per-frame BER] 0.029 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 0.000   -   
+   [候选角度] rot=  +0.0 deg, BER=0, Lock=94.1%, Err=0, Bits=24576   [候选角度] rot=+180.0 deg, BER=NaN, Lock=0.0%, Err=0, Bits=0   [Phase ambiguity] best rotation =  +0.0 deg, lockRate=94.1%
+[Measurement coverage] COMPLETE: compared=12/12, unrecovered=0, recovered-not-compared=0
+
+========= CCSDS 评估结果 =========
+ 调制方式 : QPSK
+ 输入 SNR : 12.0 dB,  CFO=0.0 Hz,  Phase=0.0 deg,  Delay=0.000
+ Noise mode   : OFF (exactly noise-free diagnostic)
+ Noise order  : afterChannel
+ TM data source: random
+ --------------------------------
+ BER          : 0.000000
+ EVM (sync前) :  13.34 %
+ EVM (sync后) :   1.02 %
+ MER (sync后) :  39.79 dB
+ SNR_est      :  39.79 dB  (输入是 12.0 dB)
+ Residual CFO :    0.033 Hz
+ PAPR (Tx)    :   3.91 dB
+ Frame Lock   :  94.12 %
+ FER          : 0.000000  (0/12 frames)
+ Acquisition  : 3 frames  (0.0003072 s)
+==================================
+
+
+[pulse shaping 2/6] BPSK + none
+  ccsdsTMWaveformGenerator - 属性:
+
+                           WaveformSource: "synchronization and channel coding"
+                  NumBytesInTransferFrame: 256
+                        RandomizerEnabled: false
+                    RandomizerFECPosition: 'afterEncoding'
+                             DataPathMode: 'single'
+                           SplitPathDebug: 0
+                                   HasASM: true
+                                ASMLength: []
+                                   ASMHex: ''
+                                PCMFormat: "NRZ-L"
+
+   Channel coding
+                            ChannelCoding: "none"
+    AllowContinuousPuncturingAcrossFrames: 0
+
+   Digital modulation and filter
+                               Modulation: "BPSK"
+                       PulseShapingFilter: "none"
+                         SamplesPerSymbol: 8
+
+  使用 get 显示所有属性
+
+         ActualCodeRate: 1
+       NumBitsPerSymbol: 1
+    SubcarrierFrequency: []
+
+[TX none] NumInputBits=2048, ActualCodeRate=1.000000
+[Rate setup] input=symbol-rate, modulation rate=10.000000 Mbps, bits/symbol=1, symbol rate=10.000000 Msym/s
+[Pulse shaping] requested=none, TX=rectangular symbol hold (no shaping filter), RX=rectangular matched filter
+[Actual TF] NumInputBits=2048, NumInputBytes=256.000
+[Test length] waveform=3.744 ms | warmup=4 | BER=12 | total=16 frames
+[Burst completion] applied=1 buffered TX bits=0 | guard groups=2 (NOT measured) | measurement=3.328000 ms, waveform=3.744000 ms
+[POST-H TEST GAIN] +0 dB, amplitude x 1.000000
+   [ASM phase] periodic ASM ambiguous; decode top 2 rotations: best rot=+0.0 deg err=0 mean=0.00 frames=8, second err=0, gap=0.0
+   [Per-frame BER] 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 0.000   -   
+   [候选角度] rot=  +0.0 deg, BER=0, Lock=94.1%, Err=0, Bits=24576   [候选角度] rot=+180.0 deg, BER=NaN, Lock=0.0%, Err=0, Bits=0   [Phase ambiguity] best rotation =  +0.0 deg, lockRate=94.1%
+[Measurement coverage] COMPLETE: compared=12/12, unrecovered=0, recovered-not-compared=0
+
+========= CCSDS 评估结果 =========
+ 调制方式 : BPSK
+ 输入 SNR : 12.0 dB,  CFO=0.0 Hz,  Phase=0.0 deg,  Delay=0.000
+ Noise mode   : OFF (exactly noise-free diagnostic)
+ Noise order  : afterChannel
+ TM data source: random
+ --------------------------------
+ BER          : 0.000000
+ EVM (sync前) :   0.00 %
+ EVM (sync后) :   0.00 %
+ MER (sync后) :  97.71 dB
+ SNR_est      :  97.71 dB  (输入是 12.0 dB)
+ Residual CFO :   -0.000 Hz
+ PAPR (Tx)    :   0.00 dB
+ Frame Lock   :  94.12 %
+ FER          : 0.000000  (0/12 frames)
+ Acquisition  : 3 frames  (0.0006144 s)
+==================================
+
+
+[pulse shaping 3/6] QPSK + none
+  ccsdsTMWaveformGenerator - 属性:
+
+                           WaveformSource: "synchronization and channel coding"
+                  NumBytesInTransferFrame: 256
+                        RandomizerEnabled: false
+                    RandomizerFECPosition: 'afterEncoding'
+                             DataPathMode: 'single'
+                           SplitPathDebug: 0
+                                   HasASM: true
+                                ASMLength: []
+                                   ASMHex: ''
+                                PCMFormat: "NRZ-L"
+
+   Channel coding
+                            ChannelCoding: "none"
+    AllowContinuousPuncturingAcrossFrames: 0
+
+   Digital modulation and filter
+                               Modulation: "QPSK"
+                       PulseShapingFilter: "none"
+                         SamplesPerSymbol: 8
+
+  使用 get 显示所有属性
+
+         ActualCodeRate: 1
+       NumBitsPerSymbol: 2
+    SubcarrierFrequency: []
+
+[TX none] NumInputBits=2048, ActualCodeRate=1.000000
+[Rate setup] input=symbol-rate, modulation rate=20.000000 Mbps, bits/symbol=2, symbol rate=10.000000 Msym/s
+[Pulse shaping] requested=none, TX=rectangular symbol hold (no shaping filter), RX=rectangular matched filter
+[Actual TF] NumInputBits=2048, NumInputBytes=256.000
+[Test length] waveform=1.872 ms | warmup=4 | BER=12 | total=16 frames
+[Burst completion] applied=1 buffered TX bits=0 | guard groups=2 (NOT measured) | measurement=1.664000 ms, waveform=1.872000 ms
+[POST-H TEST GAIN] +0 dB, amplitude x 1.000000
+   [ASM phase] periodic ASM ambiguous; decode top 2 rotations: best rot=+0.0 deg err=0 mean=0.00 frames=8, second err=0, gap=0.0
+   [Per-frame BER] 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 0.000   -   
+   [候选角度] rot=  +0.0 deg, BER=0, Lock=94.1%, Err=0, Bits=24576   [候选角度] rot=+180.0 deg, BER=NaN, Lock=0.0%, Err=0, Bits=0   [Phase ambiguity] best rotation =  +0.0 deg, lockRate=94.1%
+[Measurement coverage] COMPLETE: compared=12/12, unrecovered=0, recovered-not-compared=0
+
+========= CCSDS 评估结果 =========
+ 调制方式 : QPSK
+ 输入 SNR : 12.0 dB,  CFO=0.0 Hz,  Phase=0.0 deg,  Delay=0.000
+ Noise mode   : OFF (exactly noise-free diagnostic)
+ Noise order  : afterChannel
+ TM data source: random
+ --------------------------------
+ BER          : 0.000000
+ EVM (sync前) :   0.00 %
+ EVM (sync后) :   0.00 %
+ MER (sync后) :  91.27 dB
+ SNR_est      :  91.27 dB  (输入是 12.0 dB)
+ Residual CFO :    0.000 Hz
+ PAPR (Tx)    :   0.00 dB
+ Frame Lock   :  94.12 %
+ FER          : 0.000000  (0/12 frames)
+ Acquisition  : 3 frames  (0.0003072 s)
+==================================
+
+
+[pulse shaping 4/6] 8PSK + none
+  ccsdsTMWaveformGenerator - 属性:
+
+                           WaveformSource: "synchronization and channel coding"
+                  NumBytesInTransferFrame: 254
+                        RandomizerEnabled: false
+                    RandomizerFECPosition: 'afterEncoding'
+                             DataPathMode: 'single'
+                           SplitPathDebug: 0
+                                   HasASM: true
+                                ASMLength: []
+                                   ASMHex: ''
+                                PCMFormat: "NRZ-L"
+
+   Channel coding
+                            ChannelCoding: "none"
+    AllowContinuousPuncturingAcrossFrames: 0
+
+   Digital modulation and filter
+                               Modulation: "8PSK"
+                       PulseShapingFilter: "none"
+                         SamplesPerSymbol: 8
+
+  使用 get 显示所有属性
+
+         ActualCodeRate: 1
+       NumBitsPerSymbol: 3
+    SubcarrierFrequency: []
+
+[TX none] NumInputBits=2032, ActualCodeRate=1.000000
+[Rate setup] input=symbol-rate, modulation rate=30.000000 Mbps, bits/symbol=3, symbol rate=10.000000 Msym/s
+[Pulse shaping] requested=none, TX=rectangular symbol hold (no shaping filter), RX=rectangular matched filter
+[Actual TF] NumInputBits=2032, NumInputBytes=254.000
+[Test length] waveform=1.238 ms | warmup=4 | BER=12 | total=16 frames
+[Burst completion] applied=1 buffered TX bits=0 | guard groups=2 (NOT measured) | measurement=1.100800 ms, waveform=1.238400 ms
+[POST-H TEST GAIN] +0 dB, amplitude x 1.000000
+   [ASM phase] selected 1 rotation by periodic ASM: rot=+0.0 deg, err=0, mean=0.00, frames=8, pos=2068, gap=8.6
+   [Per-frame BER] 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 0.000   -   
+   [候选角度] rot=  +0.0 deg, BER=0, Lock=94.1%, Err=0, Bits=24384   [Phase ambiguity] best rotation =  +0.0 deg, lockRate=94.1%
+[Measurement coverage] COMPLETE: compared=12/12, unrecovered=0, recovered-not-compared=0
+
+========= CCSDS 评估结果 =========
+ 调制方式 : 8PSK
+ 输入 SNR : 12.0 dB,  CFO=0.0 Hz,  Phase=0.0 deg,  Delay=0.000
+ Noise mode   : OFF (exactly noise-free diagnostic)
+ Noise order  : afterChannel
+ TM data source: random
+ --------------------------------
+ BER          : 0.000000
+ EVM (sync前) :  39.02 %
+ EVM (sync后) :   0.00 %
+ MER (sync后) :  87.84 dB
+ SNR_est      :  87.84 dB  (输入是 12.0 dB)
+ Residual CFO :   -0.000 Hz
+ PAPR (Tx)    :   0.00 dB
+ Frame Lock   :  94.12 %
+ FER          : 0.000000  (0/12 frames)
+ Acquisition  : 3 frames  (0.0002032 s)
+==================================
+
+
+[pulse shaping 5/6] 16QAM + none
+  ccsdsTMWaveformGenerator - 属性:
+
+                           WaveformSource: "synchronization and channel coding"
+                  NumBytesInTransferFrame: 256
+                        RandomizerEnabled: false
+                    RandomizerFECPosition: 'afterEncoding'
+                             DataPathMode: 'single'
+                           SplitPathDebug: 0
+                                   HasASM: true
+                                ASMLength: []
+                                   ASMHex: ''
+                                PCMFormat: "NRZ-L"
+
+   Channel coding
+                            ChannelCoding: "none"
+    AllowContinuousPuncturingAcrossFrames: 0
+
+   Digital modulation and filter
+                               Modulation: "16QAM"
+                       PulseShapingFilter: "none"
+                         SamplesPerSymbol: 8
+
+  使用 get 显示所有属性
+
+         ActualCodeRate: 1
+       NumBitsPerSymbol: 4
+    SubcarrierFrequency: []
+
+[TX none] NumInputBits=2048, ActualCodeRate=1.000000
+[Rate setup] input=symbol-rate, modulation rate=40.000000 Mbps, bits/symbol=4, symbol rate=10.000000 Msym/s
+[Pulse shaping] requested=none, TX=rectangular symbol hold (no shaping filter), RX=rectangular matched filter
+[Actual TF] NumInputBits=2048, NumInputBytes=256.000
+[Test length] waveform=0.936 ms | warmup=4 | BER=12 | total=16 frames
+[Burst completion] applied=1 buffered TX bits=0 | guard groups=2 (NOT measured) | measurement=0.832000 ms, waveform=0.936000 ms
+[POST-H TEST GAIN] +0 dB, amplitude x 1.000000
+   [ASM phase] selected 1 rotation by periodic ASM: rot=+0.0 deg, err=0, mean=0.00, frames=8, pos=5, gap=8.2
+   [Per-frame BER] 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 0.000   -   
+   [候选角度] rot=  +0.0 deg, BER=0, Lock=94.1%, Err=0, Bits=24576   [Phase ambiguity] best rotation =  +0.0 deg, lockRate=94.1%
+[Measurement coverage] COMPLETE: compared=12/12, unrecovered=0, recovered-not-compared=0
+
+========= CCSDS 评估结果 =========
+ 调制方式 : 16QAM
+ 输入 SNR : 12.0 dB,  CFO=0.0 Hz,  Phase=0.0 deg,  Delay=0.000
+ Noise mode   : OFF (exactly noise-free diagnostic)
+ Noise order  : afterChannel
+ TM data source: random
+ --------------------------------
+ BER          : 0.000000
+ EVM (sync前) :   0.07 %
+ EVM (sync后) :   3.76 %
+ MER (sync后) :  28.50 dB
+ SNR_est      :  28.42 dB  (输入是 12.0 dB)
+ Residual CFO :   -6.375 Hz
+ PAPR (Tx)    :   2.55 dB
+ Frame Lock   :  94.12 %
+ FER          : 0.000000  (0/12 frames)
+ Acquisition  : 3 frames  (0.0001536 s)
+==================================
+
+
+[pulse shaping 6/6] 32QAM + none
+  ccsdsTMWaveformGenerator - 属性:
+
+                           WaveformSource: "synchronization and channel coding"
+                  NumBytesInTransferFrame: 256
+                        RandomizerEnabled: false
+                    RandomizerFECPosition: 'afterEncoding'
+                             DataPathMode: 'single'
+                           SplitPathDebug: 0
+                                   HasASM: true
+                                ASMLength: []
+                                   ASMHex: ''
+                                PCMFormat: "NRZ-L"
+
+   Channel coding
+                            ChannelCoding: "none"
+    AllowContinuousPuncturingAcrossFrames: 0
+
+   Digital modulation and filter
+                               Modulation: "32QAM"
+                       PulseShapingFilter: "none"
+                         SamplesPerSymbol: 8
+
+  使用 get 显示所有属性
+
+         ActualCodeRate: 1
+       NumBitsPerSymbol: 5
+    SubcarrierFrequency: []
+
+[TX none] NumInputBits=2048, ActualCodeRate=1.000000
+[Rate setup] input=symbol-rate, modulation rate=50.000000 Mbps, bits/symbol=5, symbol rate=10.000000 Msym/s
+[Pulse shaping] requested=none, TX=rectangular symbol hold (no shaping filter), RX=rectangular matched filter
+[Actual TF] NumInputBits=2048, NumInputBytes=256.000
+[Test length] waveform=0.749 ms | warmup=4 | BER=12 | total=16 frames
+[Burst completion] applied=1 buffered TX bits=0 | guard groups=2 (NOT measured) | measurement=0.665600 ms, waveform=0.748800 ms
+[POST-H TEST GAIN] +0 dB, amplitude x 1.000000
+   [ASM phase] selected 1 rotation by periodic ASM: rot=+0.0 deg, err=0, mean=0.00, frames=8, pos=6, gap=9.2
+   [Per-frame BER] 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 0.000   -   
+   [候选角度] rot=  +0.0 deg, BER=0, Lock=94.1%, Err=0, Bits=24576   [Phase ambiguity] best rotation =  +0.0 deg, lockRate=94.1%
+[Measurement coverage] COMPLETE: compared=12/12, unrecovered=0, recovered-not-compared=0
+
+========= CCSDS 评估结果 =========
+ 调制方式 : 32QAM
+ 输入 SNR : 12.0 dB,  CFO=0.0 Hz,  Phase=0.0 deg,  Delay=0.000
+ Noise mode   : OFF (exactly noise-free diagnostic)
+ Noise order  : afterChannel
+ TM data source: random
+ --------------------------------
+ BER          : 0.000000
+ EVM (sync前) :   0.20 %
+ EVM (sync后) :   3.99 %
+ MER (sync后) :  27.98 dB
+ SNR_est      :  27.99 dB  (输入是 12.0 dB)
+ Residual CFO :   -2.279 Hz
+ PAPR (Tx)    :   2.29 dB
+ Frame Lock   :  94.12 %
+ FER          : 0.000000  (0/12 frames)
+ Acquisition  : 3 frames  (0.00012288 s)
+==================================
+
+    Modulation         Requested                 Actual                                TX                                          RX                     BER    FER    Frames     Coverage     CoverageComplete    UnrecoveredFrames
+    __________    ____________________    ____________________    _____________________________________________    ___________________________________    ___    ___    ______    __________    ________________    _________________
+
+     "QPSK"       "root raised cosine"    "root raised cosine"    "root raised cosine"                             "root raised cosine matched filter"     0      0       12      "COMPLETE"         true                   0        
+     "BPSK"       "none"                  "none"                  "rectangular symbol hold (no shaping filter)"    "rectangular matched filter"            0      0       12      "COMPLETE"         true                   0        
+     "QPSK"       "none"                  "none"                  "rectangular symbol hold (no shaping filter)"    "rectangular matched filter"            0      0       12      "COMPLETE"         true                   0        
+     "8PSK"       "none"                  "none"                  "rectangular symbol hold (no shaping filter)"    "rectangular matched filter"            0      0       12      "COMPLETE"         true                   0        
+     "16QAM"      "none"                  "none"                  "rectangular symbol hold (no shaping filter)"    "rectangular matched filter"            0      0       12      "COMPLETE"         true                   0        
+     "32QAM"      "none"                  "none"                  "rectangular symbol hold (no shaping filter)"    "rectangular matched filter"            0      0       12      "COMPLETE"         true                   0        
+
+PASS: QPSK RRC baseline and all five public none paths have complete measurement coverage with zero BER/FER and no unrecovered frames.

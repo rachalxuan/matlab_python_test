@@ -82,6 +82,9 @@ export default function ReceiverMonitor() {
   const last = selected?.last;
   const modulation = monitor?.summary?.modType || "—";
   const coding = monitor?.summary?.channelCoding || "—";
+  const receiveMode = monitor?.summary?.ConvolutionalReceiveMode;
+  const rsMessageLength = monitor?.summary?.RSMessageLength;
+  const rsInterleavingDepth = monitor?.summary?.RSInterleavingDepth;
   const finished = terminalStates.includes(monitor?.status);
   const coverage = monitor?.timeline?.MeasurementCoverage;
 
@@ -123,7 +126,11 @@ export default function ReceiverMonitor() {
       axisLabel: { ...axis.axisLabel, formatter: (value) => Number(value.toPrecision(3)).toString() } };
     return { ...plotBase, grid: { top: 40, right: 40, bottom: 40, left: 40 }, tooltip: { trigger: "item" },
     xAxis: { ...iqAxis, name: "I" }, yAxis: { ...iqAxis, name: "Q" },
-    series: [{ type: "scatter", symbolSize: 3, itemStyle: { color: "#5bd6ff", opacity: 0.65 }, data: asArray(constellation?.i).map((i, k) => [i, asArray(constellation?.q)[k]]) }],
+    legend: { top: 0, textStyle: { color: "#9db0c3" } },
+    series: [
+      { name: "接收同步样本", type: "scatter", symbolSize: 3, itemStyle: { color: "#5bd6ff", opacity: 0.65 }, data: asArray(constellation?.i).map((i, k) => [i, asArray(constellation?.q)[k]]) },
+      { name: "理想判决点", type: "scatter", symbolSize: 9, symbol: "emptyCircle", itemStyle: { color: "#f2c36b" }, data: asArray(constellation?.referenceI).map((i, k) => [i, asArray(constellation?.referenceQ)[k]]) },
+    ],
   }; }, [constellation]);
   const spectrum = monitor?.spectrum;
   const spectrumChart = useMemo(() => ({ ...plotBase,
@@ -168,7 +175,7 @@ export default function ReceiverMonitor() {
     </div>}
 
     <section className="monitor-panel">
-      <div className="monitor-panel-title"><h2>接收链路状态</h2><span>{modulation} · {coding} · {monitor?.summary?.DataPathMode || "single"}</span></div>
+      <div className="monitor-panel-title"><h2>接收链路状态</h2><span>{modulation} · {coding} · {monitor?.summary?.DataPathMode || "single"}{receiveMode ? ` · ${receiveMode === "stream-raw-asm" ? "连续 Viterbi→原始 ASM" : receiveMode}` : ""}{rsMessageLength && rsInterleavingDepth ? ` · RS(255,${rsMessageLength}) I=${rsInterleavingDepth}` : ""}</span></div>
       <div className="monitor-stage"><span className={finished ? "" : "monitor-pulse"} />{finished ? stageText(monitor.status) : stageText(monitor?.stage)}{monitor?.status === "queued" ? ` / 队列 ${monitor.position || 1}` : ""}</div>
       <div className="monitor-lamps">
         {lampNames.map(([name, title]) => {
@@ -205,7 +212,7 @@ export default function ReceiverMonitor() {
     <div className="monitor-chart-grid">
       <section className="monitor-panel"><h2>锁定时间记录</h2><Plot label="载波码元帧同步锁定时间线" option={lockChart} /><p className="monitor-footnote">仿真时间 · 按帧窗口末次证据显示；空白为未观测，不补成锁定。</p></section>
       <section className="monitor-panel"><h2>错误增长记录</h2><Plot label="逐窗口误码与累计误码" option={errorChart} /><p className="monitor-footnote">累计曲线不再上升且比较量继续增长，才说明该区间没有新增可测误码。</p></section>
-      <section className="monitor-panel"><div className="monitor-panel-title"><h2>接收 IQ 散点</h2><span>整段快照 · 不随回放变化</span></div>{constellation ? <Plot square label="实际接收IQ整段快照" option={constellationChart} /> : <div className="monitor-empty">等待接收样本</div>}<p className="monitor-footnote">{constellationExplanation(modulation)} 观察位置：选定整体相位后的 ctx.fineSynced，I/Q 等比例坐标。</p></section>
+      <section className="monitor-panel"><div className="monitor-panel-title"><h2>接收 IQ 散点</h2><span>同步样本 + 理想判决点 · 整段快照</span></div>{constellation ? <Plot square label="实际接收IQ整段快照" option={constellationChart} /> : <div className="monitor-empty">等待接收样本</div>}<p className="monitor-footnote">{constellationExplanation(modulation)} 观察位置：选定整体相位后的 ctx.fineSynced；空心圆仅用于标出该调制的理想判决点，I/Q 等比例坐标。</p></section>
       <section className="monitor-panel"><div className="monitor-panel-title"><h2>接收基带频谱</h2><span>首窗快照 · 相对峰值</span></div>{spectrum ? <Plot label="接收基带相对频谱" option={spectrumChart} /> : <div className="monitor-empty">等待接收样本</div>}<p className="monitor-footnote">不是绝对 dBm/Hz，也不是当前回放时刻的频谱。</p></section>
     </div>
 

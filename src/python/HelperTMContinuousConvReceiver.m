@@ -1,9 +1,8 @@
 classdef HelperTMContinuousConvReceiver < handle
     %HELPERTMCONTINUOUSCONVRECEIVER Experimental continuous punctured-conv RX.
-    %   This first implementation intentionally supports rate 3/4 only. It
-    %   keeps puncture/Viterbi state across arbitrary input chunks, resolves
-    %   the four possible received puncture-period offsets from decoded ASM
-    %   evidence, and finds TM boundaries after Viterbi decoding.
+    %   It keeps puncture/Viterbi state across arbitrary input chunks,
+    %   resolves every possible received puncture-period offset from decoded
+    %   ASM evidence, and finds TM boundaries after Viterbi decoding.
     %
     %   TX truth is not accepted by this class.  It must only be used by the
     %   caller after finalize() for independent BER/coverage evaluation.
@@ -51,10 +50,11 @@ classdef HelperTMContinuousConvReceiver < handle
             parse(parser,varargin{:});
 
             obj.CodeRate = char(string(parser.Results.CodeRate));
-            if ~strcmp(obj.CodeRate,'3/4')
+            supportedRates = {'1/2','2/3','3/4','5/6','7/8'};
+            if ~any(strcmp(obj.CodeRate,supportedRates))
                 error('HelperTMContinuousConvReceiver:RateNotImplemented', ...
-                    ['The isolated stream experiment currently implements ', ...
-                     'ConvolutionalCodeRate="3/4" only.']);
+                    ['The continuous stream receiver implements ', ...
+                     'ConvolutionalCodeRate 1/2, 2/3, 3/4, 5/6, and 7/8.']);
             end
             obj.ASM = int8(parser.Results.ASM(:));
             obj.FramePayloadBits = double(parser.Results.FramePayloadBits);
@@ -84,9 +84,10 @@ classdef HelperTMContinuousConvReceiver < handle
             validateattributes(obj.MinASMFrames,{'numeric'}, ...
                 {'scalar','integer','>=',2},mfilename,'MinASMFrames');
 
-            obj.PuncturePattern = [1;1;0;1;1;0];
-            obj.PunctureInputBits = numel(obj.PuncturePattern)/2;
-            obj.PunctureOutputBits = nnz(obj.PuncturePattern);
+            puncture = ccsdsTMConvolutionalPunctureConfig(obj.CodeRate);
+            obj.PuncturePattern = puncture.Pattern;
+            obj.PunctureInputBits = puncture.InputBitsPerPeriod;
+            obj.PunctureOutputBits = puncture.OutputBitsPerPeriod;
             obj.CandidateOffsets = (0:obj.PunctureOutputBits-1).';
 
             baseTrellis = poly2trellis(7,[171 133]);
@@ -259,8 +260,8 @@ classdef HelperTMContinuousConvReceiver < handle
             info.MinASMFrames = obj.MinASMFrames;
 
             if obj.Verbose
-                fprintf('[Conv stream 3/4] input=%d coded bits, frame=%d raw bits, P/Q=%d/%d\n', ...
-                    obj.InputBitsSeen,frameLength,obj.PunctureInputBits, ...
+                fprintf('[Conv stream %s] input=%d coded bits, frame=%d raw bits, P/Q=%d/%d\n', ...
+                    obj.CodeRate,obj.InputBitsSeen,frameLength,obj.PunctureInputBits, ...
                     obj.PunctureOutputBits);
                 for iCandidate = 1:nCandidates
                     c = candidateInfo(iCandidate);

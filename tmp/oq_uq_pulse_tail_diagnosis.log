@@ -1,0 +1,93 @@
+[警告: PCMFormat 属性与 System object 的此配置无关。] 
+[> 位置：matlab.system.SystemProp/setProperties
+位置: <a href="matlab:matlab.internal.language.introspective.errorDocCallback('ccsdsTMWaveformGenerator', 'E:\web_code\react\fft_project\react-fft\src\python\ccsdsTMWaveformGenerator.m', 381)" style="font-weight:bold">ccsdsTMWaveformGenerator</a> (<a href="matlab: opentoline('E:\web_code\react\fft_project\react-fft\src\python\ccsdsTMWaveformGenerator.m',381,0)">第 381 行</a>)
+位置: <a href="matlab:matlab.internal.language.introspective.errorDocCallback('run_ccsds_tm_evaluation>runOneShot', 'E:\web_code\react\fft_project\react-fft\src\python\run_ccsds_tm_evaluation.m', 1687)" style="font-weight:bold">run_ccsds_tm_evaluation>runOneShot</a> (<a href="matlab: opentoline('E:\web_code\react\fft_project\react-fft\src\python\run_ccsds_tm_evaluation.m',1687,0)">第 1687 行</a>)
+位置: <a href="matlab:matlab.internal.language.introspective.errorDocCallback('run_ccsds_tm_evaluation', 'E:\web_code\react\fft_project\react-fft\src\python\run_ccsds_tm_evaluation.m', 118)" style="font-weight:bold">run_ccsds_tm_evaluation</a> (<a href="matlab: opentoline('E:\web_code\react\fft_project\react-fft\src\python\run_ccsds_tm_evaluation.m',118,0)">第 118 行</a>)
+位置: <a href="matlab:matlab.internal.language.introspective.errorDocCallback('codex_oqpsk_uqpsk_pulse_regression_v1', 'E:\web_code\react\fft_project\react-fft\tmp\codex_oqpsk_uqpsk_pulse_regression_v1.m', 27)" style="font-weight:bold">codex_oqpsk_uqpsk_pulse_regression_v1</a> (<a href="matlab: opentoline('E:\web_code\react\fft_project\react-fft\tmp\codex_oqpsk_uqpsk_pulse_regression_v1.m',27,0)">第 27 行</a>)
+位置: <a href="matlab:matlab.internal.language.introspective.errorDocCallback('run', 'D:\software\MATLAB2022a\toolbox\matlab\lang\run.m', 91)" style="font-weight:bold">run</a> (<a href="matlab: opentoline('D:\software\MATLAB2022a\toolbox\matlab\lang\run.m',91,0)">第 91 行</a>)] 
+  <a href="matlab:helpPopup('ccsdsTMWaveformGenerator')" style="font-weight:bold;">ccsdsTMWaveformGenerator</a> - 属性:
+
+                           WaveformSource: "synchronization and channel coding"
+                  NumBytesInTransferFrame: 256
+                        RandomizerEnabled: false
+                    RandomizerFECPosition: 'afterEncoding'
+                             DataPathMode: 'single'
+                           SplitPathDebug: 0
+                                   HasASM: true
+                                ASMLength: []
+                                   ASMHex: ''
+
+   Channel coding
+                            ChannelCoding: "none"
+    AllowContinuousPuncturingAcrossFrames: 0
+
+   Digital modulation and filter
+                               Modulation: "UQPSK"
+                       PulseShapingFilter: "raised cosine"
+                            RolloffFactor: 0.3500
+                      FilterSpanInSymbols: 10
+                         SamplesPerSymbol: 8
+
+  显示 <a href="matlab:if exist('tmWaveGen','var'),matlab.system.SystemProp.longDisplayFromClick(tmWaveGen,'tmWaveGen','ccsdsTMWaveformGenerator');else,matlab.system.internal.longDisplayFromClickError('tmWaveGen');end">所有属性</a>
+
+         ActualCodeRate: 1
+       NumBitsPerSymbol: 1.5000
+    SubcarrierFrequency: []
+
+[TX none] NumInputBits=2048, ActualCodeRate=1.000000
+[Rate setup] input=symbol-rate, modulation rate=15.000000 Mbps, bits/symbol=1.5, symbol rate=10.000000 Msym/s
+[Pulse shaping] requested=raised cosine, TX=raised cosine, RX=raised cosine matched filter
+[Actual TF] NumInputBits=2048, NumInputBytes=256.000
+[Test length] waveform=18.018 ms | warmup=8 | BER=120 | total=128 frames
+[Burst completion] applied=1 buffered TX bits=128 | guard groups=2 (NOT measured) | measurement=17.749333 ms, waveform=18.018000 ms
+[POST-H TEST GAIN] +0 dB, amplitude x 1.000000
+   [ASM phase] periodic ASM ambiguous; decode top 2 rotations: best rot=+0.0 deg err=0 mean=0.00 frames=8, second err=0, gap=0.0
+   [Per-frame BER] 0.572 0.556 0.437 0.294 0.212 0.185 0.166 0.078 0.000 0.016 
+                   0.000 0.001 0.000 0.000 0.000 0.000 0.002 0.000 0.000 0.000 
+                   0.000 0.000 0.000 0.000 0.000 ... (25/129 shown)
+   [Per-frame BER] 0.149 0.083 0.002 0.035 0.115 0.166 0.219 0.296 0.444 0.510 
+                   0.459 0.333 0.343 0.489 0.493 0.370 0.317 0.373 0.509 0.448 
+                   0.347 0.391 0.483 0.446 0.330 ... (25/129 shown)
+   [候选角度] rot=  +0.0 deg, BER=3.31e-05, Lock=99.2%, Err=8, Bits=241664   [候选角度] rot=+180.0 deg, BER=NaN, Lock=0.0%, Err=0, Bits=0   [Phase ambiguity] best rotation =  +0.0 deg, lockRate=99.2%
+[Measurement coverage] MEASUREMENT_INCOMPLETE: compared=118/120, unrecovered=0, recovered-not-compared=2
+
+========= CCSDS 评估结果 =========
+ 调制方式 : UQPSK
+ 输入 SNR : 12.0 dB,  CFO=0.0 Hz,  Phase=0.0 deg,  Delay=0.000
+ Noise mode   : OFF (exactly noise-free diagnostic)
+ Noise order  : afterChannel
+ TM data source: random
+ --------------------------------
+ BER          : 0.000033
+ EVM (sync前) :   0.00 %
+ EVM (sync后) :  15.35 %
+ MER (sync后) :  16.28 dB
+ SNR_est      :  16.28 dB  (输入是 12.0 dB)
+ Residual CFO :    0.038 Hz
+ PAPR (Tx)    :   4.74 dB
+ Frame Lock   :  99.22 %
+ FER          : 0.025424  (3/118 frames)
+ Acquisition  : 11 frames  (0.00150187 s)
+==================================
+
+
+                             Applied: 1
+                              Reason: 'state-preserving TX continuation; guard groups excluded from measurement'
+             OriginalWaveformSamples: 1419264
+                 OriginalEncodedBits: 266240
+               OriginalModulatedBits: 266112
+              BufferedModulationBits: 128
+                    GuardInputGroups: 2
+                     AppendedSamples: 22176
+                 AppendedEncodedBits: 4160
+               MeasurementDuration_s: 0.0177
+    GeneratorOutputSamplesBeforeHold: 1419264
+        RectangularSymbolHoldApplied: 0
+
+UQPSK | none | root raised cosine: BER=0 FER=0 coverage=COMPLETE frames=120 pass=1 
+    Modulation           Shape            Coding    BER    FER    ComparedFrames     Coverage     SampleRateConsistent    Pass     Error
+    __________    ____________________    ______    ___    ___    ______________    __________    ____________________    _____    _____
+
+     "UQPSK"      "root raised cosine"    "none"     0      0          120          "COMPLETE"           true             true      ""  
+
+PASS: all requested pulses, complete coverage, TX continuity and rate checks.

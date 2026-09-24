@@ -1,0 +1,23 @@
+                     Available: 1
+                        Status: 'MEASUREMENT_INCOMPLETE'
+                ExpectedFrames: 120
+               RecoveredFrames: 120
+                ComparedFrames: 118
+             UnrecoveredFrames: 0
+    RecoveredNotComparedFrames: 2
+          DuplicateComparisons: 0
+                  ComparedBits: 241664
+                      Fraction: 0.9833
+                      Complete: 0
+
+   1
+
+    TxFrameIndex           Coverage            ComparedBitsDelta    ErrorBitsDelta     FrameBER 
+    ____________    _______________________    _________________    ______________    __________
+
+          9         "recovered-not-counted"             0                 0                  NaN
+         10         "recovered-not-counted"             0                 0                  NaN
+         11         "compared-errors"                2048                 1           0.00048828
+         12         "compared-errors"                2048                 3            0.0014648
+         17         "compared-errors"                2048                 4            0.0019531
+

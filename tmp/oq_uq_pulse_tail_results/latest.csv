@@ -1,0 +1,3 @@
+Modulation,Shape,Coding,BER,FER,ComparedFrames,Coverage,SampleRateConsistent,Pass,Error
+UQPSK,raised cosine,none,3.3103813559322e-05,0.0254237288135593,118,MEASUREMENT_INCOMPLETE,1,0,
+UQPSK,none,none,0,0,120,COMPLETE,1,1,

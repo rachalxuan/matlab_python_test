@@ -50,43 +50,19 @@ import {
 } from "@ant-design/icons";
 import * as echarts from "echarts";
 import "./index.scss";
-import { finalizeTMRequest, codingDefaults, PCM_MODS, TURBO_BLOCKS, constellationExplanation } from "./parameterContract";
+import {
+  finalizeTMRequest,
+  codingDefaults,
+  PCM_MODS,
+  TURBO_BLOCKS,
+  RS_PRESETS,
+  constellationExplanation,
+  modulationBitsPerSymbol,
+  SELECTABLE_PULSE_SHAPING_MODS,
+  resolveModulationRates,
+} from "./parameterContract";
 
 const { Option } = Select;
-const RS_PRESETS = {
-  "rs-255-223-i5": {
-    label: "RS(255,223), I=5, TF=1115",
-    RSMessageLength: 223,
-    RSInterleavingDepth: 5,
-    IsRSMessageShortened: false,
-    RSShortenedMessageLength: 223,
-    NumBytesInTransferFrame: 1115,
-  },
-  "rs-255-239-i5": {
-    label: "RS(255,239), I=5, TF=1195",
-    RSMessageLength: 239,
-    RSInterleavingDepth: 5,
-    IsRSMessageShortened: false,
-    RSShortenedMessageLength: 239,
-    NumBytesInTransferFrame: 1195,
-  },
-  "rs-255-223-i1": {
-    label: "RS(255,223), I=1, TF=223",
-    RSMessageLength: 223,
-    RSInterleavingDepth: 1,
-    IsRSMessageShortened: false,
-    RSShortenedMessageLength: 223,
-    NumBytesInTransferFrame: 223,
-  },
-  "rs-255-239-i1": {
-    label: "RS(255,239), I=1, TF=239",
-    RSMessageLength: 239,
-    RSInterleavingDepth: 1,
-    IsRSMessageShortened: false,
-    RSShortenedMessageLength: 239,
-    NumBytesInTransferFrame: 239,
-  },
-};
 
 const DEFAULT_CCSDS_PARAMS = {
   modType: "QPSK",
@@ -100,7 +76,10 @@ const DEFAULT_CCSDS_PARAMS = {
   IsLDPCOnSMTF: false,
   LDPCCodeblockSize: 1,
   NumBytesInTransferFrame: 1151,
+  // Device-equivalent coded bit rate at the constellation mapper input.
+  modulatorBitRateMbps: 100,
   symbolRate: 50000000,
+  PulseShapingFilter: "root raised cosine",
   RolloffFactor: 0.35,
   FilterSpanInSymbols: 10,
   BandwidthTimeProduct: 0.5,
@@ -228,6 +207,7 @@ const defaultRule = (name) => [
 ];
 
 const VALIDATION_LIMITS = {
+  modulatorBitRateMbps: { min: 0.001, max: 5000, label: "调制码率" },
   symbolRate: { min: 1e3, max: 1e9, label: "符号率" },
   snr: { min: -20, max: 100, label: "信噪比" },
   sps: { min: 2, max: 64, label: "采样/符号" },
@@ -548,7 +528,21 @@ const normalizeSimulationResult = (raw) => {
       },
       stats: {
         Fs: raw.Fs,
+        SymbolRateHz: isFiniteNumber(raw.SymbolRate_Hz)
+          ? raw.SymbolRate_Hz
+          : null,
+        ModulatorBitRateBps: isFiniteNumber(raw.ModulatorBitRate_bps)
+          ? raw.ModulatorBitRate_bps
+          : null,
+        NominalBitsPerSymbol: isFiniteNumber(raw.NominalBitsPerSymbol)
+          ? raw.NominalBitsPerSymbol
+          : null,
+        RateInputMode: raw.RateInputMode || null,
+        PulseShapingFilter: raw.PulseShapingFilter || null,
+        TransmitPulseShapeActual: raw.TransmitPulseShapeActual || null,
+        ReceivePulseFilterActual: raw.ReceivePulseFilterActual || null,
         CodeRate: formatCodeRateDisplay(raw),
+        ChannelCoding: raw.channelCoding,
         ElapsedTime: elapsedTime,
         EVMPercent: raw.EVM_post_pct,
         EVMPrePercent: raw.EVM_pre_pct,
@@ -591,7 +585,17 @@ const normalizeSimulationResult = (raw) => {
         NoiseEquivalentSNR: raw.NoiseEquivalentSNR_dB,
         APSKReceiverMode: raw.APSKReceiverMode,
         AdaptiveEqualizerMode: raw.AdaptiveEqualizerMode,
-        MeasurementCoverage: raw.ReceiverTimeline?.MeasurementCoverage,
+        MeasurementCoverage:
+          raw.ReceiverTimeline?.MeasurementCoverage ||
+          raw.MeasurementCoverage ||
+          null,
+        ConvolutionalReceiveMode: raw.ConvolutionalReceiveMode,
+        RSMessageLength: isFiniteNumber(raw.RSMessageLength)
+          ? raw.RSMessageLength
+          : null,
+        RSInterleavingDepth: isFiniteNumber(raw.RSInterleavingDepth)
+          ? raw.RSInterleavingDepth
+          : null,
         InputCFO: raw.cfo_in,
         InputPhase: raw.phase_in,
         InputDelay: raw.delay_in,
@@ -825,7 +829,13 @@ const CCSDSPlatform = () => {
       ) {
         const preset =
           RS_PRESETS[payload.rsPreset] || RS_PRESETS["rs-255-223-i5"];
-        Object.assign(payload, preset);
+        Object.assign(payload, {
+          RSMessageLength: preset.RSMessageLength,
+          RSInterleavingDepth: preset.RSInterleavingDepth,
+          IsRSMessageShortened: false,
+          NumBytesInTransferFrame: preset.NumBytesInTransferFrame,
+        });
+        delete payload.RSShortenedMessageLength;
       }
 
       const selectedChannel = payload.channelModel || "none";
@@ -916,6 +926,10 @@ const CCSDSPlatform = () => {
       }
 
       payload = finalizeTMRequest(payload);
+      form.setFieldsValue({
+        modulatorBitRateMbps: payload.modulatorBitRateMbps,
+        symbolRate: payload.symbolRate,
+      });
       console.log("正在通过 HTTP 请求仿真...", payload);
       const submitRes = await runMatlabSimulation(payload);
       if (!submitRes?.success || !submitRes?.taskId) {
@@ -1104,7 +1118,7 @@ const CCSDSPlatform = () => {
         // 2. 核心操作：把存的数据“填”回去
 
         // 2.1 填表单
-        form.setFieldsValue(config);
+        form.setFieldsValue(resolveModulationRates(config));
 
         // 2.2 恢复 React 状态（这会让界面上的数字变化）
         setSimResult(normalizedResult);
@@ -1513,9 +1527,63 @@ const CCSDSPlatform = () => {
                 <Descriptions.Item label="PAPR">
                   {formatMetricValue(simResult.stats.PAPRdB)} dB
                 </Descriptions.Item>
-                <Descriptions.Item label="实际码率">
+                <Descriptions.Item label="实际编码率">
                   {simResult.stats.CodeRate}
                 </Descriptions.Item>
+                {isFiniteNumber(simResult.stats.ModulatorBitRateBps) && (
+                  <Descriptions.Item label="调制码率">
+                    {formatMetricValue(
+                      simResult.stats.ModulatorBitRateBps / 1e6,
+                      3,
+                    )}{" "}
+                    Mbps
+                  </Descriptions.Item>
+                )}
+                {isFiniteNumber(simResult.stats.SymbolRateHz) && (
+                  <Descriptions.Item label="符号率">
+                    {formatMetricValue(
+                      simResult.stats.SymbolRateHz / 1e6,
+                      3,
+                    )}{" "}
+                    Msym/s
+                  </Descriptions.Item>
+                )}
+                {simResult.stats.PulseShapingFilter && (
+                  <Descriptions.Item label="实际成型滤波">
+                    {simResult.stats.PulseShapingFilter === "none"
+                      ? "旁路（矩形符号保持）"
+                      : simResult.stats.PulseShapingFilter === "raised cosine"
+                        ? "升余弦（RC）"
+                        : "平方根升余弦（RRC）"}
+                  </Descriptions.Item>
+                )}
+                {simResult.stats.ReceivePulseFilterActual && (
+                  <Descriptions.Item label="实际接收匹配滤波">
+                    {{
+                      "rectangular matched filter": "矩形匹配滤波",
+                      "raised cosine matched filter": "升余弦匹配滤波（RC）",
+                      "root raised cosine matched filter":
+                        "平方根升余弦匹配滤波",
+                      "modulation-specific receiver front end":
+                        "调制专用接收前端",
+                    }[simResult.stats.ReceivePulseFilterActual] ||
+                      simResult.stats.ReceivePulseFilterActual}
+                  </Descriptions.Item>
+                )}
+                {simResult.stats.ConvolutionalReceiveMode && (
+                  <Descriptions.Item label="卷积接收路径">
+                    {simResult.stats.ConvolutionalReceiveMode ===
+                    "stream-raw-asm"
+                      ? "连续 Viterbi → 原始 ASM"
+                      : simResult.stats.ConvolutionalReceiveMode}
+                  </Descriptions.Item>
+                )}
+                {isFiniteNumber(simResult.stats.RSMessageLength) &&
+                  isFiniteNumber(simResult.stats.RSInterleavingDepth) && (
+                    <Descriptions.Item label="实际 RS 配置">
+                      {`RS(255,${simResult.stats.RSMessageLength}), I=${simResult.stats.RSInterleavingDepth}, TF=${simResult.stats.RSMessageLength * simResult.stats.RSInterleavingDepth} Byte`}
+                    </Descriptions.Item>
+                  )}
                 {/APSK/i.test(simResult.modType || "") && simResult.stats.APSKReceiverMode && <Descriptions.Item label="APSK 实际接收模式">
                   {simResult.stats.APSKReceiverMode === "pilotless" ? "普通 TM · 无导频" : simResult.stats.APSKReceiverMode}
                 </Descriptions.Item>}
@@ -1733,7 +1801,18 @@ const CCSDSPlatform = () => {
                     ),
                   ]}
                 >
-                  <Select>
+                  <Select
+                    onChange={(value) => {
+                      if (!SELECTABLE_PULSE_SHAPING_MODS.includes(value) ||
+                          (form.getFieldValue("PulseShapingFilter") === "raised cosine" &&
+                           !["OQPSK", "UQPSK"].includes(value))) {
+                        form.setFieldValue(
+                          "PulseShapingFilter",
+                          "root raised cosine",
+                        );
+                      }
+                    }}
+                  >
                     {MODULATION_OPTIONS.map((item) => (
                       <Option key={item.value} value={item.value}>
                         {item.label}
@@ -1744,20 +1823,72 @@ const CCSDSPlatform = () => {
               </Col>
               <Col span={4}>
                 <Form.Item
-                  name="symbolRate"
-                  label={labelWithDefault("符号率 (Hz)", "symbolRate")}
-                  rules={fieldRules("symbolRate")}
+                  name="modulatorBitRateMbps"
+                  label={labelWithDefault(
+                    "调制码率 (Mbps)",
+                    "modulatorBitRateMbps",
+                    "与设备“码率”字段一致，表示进入星座映射的编码后比特率，不是 FEC 编码率",
+                  )}
+                  rules={fieldRules("modulatorBitRateMbps")}
                 >
                   <InputNumber
                     style={{ width: "100%" }}
-                    min={1000}
-                    step={100000}
+                    min={0.001}
+                    max={5000}
+                    step={10}
                     formatter={(v) =>
                       `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
                     }
                   />
                 </Form.Item>
               </Col>
+              <Form.Item
+                noStyle
+                dependencies={[
+                  "modType",
+                  "modulatorBitRateMbps",
+                  "ModulationEfficiency",
+                ]}
+              >
+                {({ getFieldValue }) => {
+                  const bitsPerSymbol = modulationBitsPerSymbol(
+                    getFieldValue("modType"),
+                    getFieldValue("ModulationEfficiency"),
+                  );
+                  const bitRateMbps = Number(
+                    getFieldValue("modulatorBitRateMbps"),
+                  );
+                  const symbolRateMsym =
+                    Number.isFinite(bitRateMbps) && bitRateMbps > 0
+                      ? bitRateMbps / bitsPerSymbol
+                      : undefined;
+                  return (
+                    <Col span={4}>
+                      <Form.Item
+                        label={
+                          <Tooltip
+                            title={`自动换算：调制码率 ÷ ${bitsPerSymbol} bit/符号。MATLAB 内部仍使用该符号率完成采样与滤波。`}
+                          >
+                            <span>
+                              对应符号率 (Msym/s){" "}
+                              <InfoCircleOutlined
+                                style={{ color: "#8c8c8c" }}
+                              />
+                            </span>
+                          </Tooltip>
+                        }
+                      >
+                        <InputNumber
+                          value={symbolRateMsym}
+                          precision={6}
+                          disabled
+                          style={{ width: "100%" }}
+                        />
+                      </Form.Item>
+                    </Col>
+                  );
+                }}
+              </Form.Item>
               <Form.Item noStyle dependencies={["noiseMode"]}>
                 {({ getFieldValue }) => (
               <Col span={3}>
@@ -1781,9 +1912,18 @@ const CCSDSPlatform = () => {
                 </Form.Item>
               </Col>
               {/* === 动态渲染：调制参数联动区 === */}
-              <Form.Item noStyle dependencies={["modType"]}>
+              <Form.Item
+                noStyle
+                dependencies={["modType", "PulseShapingFilter"]}
+              >
                 {({ getFieldValue }) => {
                   const mod = getFieldValue("modType");
+                  const supportsPulseShapeChoice =
+                    SELECTABLE_PULSE_SHAPING_MODS.includes(mod);
+                  const pulseShape =
+                    getFieldValue("PulseShapingFilter") ||
+                    DEFAULT_CCSDS_PARAMS.PulseShapingFilter;
+                  const pulseShapeBypassed = pulseShape === "none";
 
                   // APSK 统一走 ordinary TM，不再向用户暴露 FACM/ACMFormat。
                   if (mod === "4D-8PSK-TCM") {
@@ -1911,10 +2051,42 @@ const CCSDSPlatform = () => {
                       </>
                     );
                   }
-                  // 5. PSK/QPSK/OQPSK (标准 RRC 调制)
+                  // 5. 普通线性调制开放 RRC/旁路；专用前端保持自身波形逻辑。
                   else {
                     return (
                       <>
+                        {supportsPulseShapeChoice && (
+                          <Col span={4}>
+                            <Form.Item
+                              name="PulseShapingFilter"
+                              extra={getFieldValue("PulseShapingFilter") === "raised cosine"
+                                ? "RC 使用 RC 接收匹配滤波，级联仍有残余 ISI；UQPSK 部分帧长尚未通过无噪声回归，默认建议保留 RRC。"
+                                : undefined}
+                              label={labelWithDefault(
+                                "成型滤波",
+                                "PulseShapingFilter",
+                                "旁路不使用带限成型；离散仿真以 SPS 点矩形保持表示符号，接收端使用对应矩形匹配滤波",
+                              )}
+                              rules={[
+                                ...defaultRule("PulseShapingFilter"),
+                                enumRule(
+                                  ["root raised cosine", "none", ...(["OQPSK", "UQPSK"].includes(mod) ? ["raised cosine"] : [])],
+                                  "成型滤波",
+                                ),
+                              ]}
+                            >
+                              <Select>
+                                <Option value="root raised cosine">
+                                  平方根升余弦（RRC）
+                                </Option>
+                                {["OQPSK", "UQPSK"].includes(mod) && (
+                                  <Option value="raised cosine">升余弦（RC，待验证）</Option>
+                                )}
+                                <Option value="none">旁路（不成形）</Option>
+                              </Select>
+                            </Form.Item>
+                          </Col>
+                        )}
                         <Col span={3}>
                           <Form.Item
                             name="RolloffFactor"
@@ -1926,6 +2098,9 @@ const CCSDSPlatform = () => {
                             rules={fieldRules("RolloffFactor")}
                           >
                             <InputNumber
+                              disabled={
+                                supportsPulseShapeChoice && pulseShapeBypassed
+                              }
                               step={0.05}
                               min={0.1}
                               max={1.0}
@@ -1947,6 +2122,9 @@ const CCSDSPlatform = () => {
                             })}
                           >
                             <InputNumber
+                              disabled={
+                                supportsPulseShapeChoice && pulseShapeBypassed
+                              }
                               min={4}
                               max={64}
                               style={{ width: "100%" }}
@@ -2167,8 +2345,6 @@ const CCSDSPlatform = () => {
                                       preset.RSInterleavingDepth,
                                     IsRSMessageShortened:
                                       preset.IsRSMessageShortened,
-                                    RSShortenedMessageLength:
-                                      preset.RSShortenedMessageLength,
                                     NumBytesInTransferFrame:
                                       preset.NumBytesInTransferFrame,
                                   });
@@ -2805,9 +2981,31 @@ const CCSDSPlatform = () => {
                                   <Tag>未启用</Tag>
                                 )}
                               </Descriptions.Item>
-                              <Descriptions.Item label="实际码率">
+                              <Descriptions.Item label="实际编码率">
                                 {simResult.stats.CodeRate}
                               </Descriptions.Item>
+                              {isFiniteNumber(
+                                simResult.stats.ModulatorBitRateBps,
+                              ) && (
+                                <Descriptions.Item label="调制码率">
+                                  {formatMetricValue(
+                                    simResult.stats.ModulatorBitRateBps / 1e6,
+                                    3,
+                                  )}{" "}
+                                  Mbps
+                                </Descriptions.Item>
+                              )}
+                              {isFiniteNumber(
+                                simResult.stats.SymbolRateHz,
+                              ) && (
+                                <Descriptions.Item label="符号率">
+                                  {formatMetricValue(
+                                    simResult.stats.SymbolRateHz / 1e6,
+                                    3,
+                                  )}{" "}
+                                  Msym/s
+                                </Descriptions.Item>
+                              )}
                               <Descriptions.Item label="MATLAB耗时">
                                 {formatMetricValue(
                                   simResult.stats.ElapsedTime,
@@ -2985,7 +3183,10 @@ const CCSDSPlatform = () => {
                       <ClockCircleOutlined /> {item.timestamp}
                     </p>
                     <p style={{ margin: 0 }}>
-                      Symbol Rate: {item.summary.symbolRate}
+                      调制码率: {item.summary.modulatorBitRateMbps ?? "-"} Mbps；
+                      符号率: {isFiniteNumber(item.summary.symbolRate)
+                        ? `${formatMetricValue(item.summary.symbolRate / 1e6, 3)} Msym/s`
+                        : "-"}
                     </p>
                   </div>
                 }

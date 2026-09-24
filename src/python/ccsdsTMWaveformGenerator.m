@@ -289,6 +289,12 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
         ConvolutionalG1G2Mode = 'auto-ccsds'
         % SplitPathDebug Print TX split-path rail/interleave diagnostics.
         SplitPathDebug = false
+        % AllowContinuousPuncturingAcrossFrames Permit an incomplete
+        %   puncture period at a TM frame boundary to continue in the next
+        %   frame.  This is an internal experimental contract for a receiver
+        %   which performs continuous Viterbi decoding before raw-ASM frame
+        %   synchronization.  The default keeps the legacy coded-ASM guard.
+        AllowContinuousPuncturingAcrossFrames = false
         % TPCCodeRate Effective shortened TPC rate.
         %   "native" uses 57x57/64x64. "1/2" uses 45x45/64x64.
         %   "2/3" uses 52x52/64x64.
@@ -466,24 +472,15 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                                 canonicalConvMode, char(obj.ConvolutionalCodeRate), ...
                                 char(obj.DataPathMode));
                         end
-                        switch obj.ConvolutionalCodeRate
-                            case '1/2'
-                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis);
-                            case '2/3'
-                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
-                                    'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1]);
-                            case '3/4'
-                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
-                                    'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;1;0]);
-                            case '5/6'
-                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
-                                    'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;1;0;0;1;1;0]);
-                            otherwise % case '7/8'
-                                obj.pConvEnc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
-                                    'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;0;1;0;1;1;0;0;1;1;0]);
-                        end
+                        puncture = ccsdsTMConvolutionalPunctureConfig( ...
+                            obj.ConvolutionalCodeRate);
+                        obj.pConvEnc = comm.ConvolutionalEncoder( ...
+                            'TrellisStructure',convTrellis, ...
+                            'PuncturePatternSource','Property', ...
+                            'PuncturePattern',puncture.Pattern);
                         temp = obj.pPRNSequenceLength + length(obj.pASM)*obj.HasASM;
-                        obj.pConvEncInLen = temp - mod(temp,length(obj.pConvEnc.PuncturePattern)/2)*(~strcmp(obj.ConvolutionalCodeRate,'1/2'));
+                        obj.pConvEncInLen = temp - ...
+                            mod(temp,puncture.InputBitsPerPeriod);
                         if isSplit && strcmp(obj.ChannelCoding,'convolutional')
                             obj.pConvEncI = createConvEncoder(obj);
                             obj.pConvEncQ = createConvEncoder(obj);
@@ -589,14 +586,20 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                         obj.pGMSKState = struct('altersymb',int8(1),'PrevLastSymb',int8(1));
                         obj.pNumModInBits = temp;
                     case 'OQPSK'
+                        pulse = HelperTMPulseShapeConfig(obj.PulseShapingFilter, ...
+                            sps,double(obj.RolloffFactor),double(obj.FilterSpanInSymbols));
+                        if strcmp(obj.PulseShapingFilter,'none')
+                            pulseArgs = {'FilterNumerator',pulse.TransmitTaps};
+                        else
+                            pulseArgs = {'RolloffFactor',double(obj.RolloffFactor), ...
+                                'FilterSpanInSymbols',double(obj.FilterSpanInSymbols)};
+                        end
                         obj.pMod = comm.OQPSKModulator('BitInput',true,...
-                            'PulseShape','Root raised cosine',...
-                            'RolloffFactor',double(obj.RolloffFactor),...
+                            'PulseShape',pulse.OQPSKPulseShape,...
                             'SamplesPerSymbol',sps,...
                             'SymbolMapping',[0 2 3 1],...
-                            'FilterSpanInSymbols',double(obj.FilterSpanInSymbols));
+                            pulseArgs{:});
                         obj.pNumModInBits = temp;
-                        obj.PulseShapingFilter = "root raised cosine";
                     case 'PCM/PSK/PM'
                         obj.pSubcarrierPhase = 0;
                         obj.pNumModInBits = temp;
@@ -616,18 +619,25 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             end
 
             if ~strcmp(obj.PulseShapingFilter,'none') && ~any(strcmp(obj.Modulation,{'GMSK','MSK','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'}))
+                pulse = HelperTMPulseShapeConfig(obj.PulseShapingFilter, ...
+                    sps,double(obj.RolloffFactor),double(obj.FilterSpanInSymbols));
                 obj.pTransmitFilter = comm.RaisedCosineTransmitFilter(...
+                    'Shape',pulse.FilterShape, ...
                     'RolloffFactor', double(obj.RolloffFactor), 'FilterSpanInSymbols', ...
                     double(obj.FilterSpanInSymbols), 'OutputSamplesPerSymbol', ...
                     sps); % This is not used only for GMSK and OQPSK and also when there is not filter
-                b = rcosdesign(double(obj.RolloffFactor), double(obj.FilterSpanInSymbols),sps);
+                b = pulse.TransmitTaps;
                 % |H(f)| = 1  for |f| < fN(1-alpha) - Section 6 in [3]
                 obj.pGain =  1/sum(b);
             elseif strcmp(obj.Modulation,'OQPSK')
-                b = rcosdesign(double(obj.RolloffFactor), double(obj.FilterSpanInSymbols), ...
-                    sps);
+                b = pulse.TransmitTaps;
                 % |H(f)| = 1  for |f| < fN(1-alpha) - Section 6 in [3]
                 obj.pGain =  1/sum(b);
+                if strcmp(obj.PulseShapingFilter,'none')
+                    % Custom FIR has no official raised-cosine Gain factor.
+                    % After the existing /sqrt(sps/2), each rail is 1/sqrt(2).
+                    obj.pGain = sqrt(sps)/2;
+                end
             end
         end
 
@@ -793,7 +803,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             end
 
             % Pass the symbols through filter
-            if strcmp(obj.PulseShapingFilter,"root raised cosine") && ~any(strcmp(obj.Modulation,{'GMSK','MSK','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'}))
+            if ~strcmp(obj.PulseShapingFilter,"none") && ~any(strcmp(obj.Modulation,{'GMSK','MSK','OQPSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'}))
                 if ~isempty(symbols)
                     waveform = complex(obj.pTransmitFilter(symbols).*obj.pGain); % Here casting to complex is needed. Though "symbols" is coming as complex, after filtering, they are becoming real again
                 else
@@ -1172,12 +1182,12 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             elseif strcmp(prop,'Modulation')
                 flag = isFACM;
             elseif strcmp(prop,'PulseShapingFilter')
-                flag = any(strcmp(obj.Modulation,{'GMSK','MSK','FM','OQPSK','PCM/PSK/PM','PCM/PM/biphase-L'})) && ~isFACM;
+                flag = any(strcmp(obj.Modulation,{'GMSK','MSK','FM','PCM/PSK/PM','PCM/PM/biphase-L'})) && ~isFACM;
             elseif strcmp(prop,'RolloffFactor')
                 if any(strcmp(obj.Modulation,{'GMSK','MSK','PCM/PSK/PM','PCM/PM/biphase-L','OQPSK'})) && ~isFACM
                     flag = true;
                     if strcmp(obj.Modulation,'OQPSK')
-                        flag = false; % Visible in case of OQPSK
+                        flag = strcmp(obj.PulseShapingFilter,"none");
                     end
                 else
                     flag = strcmp(obj.PulseShapingFilter,"none");
@@ -1186,7 +1196,11 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 if any(strcmp(obj.Modulation,{'GMSK','MSK','PCM/PSK/PM','PCM/PM/biphase-L','FM','OQPSK'})) && ~isFACM
                     flag = false;
                 else
-                    flag = strcmp(obj.PulseShapingFilter,"none");
+                    % Keep SPS visible in unshaped mode.  The standalone
+                    % generator still returns one sample/symbol, while the
+                    % evaluator uses this value for its explicit rectangular
+                    % symbol-hold adapter and fixed Fs=symbolRate*SPS contract.
+                    flag = false;
                 end
             elseif strcmp(prop,'BandwidthTimeProduct')
                 flag = ~any(strcmp(obj.Modulation,{'GMSK'})) || isFACM;
@@ -1203,7 +1217,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 if any(strcmp(obj.Modulation,{'GMSK','MSK','PCM/PSK/PM','PCM/PM/biphase-L','OQPSK'})) && ~isFACM
                     flag = true;
                     if strcmp(obj.Modulation,'OQPSK')
-                        flag = false; % Visible in case of OQPSK
+                        flag = strcmp(obj.PulseShapingFilter,"none");
                     end
                 else
                     flag = strcmp(obj.PulseShapingFilter,"none");
@@ -1319,6 +1333,7 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
                 'NumBitsInInformationBlock',...
                 'ConvolutionalCodeRate',...
                 'ConvolutionalG1G2Mode',...
+                'AllowContinuousPuncturingAcrossFrames',...
                 'CodeRate',...
                 'TPCCodeRate',...
                 'TPCBlocksPerTF',...
@@ -1395,22 +1410,12 @@ classdef ccsdsTMWaveformGenerator < satcom.internal.ccsds.tmBase
             convTrellis = ccsdsTMConvolutionalOutputTrellis( ...
                 obj.ConvolutionalCodesTrellis, obj.ConvolutionalG1G2Mode, ...
                 obj.ConvolutionalCodeRate);
-            switch obj.ConvolutionalCodeRate
-                case '1/2'
-                    enc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis);
-                case '2/3'
-                    enc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
-                        'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1]);
-                case '3/4'
-                    enc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
-                        'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;1;0]);
-                case '5/6'
-                    enc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
-                        'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;1;0;0;1;1;0]);
-                otherwise % case '7/8'
-                    enc = comm.ConvolutionalEncoder('TrellisStructure',convTrellis,...
-                        'PuncturePatternSource', 'Property', 'PuncturePattern', [1;1;0;1;0;1;0;1;1;0;0;1;1;0]);
-            end
+            puncture = ccsdsTMConvolutionalPunctureConfig( ...
+                obj.ConvolutionalCodeRate);
+            enc = comm.ConvolutionalEncoder( ...
+                'TrellisStructure',convTrellis, ...
+                'PuncturePatternSource','Property', ...
+                'PuncturePattern',puncture.Pattern);
         end
 
         function y = convEncodeForRail(obj,bits,rail)
@@ -2498,6 +2503,14 @@ function localValidateHighRateConvFrameLength(obj)
     % payload length. For concatenation this is the RS CODEWORD (including
     % parity and interleaving), not NumBytesInTransferFrame's inactive default.
     caduBits = double(obj.pPRNSequenceLength) + length(obj.pASM);
+    if mod(caduBits, punctureInputPeriod) ~= 0 && ...
+            logical(obj.AllowContinuousPuncturingAcrossFrames)
+        % The existing input buffer and stateful convolutional encoder carry
+        % the partial puncture period into the next call/frame.  Only callers
+        % that also select continuous Viterbi + raw-ASM synchronization may
+        % opt into this contract; legacy callers keep the error below.
+        return;
+    end
     if mod(caduBits, punctureInputPeriod) ~= 0
         if strcmp(obj.ChannelCoding,'concatenated')
             error('ccsdsTMWaveformGenerator:HighRateConvFrameLengthUnsupported', ...

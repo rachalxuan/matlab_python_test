@@ -57,6 +57,18 @@ try
         snapshot.constellation=struct('source','ctx.fineSynced after selected global rotation', ...
             'timeResolved',false,'i',real(z),'q',imag(z), ...
             'meaning','whole-record receiver samples; not current-frame samples or hard decisions');
+        if isfield(ctx,'refConst') && ~isempty(ctx.refConst)
+            reference=ctx.refConst(:);
+            reference=reference(isfinite(real(reference)) & ...
+                isfinite(imag(reference)));
+            referenceRMS=sqrt(mean(abs(reference).^2));
+            observedRMS=sqrt(mean(abs(z).^2));
+            if referenceRMS>0 && isfinite(observedRMS) && observedRMS>0
+                reference=reference/referenceRMS*observedRMS;
+            end
+            snapshot.constellation.referenceI=real(reference);
+            snapshot.constellation.referenceQ=imag(reference);
+        end
     end
     if isfield(ctx,'rxWaveform') && numel(ctx.rxWaveform)>1
         % Bounded, explicitly relative display. No invented absolute RF power.

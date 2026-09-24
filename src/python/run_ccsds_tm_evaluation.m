@@ -107,6 +107,9 @@ opt = localNormalizeOrdinaryTPCDefaults(opt);
 imagePaths = '';
 
 try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 =====
+    % The equipment UI specifies coded bits/s at the mapper input.  Keep
+    % symbolRate as the internal DSP quantity, but accept either public form.
+    opt = localResolveModulationRateInput(opt);
     HelperTMMonitorPublish(opt,'starting');
     % ======== Single point simulation ========
 %     res：内部完整指标
@@ -165,6 +168,23 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
 
     % --- 核心指标 (前端 normalize 直接读这些 PascalCase 字段) ---
     frontResult.modType      = res.modType;
+    rateResultFields = {'SymbolRate_Hz','ModulatorBitRate_bps', ...
+        'NominalBitsPerSymbol','NominalInformationRate_bps','RateInputMode'};
+    for iRateResult = 1:numel(rateResultFields)
+        rateResultField = rateResultFields{iRateResult};
+        if isfield(res,rateResultField)
+            frontResult.(rateResultField) = res.(rateResultField);
+        end
+    end
+    pulseShapeResultFields = {'PulseShapingFilter', ...
+        'TransmitPulseShapeActual','ReceivePulseFilterActual'};
+    for iPulseShapeResult = 1:numel(pulseShapeResultFields)
+        pulseShapeResultField = pulseShapeResultFields{iPulseShapeResult};
+        if isfield(res,pulseShapeResultField)
+            frontResult.(pulseShapeResultField) = ...
+                res.(pulseShapeResultField);
+        end
+    end
     if isfield(res,'TMDataSource'), frontResult.TMDataSource = res.TMDataSource; end
     if isfield(res,'TMDataSourceI'), frontResult.TMDataSourceI = res.TMDataSourceI; end
     if isfield(res,'TMDataSourceQ'), frontResult.TMDataSourceQ = res.TMDataSourceQ; end
@@ -224,12 +244,26 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     if isfield(res,'DecodedFrames'), frontResult.DecodedFrames = res.DecodedFrames; end
     continuousConvFields = { ...
         'ConvolutionalReceiveMode', ...
+        'PhaseAmbiguityRotation_deg', ...
         'ContinuousConvReceiverAvailable', ...
         'ContinuousConvSelectedOffset', ...
         'ContinuousConvLongestGoodASMRun', ...
         'ContinuousConvGoodASMCount', ...
         'ContinuousConvMeanASMErrors', ...
-        'ContinuousConvRecoveredFrames'};
+        'ContinuousConvRecoveredFrames', ...
+        'ContinuousConvOuterRSDecodeApplied', ...
+        'ContinuousConvOuterRSUncorrectableFrames', ...
+        'ContinuousConvOuterRSCorrectedSymbols', ...
+        'ContinuousConvOuterRSCorrectedBits', ...
+        'ContinuousConvOuterRSRawCodewordBits', ...
+        'ContinuousConvOuterRSRawCodewordBitErrors', ...
+        'ContinuousConvOuterRSRawCodewordErrorFrames', ...
+        'ContinuousConvOuterRSMeasurementRawCodewordBits', ...
+        'ContinuousConvOuterRSMeasurementRawCodewordBitErrors', ...
+        'ContinuousConvOuterRSMeasurementRawCodewordErrorFrames', ...
+        'ContinuousConvOuterRSMeasurementCorrectedSymbols', ...
+        'ContinuousConvOuterRSMeasurementUncorrectableFrames', ...
+        'ContinuousConvOuterRSMeasurementMappedFrames'};
     for iContinuousConvField = 1:numel(continuousConvFields)
         continuousConvField = continuousConvFields{iContinuousConvField};
         if isfield(res,continuousConvField)
@@ -613,6 +647,9 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     if isfield(res,'SyncDiagnostics')
         frontResult.SyncDiagnostics = res.SyncDiagnostics;
     end
+    if isfield(res,'UQPSKPulseDebug')
+        frontResult.UQPSKPulseDebug = res.UQPSKPulseDebug;
+    end
     if isfield(res,'SplitReceiverImplementation'), frontResult.SplitReceiverImplementation = res.SplitReceiverImplementation; end
     splitReceiverDecisionFields = { ...
         'SplitReceiverIQPhase', 'UQPSKSymSkip', ...
@@ -735,6 +772,9 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
 
     % --- 编码信息透传 ---
     if isfield(opt,'ConvolutionalCodeRate'), frontResult.ConvolutionalCodeRate = opt.ConvolutionalCodeRate; end
+    if isfield(opt,'RSMessageLength'), frontResult.RSMessageLength = opt.RSMessageLength; end
+    if isfield(opt,'RSInterleavingDepth'), frontResult.RSInterleavingDepth = opt.RSInterleavingDepth; end
+    if isfield(opt,'IsRSMessageShortened'), frontResult.IsRSMessageShortened = opt.IsRSMessageShortened; end
     if isfield(opt,'TPCCodeRate'), frontResult.TPCCodeRate = opt.TPCCodeRate;
     elseif isfield(opt,'tpcCodeRate'), frontResult.TPCCodeRate = opt.tpcCodeRate; end
     if isfield(opt,'TPCBlocksPerTF'), frontResult.TPCBlocksPerTF = opt.TPCBlocksPerTF;
@@ -770,6 +810,11 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
     frontResult.ElapsedTime = elapsed;
     frontResult.stats = struct( ...
         'Fs',          res.Fs, ...
+        'SymbolRate_Hz', getfieldnumeric(res, 'SymbolRate_Hz', NaN), ...
+        'ModulatorBitRate_bps', getfieldnumeric(res, 'ModulatorBitRate_bps', NaN), ...
+        'NominalBitsPerSymbol', getfieldnumeric(res, 'NominalBitsPerSymbol', NaN), ...
+        'NominalInformationRate_bps', getfieldnumeric(res, 'NominalInformationRate_bps', NaN), ...
+        'RateInputMode', getfieldwithdefault(res, 'RateInputMode', 'symbol-rate'), ...
         'CodeRate',    realRate, ...
         'centerFrequencyHz', getCenterFrequencyHz(res, 0), ...
         'IFHz',        getCenterFrequencyHz(res, 0), ...
@@ -871,7 +916,8 @@ end
 % "json"  ：按 JSON 字符串返回
 function [opt, outputMode] = parseEvaluationEntryInputs(varargin)
     outputMode = "json";
-    defaults = struct('modType','QPSK','symbolRate',10e6,'sps',8, ...
+    defaults = struct('modType','QPSK','symbolRate',10e6, ...
+        'modulatorBitRateMbps',[],'sps',8, ...
         'snr',12,'cfo',0,'phaseOffset',0,'delay',0, ...
         'noiseMode','psd','noisePSDdBmHz',-115.3, ...
         'noiseBandwidthHz',[], ...
@@ -892,7 +938,9 @@ function [opt, outputMode] = parseEvaluationEntryInputs(varargin)
         'enableADCEquivalent',false, ...
         'adcBits',12, ...
         'adcFullScalePowerDBm',0, ...
-        'channelCoding','none','RolloffFactor',0.35, ...
+        'channelCoding','none', ...
+        'PulseShapingFilter','root raised cosine', ...
+        'RolloffFactor',0.35, ...
         'RandomizerEnabled',false, ...
         'RandomizerFECPosition','afterEncoding', ...
         'DataPathMode','single', ...
@@ -974,6 +1022,63 @@ function opt = parseEvaluationParams(rawParams, defaults)
 
     rejectLegacyEvaluationFields(opt);
     opt = applyEvaluationDefaults(opt, defaults);
+end
+
+function opt = localResolveModulationRateInput(opt)
+    bitsPerSymbol = localNominalBitsPerSymbol(getfieldwithdefault( ...
+        opt,'modType','QPSK'));
+    if contains(upper(string(getfieldwithdefault(opt,'modType',''))), ...
+            '4D-8PSK-TCM')
+        bitsPerSymbol = getfieldnumeric(opt,'ModulationEfficiency',2);
+    end
+    if ~isfinite(bitsPerSymbol) || bitsPerSymbol <= 0
+        error('run_ccsds_tm_evaluation:InvalidBitsPerSymbol', ...
+            'Nominal bits per symbol must be positive.');
+    end
+
+    bitRateMbps = NaN;
+    bitRateFieldNames = {'modulatorBitRateMbps','ModulatorBitRateMbps'};
+    for iRateField = 1:numel(bitRateFieldNames)
+        fieldName = bitRateFieldNames{iRateField};
+        if isfield(opt,fieldName) && ~isempty(opt.(fieldName))
+            bitRateMbps = localRateInputNumber(opt.(fieldName));
+            break;
+        end
+    end
+
+    if isfinite(bitRateMbps) && bitRateMbps > 0
+        modulatorBitRateBps = bitRateMbps * 1e6;
+        symbolRateHz = modulatorBitRateBps / bitsPerSymbol;
+        rateInputMode = 'modulator-bit-rate';
+    else
+        symbolRateHz = localRateInputNumber(getfieldwithdefault( ...
+            opt,'symbolRate',NaN));
+        modulatorBitRateBps = symbolRateHz * bitsPerSymbol;
+        bitRateMbps = modulatorBitRateBps / 1e6;
+        rateInputMode = 'symbol-rate';
+    end
+
+    if ~isfinite(symbolRateHz) || symbolRateHz < 1e3 || symbolRateHz > 1e9
+        error('run_ccsds_tm_evaluation:InvalidSymbolRate', ...
+            ['The resolved symbol rate must be between 1 ksym/s and ' ...
+             '1 Gsym/s. Received %.9g Hz.'],symbolRateHz);
+    end
+    opt.symbolRate = symbolRateHz;
+    opt.modulatorBitRateMbps = bitRateMbps;
+    opt.ModulatorBitRate_bps = modulatorBitRateBps;
+    opt.NominalBitsPerSymbol = bitsPerSymbol;
+    opt.RateInputMode = rateInputMode;
+end
+
+function value = localRateInputNumber(rawValue)
+    if isnumeric(rawValue) || islogical(rawValue)
+        value = double(rawValue);
+    else
+        value = str2double(strrep(char(string(rawValue)),',',''));
+    end
+    if ~isscalar(value)
+        value = NaN;
+    end
 end
 
 function opt = configureHMatrixEntry(opt, matFilePath)
@@ -1406,6 +1511,21 @@ function [res, ctx] = runOneShot(opt)
         args = [args, {'SplitPathDebug', true}];
     end
     modStr = string(opt.modType);
+    pulseShapingFilter = localResolveTMPulseShapingFilter( ...
+        opt,modStr,dataPathMode);
+    opt.PulseShapingFilter = char(pulseShapingFilter);
+    ordinaryPulseShapeMods = ["BPSK","QPSK","8PSK","16QAM","32QAM","OQPSK","UQPSK"];
+    ordinaryPulseShapePath = any(strcmpi(modStr,ordinaryPulseShapeMods));
+    if ordinaryPulseShapePath
+        pulseConfig = HelperTMPulseShapeConfig(pulseShapingFilter,sps, ...
+            getfieldnumeric(opt,'RolloffFactor',0.35), ...
+            getfieldnumeric(opt,'FilterSpanInSymbols',10));
+        transmitPulseShapeActual = pulseConfig.TransmitLabel;
+        receivePulseFilterActual = pulseConfig.ReceiveLabel;
+    else
+        transmitPulseShapeActual = 'modulation-specific waveform shaping';
+        receivePulseFilterActual = 'modulation-specific receiver front end';
+    end
     % MSK只能合路
     if strcmpi(modStr, "MSK") && ...
             ~strcmpi(string(dataPathMode), "single")
@@ -1436,7 +1556,7 @@ function [res, ctx] = runOneShot(opt)
         % Validate the opt-in stream receiver before constructing a long TX
         % waveform.  The same helper is called again at the decoder boundary
         % to decide the route; legacy/default calls return immediately.
-        localUseContinuousConvStreamReceiver( ...
+        useContinuousConvStreamTX = localUseContinuousConvStreamReceiver( ...
             opt,char(modStr),char(codeStr),hasASM,randomizerEnabled);
         isLDPCOnSMTF = contains(codeKey,'ldpc') && isfield(opt,'IsLDPCOnSMTF') && logical(opt.IsLDPCOnSMTF);
         args = [args, {'WaveformSource','synchronization and channel coding', ...
@@ -1466,6 +1586,10 @@ function [res, ctx] = runOneShot(opt)
                 char(getfieldwithdefault(opt,'ConvolutionalCodeRate','1/2')));
             opt.ConvolutionalG1G2Mode = canonicalConvMode;
             args = [args, {'ConvolutionalG1G2Mode', canonicalConvMode}];
+            if useContinuousConvStreamTX
+                args = [args, { ...
+                    'AllowContinuousPuncturingAcrossFrames',true}];
+            end
             if getLogicalField(opt, 'debugConvolutionalG1G2', false)
                 fprintf('[TM convolutional config] TX mode=%s rate=%s path=%s\n', ...
                     canonicalConvMode, char(getfieldwithdefault(opt, ...
@@ -1508,15 +1632,23 @@ function [res, ctx] = runOneShot(opt)
                 end
             end
         else
-            args = [args, {'RolloffFactor', rolloff}];
+            if ~ordinaryPulseShapePath || pulseShapingFilter ~= "none"
+                args = [args, {'RolloffFactor', rolloff}];
+            end
+            if ordinaryPulseShapePath
+                args = [args, {'PulseShapingFilter', ...
+                    char(pulseShapingFilter)}];
+            end
         end
         if contains(modStr,'4D-8PSK-TCM') && isfield(opt,'ModulationEfficiency')
             args = [args, {'ModulationEfficiency', double(opt.ModulationEfficiency)}];
         end
         switch modStr
             case {'BPSK','QPSK','8PSK','OQPSK','UQPSK','16QAM','32QAM','16APSK','32APSK'}
-                args = [args, {'FilterSpanInSymbols', ...
-                    getfieldnumeric(opt,'FilterSpanInSymbols',10)}];
+                if ~ordinaryPulseShapePath || pulseShapingFilter ~= "none"
+                    args = [args, {'FilterSpanInSymbols', ...
+                        getfieldnumeric(opt,'FilterSpanInSymbols',10)}];
+                end
         end
         if contains(modStr,'APSK')
             hasTMAPSKPilots = true;
@@ -1562,6 +1694,14 @@ function [res, ctx] = runOneShot(opt)
     % TM发送端内部一帧需要多少bit
     fprintf('[TX %s] NumInputBits=%d, ActualCodeRate=%.6f\n', ...
         char(codeStr), tmWaveGen.NumInputBits, tmWaveInfo.ActualCodeRate);
+    fprintf(['[Rate setup] input=%s, modulation rate=%.6f Mbps, ' ...
+        'bits/symbol=%.6g, symbol rate=%.6f Msym/s\n'], ...
+        char(getfieldwithdefault(opt,'RateInputMode','symbol-rate')), ...
+        fSym*double(tmWaveInfo.NumBitsPerSymbol)/1e6, ...
+        double(tmWaveInfo.NumBitsPerSymbol),fSym/1e6);
+    fprintf('[Pulse shaping] requested=%s, TX=%s, RX=%s\n', ...
+        char(pulseShapingFilter),transmitPulseShapeActual, ...
+        receivePulseFilterActual);
     Fs = fSym * sps;
     % 动态AGC
     [agcEnabled, agcTimeConstantMs] = ...
@@ -2267,6 +2407,10 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
     fseDiagnosticEnabled = isfield(opt,'FSEDiagnostics') && ...
         isstruct(opt.FSEDiagnostics);
     fseDiagnosticStages = struct();
+    % Read-only capture, independent of ASM acquisition diagnostic flags.
+    uqPulseDebugEnabled = strcmpi(modStr,'UQPSK') && ...
+        getLogicalField(opt,'debugUQPSKPulseStages',false);
+    uqPulseDebug = struct();
     syncDebugStages = struct( ...
         'CoarseEstimate_Hz',NaN, ...
         'FilterSamplesPerSymbol',NaN, ...
@@ -2760,7 +2904,7 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
     elseif contains(modStr,'UQPSK')
             % =========================================================
             % UQPSK 专用接收链路
-            % 4次幂 FFT 粗 CFO + RRC 匹配滤波 + Gardner 定时同步
+            % 4次幂 FFT 粗 CFO + 所选脉冲匹配滤波 + Gardner 定时同步
             % + UQPSK 专用载波恢复
             % =========================================================
 
@@ -2926,13 +3070,6 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
             end
 
             rxFilterDecimationFactor = max(1, round(sps/2));
-            rxfilter = comm.RaisedCosineReceiveFilter( ...
-                'Shape','Square root', ...
-                'RolloffFactor', rolloff, ...
-                'FilterSpanInSymbols', getfieldnumeric(opt,'FilterSpanInSymbols',10), ...
-                'InputSamplesPerSymbol', sps, ...
-                'DecimationFactor', rxFilterDecimationFactor);
-
             nDecimTrim = mod(numel(coarseSynced), rxFilterDecimationFactor);
             if nDecimTrim ~= 0
                 coarseForFilter = coarseSynced(1:end-nDecimTrim);
@@ -2940,9 +3077,15 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
                 coarseForFilter = coarseSynced;
             end
 
-            filtered = rxfilter(coarseForFilter);
-            sps_after = sps / rxFilterDecimationFactor;
+            [filtered,sps_after,rxFilterDecimationFactor, ...
+                receivePulseFilterActual] = localTMReceivePulseFilter( ...
+                coarseForFilter,sps,rolloff,opt,pulseShapingFilter);
             syncDebugStages.FilterSamplesPerSymbol = sps_after;
+            if uqPulseDebugEnabled
+                uqPulseDebug.CoarseCFO_Hz = cfo_est;
+                uqPulseDebug.Filtered = filtered;
+                uqPulseDebug.FilterSPS = sps_after;
+            end
             if syncDebugRequested
                 syncDebugStages.Filtered = filtered;
             end
@@ -3014,6 +3157,12 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
             end
             [fineSynced, uqpskCarrierPLLInfo] = uqpskCarrierRecover( ...
                 TimeSynced, 2, uqpskCarrierLoopBW,uqpskCarrierOpt,fSym);
+            if uqPulseDebugEnabled
+                uqPulseDebug.Timing = TimeSynced;
+                uqPulseDebug.TimingError = timingErrorTrace;
+                uqPulseDebug.Carrier = fineSynced;
+                uqPulseDebug.CarrierInfo = uqpskCarrierPLLInfo;
+            end
             if getLogicalField(opt,'debugUQPSK',false)
                 fprintf(['   [UQPSK carrier PLL] dual=%d mode=%s locked=%d ', ...
                     'BW(acq/track)=%.4g/%.4g finalFreq=%+.2f Hz ', ...
@@ -3059,7 +3208,7 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
         if contains(modStr,'OQPSK')
             % =================================================================
             % OQPSK 新链路 (推荐方案 2): FFT CFO + CarrierSync('OQPSK') +
-            % comm.OQPSKDemodulator (MF+timing+soft LLR 一体化, 在 tryOneRotation 中调用)
+            % Existing staggered-I/Q soft demapper in HelperCCSDSTMDemodulator.
             % -----------------------------------------------------------------
             % 弃用原来的 RRC + SymbolSync('OQPSK') + CarrierSync('QPSK') 三段式,
             % 本函数只负责粗 CFO 估计 + 载波相位锁定.
@@ -3117,18 +3266,14 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
             fineSyncedHi = carrierSync(coarseSynced);
 
             % --- 3) BER 路径: 把 sps=sps 复信号传给 tryOneRotation,
-            %        在那里调用 comm.OQPSKDemodulator 一次性完成 MF+timing+LLR ---
+            %        HelperCCSDSTMDemodulator performs matched filtering and soft rail decisions.
             fineSyncedForBER = fineSyncedHi;
 
             % --- 4) 可视化路径 (仅用于星座图/EVM 显示, 不参与 BER) ---
             try
                 rxFilterDecimationFactor = sps/2;
-                rxfilterDisp = comm.RaisedCosineReceiveFilter( ...
-                    'RolloffFactor', rolloff, ...
-                    'FilterSpanInSymbols', getfieldnumeric(opt,'FilterSpanInSymbols',10), ...
-                    'InputSamplesPerSymbol', sps, ...
-                    'DecimationFactor', rxFilterDecimationFactor);
-                filteredDisp = rxfilterDisp(fineSyncedHi);
+                [filteredDisp,~,rxFilterDecimationFactor] = ...
+                    localTMReceivePulseFilter(fineSyncedHi,sps,rolloff,opt,pulseShapingFilter);
                 sps_after_disp = sps / rxFilterDecimationFactor;
                 timingDisp = comm.SymbolSynchronizer( ...
                     'TimingErrorDetector','Gardner (non-data-aided)', ...
@@ -3244,15 +3389,9 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
                 end
             end
 
-            rxFilterDecimationFactor = sps/2;
-            rxfilter = comm.RaisedCosineReceiveFilter( ...
-                'RolloffFactor', rolloff, ...
-                'FilterSpanInSymbols', getfieldnumeric(opt,'FilterSpanInSymbols',10), ...
-                'InputSamplesPerSymbol', sps, ...
-                'DecimationFactor', rxFilterDecimationFactor);
-
-            filtered = rxfilter(coarseSynced);
-            sps_after = sps / rxFilterDecimationFactor;
+            [filtered,sps_after,rxFilterDecimationFactor, ...
+                receivePulseFilterActual] = localTMReceivePulseFilter( ...
+                coarseSynced,sps,rolloff,opt,pulseShapingFilter);
             syncDebugStages.FilterSamplesPerSymbol = sps_after;
             if syncDebugRequested
             syncDebugStages.Filtered = filtered;
@@ -4387,7 +4526,7 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
     elseif isOQPSKMod
         [evm_post, mer_post] = localOQPSKRailQualityMetrics( ...
             fineSyncedForBER, sps, rolloff, ...
-            getfieldnumeric(opt,'FilterSpanInSymbols',10));
+            getfieldnumeric(opt,'FilterSpanInSymbols',10),pulseShapingFilter);
     else
         [evm_post, mer_post] = computeEVM(fineSynced, refConst);
     end
@@ -4538,7 +4677,7 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
         oqpskAlignedForMetric = fineSyncedForBER * exp(1j*bestRot);
         [evm_post, mer_post] = localOQPSKRailQualityMetrics( ...
             oqpskAlignedForMetric, sps, rolloff, ...
-            getfieldnumeric(opt,'FilterSpanInSymbols',10));
+            getfieldnumeric(opt,'FilterSpanInSymbols',10),pulseShapingFilter);
         snr_est = mer_post;
     else
         metricPhase = 0;
@@ -4576,6 +4715,17 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
         end
     end
     res.modType  = char(modStr);
+    res.SymbolRate_Hz = fSym;
+    res.ModulatorBitRate_bps = fSym * double(tmWaveInfo.NumBitsPerSymbol);
+    res.NominalBitsPerSymbol = double(tmWaveInfo.NumBitsPerSymbol);
+    res.ActualCodeRate = double(tmWaveInfo.ActualCodeRate);
+    res.PulseShapingFilter = char(pulseShapingFilter);
+    res.TransmitPulseShapeActual = transmitPulseShapeActual;
+    res.ReceivePulseFilterActual = receivePulseFilterActual;
+    res.NominalInformationRate_bps = ...
+        res.ModulatorBitRate_bps * res.ActualCodeRate;
+    res.RateInputMode = char(getfieldwithdefault(opt, ...
+        'RateInputMode','symbol-rate'));
     res.ActualWaveformDuration_s = actualWaveformDuration_s;
     res.MeasurementDuration_s = measurementDuration_s;
     res.BurstCompletion = burstCompletion;
@@ -4925,6 +5075,15 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
     if syncDiagnostics.Enabled
         res.SyncDiagnostics = syncDiagnostics;
     end
+    if uqPulseDebugEnabled
+        uqPulseDebug.EncodedBits = encodedBits;
+        uqPulseDebug.SymbolRate = fSym;
+        uqPulseDebug.SelectedRotation_deg = rad2deg(bestRot);
+        uqPulseDebug.SelectedSymbolSkip = getfieldnumeric(berStats,'UQPSKSymSkip',NaN);
+        uqPulseDebug.SelectedFrameDebug = getfieldwithdefault(berStats, ...
+            'UQPSKPulseFrameDebug',struct());
+        res.UQPSKPulseDebug = uqPulseDebug;
+    end
     res.AdaptiveEqualizerConverged = logical(adaptiveEqInfo.Converged);
     res.ASMTrainingEqualizerASMCount = getfieldnumeric( ...
         adaptiveEqInfo,'ASMCount',0);
@@ -4953,6 +5112,7 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
     res.DemodNoiseVariance = demodNoiseVariance;
     res.PAPR_dB     = papr_dB;
     res.LockRate    = lockRate;
+    res.PhaseAmbiguityRotation_deg = rad2deg(bestRot);
     res.FER         = berStats.FER;
     res.FrameErrorRate = berStats.FER;
     res.FrameErrors = berStats.FrameErrors;
@@ -4974,12 +5134,85 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
             continuousEvidence.MeanASMErrors;
         res.ContinuousConvRecoveredFrames = ...
             continuousEvidence.RecoveredFrames;
+        continuousInfo = berStats.ContinuousConvReceiverInfo;
+        outerDecode = struct();
+        if isfield(berStats,'ContinuousConvOuterDecode') && ...
+                isstruct(berStats.ContinuousConvOuterDecode)
+            outerDecode = berStats.ContinuousConvOuterDecode;
+        elseif isfield(continuousInfo,'OuterDecode') && ...
+                isstruct(continuousInfo.OuterDecode)
+            outerDecode = continuousInfo.OuterDecode;
+        end
+        if ~isempty(fieldnames(outerDecode))
+            res.ContinuousConvOuterRSDecodeApplied = getLogicalField( ...
+                outerDecode,'OuterRSDecodeApplied',false);
+            res.ContinuousConvOuterRSUncorrectableFrames = ...
+                getfieldnumeric(outerDecode,'UncorrectableFrames',0);
+            if isfield(outerDecode,'CorrectedErrors')
+                corrected = double(outerDecode.CorrectedErrors(:));
+                correctedSymbols = sum(corrected(corrected >= 0));
+                res.ContinuousConvOuterRSCorrectedSymbols = correctedSymbols;
+                % Backward-compatible alias.  ccsdsRSDecode reports symbols,
+                % not bits; new code should use ...CorrectedSymbols.
+                res.ContinuousConvOuterRSCorrectedBits = correctedSymbols;
+            end
+            res.ContinuousConvOuterRSRawCodewordBits = ...
+                getfieldnumeric(outerDecode,'RawCodewordBits',0);
+            res.ContinuousConvOuterRSRawCodewordBitErrors = ...
+                getfieldnumeric(outerDecode,'RawCodewordBitErrors',0);
+            res.ContinuousConvOuterRSRawCodewordErrorFrames = ...
+                getfieldnumeric(outerDecode,'RawCodewordErrorFrames',0);
+            if isfield(outerDecode,'RawCodewordFrameBitErrors')
+                res.ContinuousConvOuterRSRawCodewordFrameBitErrors = ...
+                    double(outerDecode.RawCodewordFrameBitErrors(:));
+            end
+        end
     end
     res.LegacyLockRateMeaning = ...
         'evaluator TX/RX frame-match rate; not a receiver lock detector';
     res.RuntimeLockTelemetry = runtimeLockTelemetry;
     if isfield(berStats,'FrameAssociation')
         res.FrameAssociation = berStats.FrameAssociation;
+    end
+    % Restrict the qualification metrics to physical frames that the fixed
+    % frame association maps into the requested BER measurement interval.
+    % Extra decoder output created by burst-completion guard data remains in
+    % the all-output diagnostics above, but cannot falsely fail (or pass) the
+    % requested measurement window.
+    if exist('outerDecode','var') && isstruct(outerDecode) && ...
+            getLogicalField(outerDecode,'OuterRSDecodeApplied',false) && ...
+            isfield(outerDecode,'RawCodewordFrameBitErrors') && ...
+            isfield(res,'FrameAssociation') && ...
+            isstruct(res.FrameAssociation) && ...
+            isfield(res.FrameAssociation,'TxFrameIndex')
+        rawFrameErrors = double( ...
+            outerDecode.RawCodewordFrameBitErrors(:));
+        correctedPerFrame = double(getfieldwithdefault( ...
+            outerDecode,'CorrectedErrors',zeros(size(rawFrameErrors))));
+        correctedPerFrame = correctedPerFrame(:);
+        txFrameIndex = double(res.FrameAssociation.TxFrameIndex(:));
+        n = min([numel(rawFrameErrors),numel(correctedPerFrame), ...
+            numel(txFrameIndex)]);
+        rawFrameErrors = rawFrameErrors(1:n);
+        correctedPerFrame = correctedPerFrame(1:n);
+        txFrameIndex = txFrameIndex(1:n);
+        measurementMask = isfinite(txFrameIndex) & ...
+            txFrameIndex > numWarmUp & ...
+            txFrameIndex <= numWarmUp + numRealFrames;
+        measurementCorrected = correctedPerFrame(measurementMask);
+        res.ContinuousConvOuterRSMeasurementMappedFrames = ...
+            nnz(measurementMask);
+        res.ContinuousConvOuterRSMeasurementRawCodewordBits = ...
+            nnz(measurementMask) * ...
+            getfieldnumeric(outerDecode,'RSCodewordBits',0);
+        res.ContinuousConvOuterRSMeasurementRawCodewordBitErrors = ...
+            sum(rawFrameErrors(measurementMask));
+        res.ContinuousConvOuterRSMeasurementRawCodewordErrorFrames = ...
+            nnz(rawFrameErrors(measurementMask) > 0);
+        res.ContinuousConvOuterRSMeasurementCorrectedSymbols = ...
+            sum(measurementCorrected(measurementCorrected >= 0));
+        res.ContinuousConvOuterRSMeasurementUncorrectableFrames = ...
+            nnz(measurementCorrected < 0);
     end
     observationSets = {};
     if isfield(berStats,'ReceiverFrameObservations')
@@ -5396,6 +5629,78 @@ end
 % =========================================================
 function v = getf(s, name, defv)
     if isfield(s,name) && ~isempty(s.(name)), v = double(s.(name)); else, v = defv; end
+end
+
+function pulseShapingFilter = localResolveTMPulseShapingFilter(opt,modStr,dataPathMode)
+% Resolve the public pulse-shaping option without silently changing an
+% unsupported request. New OQPSK/UQPSK RC/none choices are combined-TM only.
+    requested = lower(strtrim(string(getfieldwithdefault( ...
+        opt,'PulseShapingFilter','root raised cosine'))));
+    requested = replace(requested,["_","-"]," ");
+    requested = regexprep(requested,'\s+',' ');
+    if any(requested == ["root raised cosine","square root raised cosine", ...
+            "root raised cosine filter","rrc","sqrt raised cosine"])
+        pulseShapingFilter = "root raised cosine";
+    elseif any(requested == ["raised cosine","normal raised cosine","rc"])
+        pulseShapingFilter = "raised cosine";
+    elseif any(requested == ["none","off","bypass","no shaping"])
+        pulseShapingFilter = "none";
+    else
+        error('run_ccsds_tm_evaluation:InvalidPulseShapingFilter', ...
+            ['Unsupported PulseShapingFilter="%s". Use ', ...
+             '"root raised cosine", "raised cosine" or "none".'],char(requested));
+    end
+
+    if pulseShapingFilter == "root raised cosine"
+        return;
+    end
+    if pulseShapingFilter == "raised cosine" && ...
+            ~any(strcmpi(string(modStr),["OQPSK","UQPSK"]))
+        error('run_ccsds_tm_evaluation:UnsupportedRCModulation', ...
+            'The public RC option currently supports OQPSK/UQPSK only.');
+    end
+    supported = ["BPSK","QPSK","8PSK","16QAM","32QAM","OQPSK","UQPSK"];
+    if ~any(strcmpi(string(modStr),supported))
+        error('run_ccsds_tm_evaluation:UnsupportedUnshapedModulation', ...
+            ['PulseShapingFilter="none" currently supports BPSK, ', ...
+             'QPSK, 8PSK, 16QAM, 32QAM, OQPSK and UQPSK. %s uses a dedicated waveform ', ...
+             'front end and was not changed.'],char(string(modStr)));
+    end
+    if ~strcmpi(string(dataPathMode),'single')
+        error('run_ccsds_tm_evaluation:UnsupportedUnshapedDataPath', ...
+            ['New RC/none pulse-shaping choices currently support only the ', ...
+             'single/combined TM data path.']);
+    end
+end
+
+function [filtered,spsOut,decimationFactor,actualFilter] = ...
+        localTMReceivePulseFilter(x,sps,rolloff,opt,pulseShapingFilter)
+% Common receive filter for the public RRC/RC/none selector. "none" means no
+% band-limiting pulse-shaping filter at TX; its sampled waveform is an
+% SPS-wide rectangular symbol hold, so the matching RX operation is an
+% integrate-and-dump FIR before reducing to the existing 2-sps timing path.
+    decimationFactor = sps/2;
+    pulse = HelperTMPulseShapeConfig(pulseShapingFilter,sps,rolloff, ...
+        getfieldnumeric(opt,'FilterSpanInSymbols',10));
+    if strcmpi(string(pulseShapingFilter),'none')
+        numerator = pulse.ReceiveTaps;
+        matched = filter(numerator,1,x(:));
+        % At decimation phases sps/2 and sps this produces the half-symbol
+        % and full-symbol observations expected by the 2-sps synchronizer.
+        filtered = matched(decimationFactor:decimationFactor:end);
+        actualFilter = 'rectangular matched filter';
+    else
+        rxfilter = comm.RaisedCosineReceiveFilter( ...
+            'Shape',pulse.FilterShape, ...
+            'RolloffFactor', rolloff, ...
+            'FilterSpanInSymbols', getfieldnumeric( ...
+                opt,'FilterSpanInSymbols',10), ...
+            'InputSamplesPerSymbol', sps, ...
+            'DecimationFactor', decimationFactor);
+        filtered = rxfilter(x);
+        actualFilter = pulse.ReceiveLabel;
+    end
+    spsOut = sps/decimationFactor;
 end
 
 function sourceType = localTMDataSourceType(opt, rail)
@@ -5951,9 +6256,17 @@ function [yOut, hInfo, hState] = applyHMatrixFileChannel(xIn, opt, sampleRateHz,
         fseSpanSymbols = (fseTaps-1)/fseInputSPS;
         fseSpanMarginSymbols = fseSpanSymbols-delaySpreadSymbols;
 
-        frequencyGrid = linspace( ...
-            -(1+rolloffForDiagnostic)*symbolRateHz/2, ...
-             (1+rolloffForDiagnostic)*symbolRateHz/2,4097);
+        pulseShapeForDiagnostic = lower(string(getfieldwithdefault( ...
+            opt,'PulseShapingFilter','root raised cosine')));
+        if strcmpi(pulseShapeForDiagnostic,'none')
+            diagnosticSPS = getOptionDouble(opt,{'sps','SamplesPerSymbol'},8);
+            diagnosticHalfBandwidth = symbolRateHz*diagnosticSPS/2;
+        else
+            diagnosticHalfBandwidth = ...
+                (1+rolloffForDiagnostic)*symbolRateHz/2;
+        end
+        frequencyGrid = linspace(-diagnosticHalfBandwidth, ...
+            diagnosticHalfBandwidth,4097);
         snapshotIndices = unique(round(linspace(1,size(coeff,2), ...
             min(5,size(coeff,2)))));
         responseDB = zeros(numel(snapshotIndices),numel(frequencyGrid));
@@ -7346,13 +7659,19 @@ function [yOut, noiseInfo] = addReceiverNoise(xIn, opt, sampleRateHz, snr_dB, re
         {'noiseBandwidthHz','noiseBWHz','noiseBandwidth','NoiseBandwidthHz'}, NaN);
     if ~isfinite(noiseBandwidthHz) || noiseBandwidthHz <= 0
         % For complex baseband, integrate the two-sided PSD over the
-        % occupied RRC bandwidth.  Users can override this with the actual
-        % receiver equivalent-noise bandwidth.
+        % occupied RRC bandwidth.  An unshaped rectangular hold has no
+        % finite occupied-band edge, so its discrete-time front-end default
+        % is the full sampled bandwidth.  Users can override either value
+        % with the actual receiver equivalent-noise bandwidth.
         symbolRateHz = getOptionDouble(opt, ...
             {'symbolRate','SymbolRate','symbol_rate'}, NaN);
         rolloff = getOptionDouble(opt, ...
             {'RolloffFactor','rolloffFactor','rolloff'}, 0.35);
-        if isfinite(symbolRateHz) && symbolRateHz > 0 && ...
+        pulseShapeForNoise = lower(string(getfieldwithdefault( ...
+            opt,'PulseShapingFilter','root raised cosine')));
+        if strcmpi(pulseShapeForNoise,'none')
+            noiseBandwidthHz = sampleRateHz;
+        elseif isfinite(symbolRateHz) && symbolRateHz > 0 && ...
                 isfinite(rolloff) && rolloff >= 0
             noiseBandwidthHz = min(sampleRateHz, (1 + rolloff)*symbolRateHz);
         else
@@ -10687,17 +11006,21 @@ function enabled = localUseContinuousConvStreamReceiver( ...
 
     enabled = true;
     requirements = strings(0,1);
-    if ~strcmpi(strtrim(string(tmMod)),"QPSK")
-        requirements(end+1) = "Modulation must be QPSK"; %#ok<AGROW>
-    end
-    if ~strcmpi(strtrim(string(tmCode)),"convolutional")
+    modKey = upper(strtrim(string(tmMod)));
+    codeKey = lower(strtrim(string(tmCode)));
+    if ~any(modKey == ["BPSK","QPSK","8PSK","16QAM","32QAM"])
         requirements(end+1) = ...
-            "ChannelCoding must be convolutional"; %#ok<AGROW>
+            "Modulation must be BPSK, QPSK, 8PSK, 16QAM, or 32QAM"; %#ok<AGROW>
     end
-    if ~strcmpi(strtrim(string(getfieldwithdefault( ...
-            opt,'ConvolutionalCodeRate',''))),"3/4")
+    if ~any(codeKey == ["convolutional","concatenated"])
         requirements(end+1) = ...
-            "ConvolutionalCodeRate must be 3/4"; %#ok<AGROW>
+            "ChannelCoding must be convolutional or concatenated"; %#ok<AGROW>
+    end
+    streamRate = strtrim(string(getfieldwithdefault( ...
+        opt,'ConvolutionalCodeRate','')));
+    if ~any(streamRate == ["1/2","2/3","3/4","5/6","7/8"])
+        requirements(end+1) = ...
+            "ConvolutionalCodeRate must be 1/2, 2/3, 3/4, 5/6, or 7/8"; %#ok<AGROW>
     end
     if ~strcmpi(strtrim(string(getfieldwithdefault( ...
             opt,'DataPathMode','single'))),"single")
@@ -10714,12 +11037,112 @@ function enabled = localUseContinuousConvStreamReceiver( ...
         requirements(end+1) = ...
             "RandomizerEnabled must be false in the first experiment"; %#ok<AGROW>
     end
+    if codeKey == "concatenated"
+        rsK = getfieldnumeric(opt,'RSMessageLength',223);
+        rsI = getfieldnumeric(opt,'RSInterleavingDepth',1);
+        rsShortened = getLogicalField(opt,'IsRSMessageShortened',false);
+        rsS = getfieldnumeric(opt,'RSShortenedMessageLength',rsK);
+        if ~any(rsK == [223 239]) || ...
+                ~any(rsI == [1 2 3 4 5 8]) || ...
+                rsShortened || rsS ~= rsK
+            requirements(end+1) = ...
+                "concatenated stream mode requires non-shortened " + ...
+                "RS(255,223) or RS(255,239), with interleaving depth " + ...
+                "1, 2, 3, 4, 5, or 8"; %#ok<AGROW>
+        end
+    end
     if ~isempty(requirements)
         error('run_ccsds_tm_evaluation:ContinuousConvUnsupportedProfile', ...
             ['ConvolutionalReceiveMode="stream-raw-asm" is currently an ', ...
-             'isolated QPSK convolutional-3/4 experiment. %s.'], ...
+             'isolated ordinary-modulation continuous-puncturing experiment. %s.'], ...
             char(strjoin(requirements,'; ')));
     end
+end
+
+function [payloadBits,profile] = localContinuousConvRawPayloadProfile( ...
+        opt,tmCode,bitsPerFrame)
+% Return the raw payload which follows ASM in the Viterbi-decoded stream.
+% For a plain convolutional link this is one TM transfer frame.  For the
+% concatenated link it is the outer RS codeword; RS decoding happens only
+% after raw-ASM synchronization has established the physical frame grid.
+    codeKey = lower(strtrim(string(tmCode)));
+    profile = struct('OuterRSDecodeApplied',false, ...
+        'RSMessageLength',NaN,'RSInterleavingDepth',NaN, ...
+        'RSShortenedMessageLength',NaN,'RSCodewordBits',NaN, ...
+        'RSMessageBits',NaN);
+    if codeKey ~= "concatenated"
+        payloadBits = bitsPerFrame;
+        return;
+    end
+
+    rsK = getfieldnumeric(opt,'RSMessageLength',223);
+    rsI = getfieldnumeric(opt,'RSInterleavingDepth',1);
+    rsS = getfieldnumeric(opt,'RSShortenedMessageLength',rsK);
+    if ~getLogicalField(opt,'IsRSMessageShortened',false)
+        rsS = rsK;
+    end
+    payloadBits = 8*rsI*(255-rsK+rsS);
+    profile.OuterRSDecodeApplied = true;
+    profile.RSMessageLength = rsK;
+    profile.RSInterleavingDepth = rsI;
+    profile.RSShortenedMessageLength = rsS;
+    profile.RSCodewordBits = payloadBits;
+    profile.RSMessageBits = 8*rsI*rsS;
+end
+
+function [decodedFrames,decodeInfo] = localDecodeContinuousConvPayload( ...
+        rawPayload,tmCode,profile)
+% Decode only the outer code.  Puncture/Viterbi state and raw-ASM frame
+% synchronization have already been handled by the stream receiver.
+    rawPayload = int8(rawPayload);
+    numFrames = size(rawPayload,2);
+    decodeInfo = profile;
+    decodeInfo.InputFrames = numFrames;
+    decodeInfo.OutputFrames = numFrames;
+    decodeInfo.CorrectedErrors = zeros(numFrames,1);
+    decodeInfo.UncorrectableFrames = 0;
+    decodeInfo.RawCodewordBits = 0;
+    decodeInfo.RawCodewordBitErrors = 0;
+    decodeInfo.RawCodewordErrorFrames = 0;
+    decodeInfo.RawCodewordFrameBitErrors = zeros(numFrames,1);
+
+    if lower(strtrim(string(tmCode))) ~= "concatenated"
+        decodedFrames = rawPayload;
+        return;
+    end
+
+    decodedFrames = zeros(profile.RSMessageBits,numFrames,'int8');
+    for iFrame = 1:numFrames
+        [word,numCorrected] = ccsdsRSDecode( ...
+            logical(rawPayload(:,iFrame)), ...
+            profile.RSMessageLength,profile.RSInterleavingDepth, ...
+            profile.RSShortenedMessageLength);
+        decodedFrames(:,iFrame) = int8(word(:));
+        decodeInfo.CorrectedErrors(iFrame) = double(numCorrected);
+        % Independent pre/post outer-code consistency check.  Re-encoding
+        % the decoded RS message must reproduce the received raw codeword
+        % exactly in a noiseless regression.  This is diagnostic only and
+        % never feeds decisions back into the receiver.
+        if numCorrected >= 0
+            expectedCodeword = int8(ccsdsRSEncode( ...
+                logical(word(:)),profile.RSMessageLength, ...
+                profile.RSInterleavingDepth, ...
+                profile.RSShortenedMessageLength));
+            frameCodewordErrors = nnz(expectedCodeword(:) ~= ...
+                rawPayload(:,iFrame));
+        else
+            frameCodewordErrors = size(rawPayload,1);
+        end
+        decodeInfo.RawCodewordFrameBitErrors(iFrame) = ...
+            frameCodewordErrors;
+    end
+    decodeInfo.UncorrectableFrames = ...
+        nnz(decodeInfo.CorrectedErrors < 0);
+    decodeInfo.RawCodewordBits = numel(rawPayload);
+    decodeInfo.RawCodewordBitErrors = ...
+        sum(decodeInfo.RawCodewordFrameBitErrors);
+    decodeInfo.RawCodewordErrorFrames = ...
+        nnz(decodeInfo.RawCodewordFrameBitErrors > 0);
 end
 
 function tf = localHasCredibleContinuousConvStructure(stats)
@@ -10858,6 +11281,23 @@ function localPrintContinuousConvReceiverInfo(info)
         getfieldnumeric(info,'RecoveredFrames',0), ...
         getfieldnumeric(info,'InputBitsSeen',0),c.InputBitsConsumed, ...
         c.PendingInputBits);
+    if isfield(info,'OuterDecode') && isstruct(info.OuterDecode) && ...
+            getLogicalField(info.OuterDecode,'OuterRSDecodeApplied',false)
+        corrected = double(info.OuterDecode.CorrectedErrors(:));
+        correctedOK = corrected(corrected >= 0);
+        totalCorrected = sum(correctedOK);
+        fprintf(['   [continuous conv outer RS] RS(255,%d), I=%d, ', ...
+            'rawCodeword=%d bits, decoded=%d/%d frames, ', ...
+            'preRSErrors=%d/%d bits, uncorrectable=%d, ', ...
+            'correctedSymbols=%d\n'], ...
+            info.OuterDecode.RSMessageLength, ...
+            info.OuterDecode.RSInterleavingDepth, ...
+            info.OuterDecode.RSCodewordBits, ...
+            info.OuterDecode.OutputFrames,info.OuterDecode.InputFrames, ...
+            getfieldnumeric(info.OuterDecode,'RawCodewordBitErrors',0), ...
+            getfieldnumeric(info.OuterDecode,'RawCodewordBits',0), ...
+            info.OuterDecode.UncorrectableFrames,totalCorrected);
+    end
 end
 
 function telemetry = localGMSKFrameResetSyncTelemetry(frameReset,opt)
@@ -11068,7 +11508,9 @@ function demodData = localDemodForASM(fineSynced, tmMod, tmCode, opt, btVal)
             'RolloffFactor', rolloffLocal, ...
             'FilterSpanInSymbols', getfieldnumeric(opt, ...
                 'FilterSpanInSymbols', 10), ...
-            'NoiseVariance', localOQPSKNoiseVariance(opt));
+            'NoiseVariance', localOQPSKNoiseVariance(opt), ...
+            'PulseShapingFilter',getfieldwithdefault(opt, ...
+                'PulseShapingFilter','root raised cosine'));
         demodData = demodobj(fineSynced);
     elseif strcmpi(tmMod,'MSK')
         demodData = localMSKSoftDemod( ...
@@ -11732,10 +12174,10 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
 
     demodData = demodobj(fineSynced);
     elseif strcmp(tmMod,'OQPSK')
-        % ===== OQPSK 新路径: 官方 comm.OQPSKDemodulator (MF + timing + soft LLR) =====
+        % Existing OQPSK soft receiver: selectable MF + staggered rail sampling.
         % 输入 fineSynced 在这里是 sps=sps 复信号 (不再是 1 sps).
-        % OQPSKDemodulator 内部做 RRC 匹配滤波 + I/Q 半符号对齐 + 定时恢复 + 软 LLR 输出,
-        % 完全替代之前手写的 RRC + SymbolSync('OQPSK') + PSKDemodulator 三段式.
+        % Preserve continuous soft metrics; the R2022a official demodulator
+        % supplies hard decisions only and is not substituted here.
         if isfield(opt,'sps')
             spsLocal = double(opt.sps);
         else
@@ -11754,7 +12196,9 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             'RolloffFactor', rolloffLocal, ...
             'FilterSpanInSymbols', getfieldnumeric(opt, ...
                 'FilterSpanInSymbols', 10), ...
-            'NoiseVariance', localOQPSKNoiseVariance(opt));
+            'NoiseVariance', localOQPSKNoiseVariance(opt), ...
+            'PulseShapingFilter',getfieldwithdefault(opt, ...
+                'PulseShapingFilter','root raised cosine'));
 
         demodData = demodobj(fineSynced);
     elseif strcmpi(tmMod,'MSK')
@@ -11933,6 +12377,9 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         demodData = demodobj(fineSynced);
     end
     qamBPSRawDemodBits = numel(demodData);
+    captureUQPulse = strcmpi(tmMod,'UQPSK') && ...
+        getLogicalField(opt,'debugUQPSKPulseStages',false);
+    if captureUQPulse, uqPulseRawSoft = demodData; end
     qamBPSFadeBERPartition = localEmptyQAMBPSFadeBERPartition();
 
     if contains(tmMod,'4D-8PSK-TCM') && isfield(opt,'debug4D') && logical(opt.debug4D)
@@ -12588,11 +13035,14 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             if isempty(streamPeak) || ~isfinite(streamPeak) || streamPeak <= 0
                 streamPeak = 1;
             end
+            [streamFramePayloadBits,streamPayloadProfile] = ...
+                localContinuousConvRawPayloadProfile( ...
+                opt,tmCode,bitsPerFrame);
             streamReceiver = HelperTMContinuousConvReceiver( ...
                 'CodeRate',char(getfieldwithdefault( ...
                     opt,'ConvolutionalCodeRate','3/4')), ...
                 'ASM',localTMASM(opt,tmCode), ...
-                'FramePayloadBits',bitsPerFrame, ...
+                'FramePayloadBits',streamFramePayloadBits, ...
                 'TracebackDepth',round(getfieldnumeric( ...
                     opt,'ViterbiTraceBackDepth',60)), ...
                 'SoftInputWordLength',round(getfieldnumeric( ...
@@ -12607,7 +13057,17 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                 'Verbose',getLogicalField(opt, ...
                     'debugContinuousConvReceiver',false));
             streamReceiver.append(demodData);
-            [streamPayload,streamInfo] = streamReceiver.finalize();
+            [streamRawPayload,streamInfo] = streamReceiver.finalize();
+            [streamPayload,streamOuterDecode] = ...
+                localDecodeContinuousConvPayload( ...
+                streamRawPayload,tmCode,streamPayloadProfile);
+            if ~isempty(streamPayload) && size(streamPayload,1) ~= bitsPerFrame
+                error('run_ccsds_tm_evaluation:ContinuousConvPayloadLength', ...
+                    ['Continuous receiver produced %d information bits per ', ...
+                     'frame; the TM reference contains %d.'], ...
+                    size(streamPayload,1),bitsPerFrame);
+            end
+            streamInfo.OuterDecode = streamOuterDecode;
             decodedBits = streamPayload(:);
             decoderFrameSyncTelemetry = ...
                 localContinuousConvFrameSyncTelemetry(streamInfo,opt);
@@ -12626,6 +13086,10 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             end
             frameStats.ContinuousConvReceiverInfo = streamInfo;
             frameStats.ContinuousConvReceiverMode = 'stream-raw-asm';
+            % Keep a direct copy for result telemetry.  The full receiver
+            % info remains the source for phase selection; this field is
+            % only a concise outer-code report.
+            frameStats.ContinuousConvOuterDecode = streamOuterDecode;
             if getLogicalField(opt,'debugCodedBoundary',false) || ...
                     getLogicalField(opt,'debugContinuousConvReceiver',false)
                 localPrintContinuousConvReceiverInfo(streamInfo);
@@ -12938,6 +13402,13 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             nnz(frameAssociation.VCFCValid==0),firstMeasurementFrame);
     end
     perFrameBER = nan(1,numRx);
+    if captureUQPulse
+        uqGate = table((1:numRx).',nan(numRx,1),nan(numRx,1), ...
+            nan(numRx,1),false(numRx,1),zeros(numRx,1), ...
+            false(numRx,1),false(numRx,1),repmat("unmatched",numRx,1), ...
+            'VariableNames',{'RxFrame','TxFrame','VCFC','Errors', ...
+            'GoodForAcquisition','ConsecutiveGood','AcquiredForBER','Counted','Reason'});
+    end
     recordFrames = true; % Guard frames must never inflate measurement coverage.
     if recordFrames
         observations = localReceiverFrameObservations( ...
@@ -13016,6 +13487,16 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             % a damaged VCFC cannot move this frame into/out of measurement.
             % Count bad frames too; do not condition steady BER on correctness.
             counted = acquiredForBER && txFrameIndex >= firstMeasurementFrame;
+            if captureUQPulse
+                reason = "counted";
+                if txFrameIndex < firstMeasurementFrame
+                    reason = "TX-warmup";
+                elseif ~acquiredForBER
+                    reason = "BER-acquisition-gate-not-passed";
+                end
+                uqGate(j,:) = {j,txFrameIndex,rxId,thisErrs,goodFrameForAcq, ...
+                    consecIdCount,acquiredForBER,counted,reason};
+            end
             if recordFrames
                 observations.TxFrameIndex(j) = txFrameIndex;
                 observations.ErrorBits(j) = thisErrs;
@@ -13075,6 +13556,14 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         berVal = NaN;
     end
     frameStats.NumRxFrames = numRx;
+    if captureUQPulse
+        frameStats.UQPSKPulseFrameDebug = struct('RawSoft',uqPulseRawSoft, ...
+            'SoftAtDecode',demodData,'Gate',uqGate, ...
+            'FirstMeasurementFrame',firstMeasurementFrame, ...
+            'AcquisitionConsecutiveFrames',acquisitionConsecutiveFrames, ...
+            'AcquisitionMaxFrameBER',acquisitionMaxFrameBER, ...
+            'DecodedFramePositions',decodedFramePositions);
+    end
     frameStats.MatchedFrames = framesMatched;
     frameStats.CountedFrames = countedFrames;
     frameStats.FrameErrors = frameErrors;
@@ -14144,20 +14633,21 @@ function [y, info] = localSecondPowerHighRatePhaseTrack(x, sps, windowSymbols)
 end
 
 function [evmPct, merDB] = localOQPSKRailQualityMetrics( ...
-        x, sps, rolloff, span)
+        x, sps, rolloff, span, pulseShape)
 %LOCALOQPSKRAILQUALITYMETRICS Quality at the staggered I/Q eye centers.
 % This is not ordinary QPSK constellation EVM: the I and Q rails are
 % matched-filtered and sampled a half-symbol apart.  Timing phase is chosen
 % from the minimum rail-envelope variance, without using transmitted bits.
     x = complex(x(:));
     sps = max(2, round(double(sps)));
-    span = max(1, round(double(span)));
+    pulse = HelperTMPulseShapeConfig(pulseShape,sps,rolloff,span);
+    span = pulse.TransientSymbols;
     if isempty(x) || mod(sps,2) ~= 0
         evmPct = NaN;
         merDB = NaN;
         return;
     end
-    h = rcosdesign(double(rolloff), span, sps, 'sqrt');
+    h = pulse.ReceiveTaps;
     matched = filter(h, 1, x);
     bestScore = inf;
     bestI = zeros(0,1);
