@@ -4,9 +4,10 @@ root=fileparts(fileparts(mfilename('fullpath')));
 addpath(fullfile(root,'src','python'));
 outDir=fullfile(root,'tmp','uqpsk_rc_stage_debug');
 if ~exist(outDir,'dir'), mkdir(outDir); end
-diary(fullfile(outDir,'console.txt'));
+logFile=fullfile(outDir,['console_' datestr(now,'yyyymmdd_HHMMSS') '.txt']);
+diary(logFile);
 diaryGuard=onCleanup(@() diary('off'));
-UQRC_Debug=struct(); UQRC_Debug.Runs=cell(2,1);
+UQRC_Debug=struct('LogFile',logFile); UQRC_Debug.Runs=cell(2,1);
 shapes=["raised cosine","root raised cosine"];
 for ic=1:2
     fprintf('\n========== UQPSK STAGE DEBUG %d/2: %s ==========\n',ic,shapes(ic));
@@ -36,13 +37,25 @@ for ic=1:2
     % Save before assertions so unexpected changes remain inspectable.
     UQRC_Debug.Runs{ic}=struct('Parameters',p,'Baseline',baseline, ...
         'Metrics',m,'BaselineLog',baseLog,'DebugLog',debugLog,'Unchanged',same);
-    save(fullfile(outDir,'latest.mat'),'UQRC_Debug','-v7.3');
+    saveSnapshot(UQRC_Debug,outDir,ic,'captured');
     assert(same,'Debug changed receiver output; do not interpret diagnostics.');
     fprintf('[3 FRONT END] CFO=%+.6f Hz; filter=%d samples @ %g sps; timing=%d; carrier=%d\n', ...
         d.CoarseCFO_Hz,numel(d.Filtered),d.FilterSPS,numel(d.Timing),numel(d.Carrier));
     fprintf('Selected receiver rotation=%+.1f deg; grouping symSkip=%g\n', ...
         d.SelectedRotation_deg,d.SelectedSymbolSkip);
     disp(d.CarrierInfo);
+    fprintf('Timing-error trace samples=%d (raw returned vector; not a lock verdict).\n',numel(d.TimingError));
+    if ~isempty(d.TimingError)
+        count=min(24,ceil(numel(d.TimingError)/2048));
+        timingRows=zeros(count,5);
+        for w=1:count
+            a=(w-1)*2048+1; b=min(w*2048,numel(d.TimingError));
+            e=double(d.TimingError(a:b));
+            timingRows(w,:)=[a,b,mean(e),sqrt(mean(e.^2)),max(abs(e))];
+        end
+        disp(array2table(timingRows,'VariableNames', ...
+            {'TraceStart','TraceEnd','MeanError','RMSError','MaxAbsError'}));
+    end
     truth=uqpskMapBitsLocal(d.EncodedBits,2,2);
     [mf,mfa]=stageWindows(d.Filtered,truth,d.FilterSPS,'matched-filter fixed-grid');
     [tm,tma]=stageWindows(d.Timing,truth,1,'post-timing');
@@ -67,11 +80,24 @@ for ic=1:2
         m.CountedFrames,m.MeasurementCoverage.ExpectedFrames,m.MeasurementCoverage.Status);
     UQRC_Debug.Runs{ic}.Stages=struct('MatchedFilter',mf,'Timing',tm,'Carrier',cr, ...
         'MFAnchor',mfa,'TimingAnchor',tma,'CarrierAnchor',cra,'Soft',soft,'SoftAnchor',softAnchor);
-    save(fullfile(outDir,'latest.mat'),'UQRC_Debug','-v7.3');
+    saveSnapshot(UQRC_Debug,outDir,ic,'analyzed');
 end
-fprintf('\nDEBUG COMPLETE (not a BER pass verdict). Send this console.txt; raw captures are in latest.mat.\n');
-fprintf('%s\n',outDir);
+fprintf('\nDEBUG COMPLETE (not a BER pass verdict). Snapshot paths are printed above.\n');
+fprintf('Send console log: %s\n',logFile);
 clear diaryGuard;
+
+function saveSnapshot(UQRC_Debug,outDir,caseIndex,stage)
+% Avoid replacing an existing HDF5 file. Persistence errors must not stop
+% the next control or erase the in-workspace evidence.
+snapshot=[tempname(outDir) '.mat'];
+try
+    save(snapshot,'UQRC_Debug','-v7');
+    fprintf('[SNAPSHOT] case=%d stage=%s %s\n',caseIndex,stage,snapshot);
+catch problem
+    warning('UQPulse:SnapshotFailed', ...
+        'Save failed; data remain in UQRC_Debug workspace: %s',problem.message);
+end
+end
 
 function message=getError(m)
 message=''; if isfield(m,'errorMsg'), message=m.errorMsg; end

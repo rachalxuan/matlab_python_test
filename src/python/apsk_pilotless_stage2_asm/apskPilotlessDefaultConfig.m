@@ -99,10 +99,9 @@ opt.CarrierRecovery.RequireAcquisitionQualification = true;
 % old block-only fit has data-dependent kHz-level biases which can drive the
 % 32APSK DD loop into a false lock (typically BER ~= 0.2).
 opt.CarrierRecovery.EnableFourthPowerFFTCoarseCFO = true;
-% Experimental wide-range 32APSK acquisition. OFF preserves the all-ring
-% x^48 receiver. ON selects the inner+middle rings and uses x^12, expanding
-% the unambiguous interval from roughly +/-Rs/96 to +/-Rs/24.
-opt.CarrierRecovery.EnableWideRangeRingCoarseCFO = false;
+% 32APSK: ring-selected x^12 candidate plus independent holdout validation.
+% Explicit false preserves the historical all-ring x^48 diagnostic path.
+opt.CarrierRecovery.EnableWideRangeRingCoarseCFO = true;
 opt.CarrierRecovery.CoarseUseInnerMiddleRings = true;
 opt.CarrierRecovery.CoarsePowerOrder = [];
 opt.CarrierRecovery.CoarseRangeToleranceHz = NaN;
@@ -147,6 +146,9 @@ opt.CarrierRecovery.BlindPhaseSearch = struct( ...
     'ReacquireReliableBlocks',3, ...
     'PreserveInitialPhase',false, ...
     'MaxFrequencyRadPerSymbol',0.05);
+% Separate trusted observation slope from fast BPS phase correction.
+% Other users of the common BPS helper retain their existing default.
+opt.CarrierRecovery.BlindPhaseSearchTrajectoryMode = 'trusted-slope';
 opt.CarrierRecovery.DDLoopBandwidth = 0.002;
 opt.CarrierRecovery.EnableDDPhaseTracker = false;
 % Experimental shared PI/NCO state machine. It remains disabled until an

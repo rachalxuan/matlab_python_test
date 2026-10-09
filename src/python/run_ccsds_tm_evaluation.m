@@ -11,7 +11,7 @@ function varargout = run_ccsds_tm_evaluation(varargin)
 %  p = struct('modType','16APSK','symbolRate',1e6,'sps',8, ...
 %               'snr',12,'cfo',2000,'phaseOffset',30, ...
 %               'channelCoding','none','RolloffFactor',0.35,'hasASM',true, ...
-%               'hasPilots',true,'WaveformMode','ordinaryTM');
+%               'HasTMAPSKPilots',false,'APSKReceiverMode','pilotless','WaveformMode','ordinaryTM');
 %   m = run_ccsds_tm_evaluation(p);
 % p = struct('modType','QPSK','symbolRate',1e6,'sps',8, ...
 %            'snr',20,'cfo',2000,'phaseOffset',15,'delay',0.2, ...
@@ -100,6 +100,14 @@ function varargout = run_ccsds_tm_evaluation(varargin)
 %   m = run_ccsds_tm_evaluation('{"modType":"QPSK","symbolRate":1e6,"sps":8,"snr":12,"cfo":0,"phaseOffset":0,"channelCoding":"none","RolloffFactor":0.35}');
 %
 
+% Diagnostic-only replay of the existing UQPSK downstream receiver. The
+% caller supplies post-timing symbols; no TX/channel or production default
+% changes. Reference bits below are used by the existing evaluator only.
+if nargin == 3 && ischar(varargin{1}) && ...
+        strcmp(varargin{1},'diagnostic-uqpsk-tail')
+    varargout{1} = localReplayUQPSKTail(varargin{2},varargin{3});
+    return;
+end
 tStart = tic;
 
 [opt, outputMode] = parseEvaluationEntryInputs(varargin{:});
@@ -107,6 +115,7 @@ opt = localNormalizeOrdinaryTPCDefaults(opt);
 imagePaths = '';
 
 try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 =====
+    opt = localResolveOrdinaryTMEntry(opt);
     % The equipment UI specifies coded bits/s at the mapper input.  Keep
     % symbolRate as the internal DSP quantity, but accept either public form.
     opt = localResolveModulationRateInput(opt);
@@ -667,6 +676,7 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
         end
     end
     if isfield(res,'WaveformMode'), frontResult.WaveformMode = res.WaveformMode; end
+    if isfield(res,'HasTMAPSKPilots'), frontResult.HasTMAPSKPilots = res.HasTMAPSKPilots; end
     if isfield(res,'UQPSKRRatio'), frontResult.UQPSKRRatio = res.UQPSKRRatio; end
     if isfield(res,'UQPSKARatio'), frontResult.UQPSKARatio = res.UQPSKARatio; end
     if isfield(res,'IFramesPerQFrame'), frontResult.IFramesPerQFrame = res.IFramesPerQFrame; end
@@ -768,6 +778,17 @@ try   % ===== 顶层 try/catch: 任何崩溃都返回 success=false 给前端 ==
         frontResult.constellation_raw    = fe.constRaw;
         frontResult.constellation_synced = fe.constSync;
         frontResult.pipeline             = fe.pipeline;
+    end
+    % Regression-only capture. It is deliberately separate from
+    % includeRawData because these full complex arrays must never enter the
+    % normal browser/JSON result by accident.
+    if getLogicalField(opt,'captureBaselineData',false) && ...
+            ~strcmpi(char(outputMode),'struct')
+        error('run_ccsds_tm_evaluation:BaselineCaptureRequiresStruct', ...
+            'captureBaselineData is a local MATLAB struct-output option and cannot be returned through JSON.');
+    end
+    if getLogicalField(opt,'captureBaselineData',false)
+        frontResult.BaselineCapture = buildTMBaselineCapture(ctx,res,opt);
     end
 
     % --- 编码信息透传 ---
@@ -956,6 +977,8 @@ function [opt, outputMode] = parseEvaluationEntryInputs(varargin)
         'ConvolutionalG1G2Mode','auto-ccsds', ...
         'carrierCaptureRangeHz',[], ...
         'enablePSKCoarseFrequencyCompensator',true, ...
+        'debugUQPSKTimingInputNormalization',false, ...
+        'captureBaselineData',false, ...
         'WaveformMode','ordinaryTM', ...
         'hasASM',true,...
         'AGCEnabled',false, ...
@@ -1022,6 +1045,52 @@ function opt = parseEvaluationParams(rawParams, defaults)
 
     rejectLegacyEvaluationFields(opt);
     opt = applyEvaluationDefaults(opt, defaults);
+end
+
+function opt = localResolveOrdinaryTMEntry(opt)
+% Validate explicit requests before filling APSK defaults. Check aliases
+% independently so a canonical false cannot hide a conflicting true alias.
+    mode = string(opt.WaveformMode);
+    if ~isscalar(mode) || ~strcmpi(strtrim(mode),'ordinaryTM')
+        error('run_ccsds_tm_evaluation:UnsupportedWaveformMode', ...
+            'Only WaveformMode="ordinaryTM" is supported by this entry. FACM is retired; the requested frame format was not changed.');
+    end
+    opt.WaveformMode = 'ordinaryTM';
+    if ~any(strcmpi(string(opt.modType),["16APSK","32APSK"]))
+        return;
+    end
+    for name = {'ACMFormat','acmFormat'}
+        if hasNonEmptyField(opt,name{1})
+            error('run_ccsds_tm_evaluation:UnsupportedFACMParameter', ...
+                '%s belongs to retired FACM framing. Ordinary TM APSK selects its mapping from modType.',name{1});
+        end
+    end
+    for name = {'HasTMAPSKPilots','hasTMAPSKPilots','HasPilots','hasPilots', ...
+            'useTMAPSKPilots','enableFACMEqualizer'}
+        if ~hasNonEmptyField(opt,name{1}), continue; end
+        raw = opt.(name{1});
+        isDisabled = (isnumeric(raw) || islogical(raw)) && ...
+            isscalar(raw) && isfinite(double(raw)) && double(raw)==0;
+        if ischar(raw) || isstring(raw)
+            key = lower(strtrim(string(raw)));
+            isDisabled = isscalar(key) && any(key==["0","false","off","no"]);
+        end
+        if ~isDisabled
+            error('run_ccsds_tm_evaluation:UnsupportedAPSKPilotMode', ...
+                '%s must be false. Ordinary TM APSK supports only pilotless reception without additional pilots; the request was not overridden.',name{1});
+        end
+    end
+    for name = {'APSKReceiverMode','apskReceiverMode'}
+        if ~hasNonEmptyField(opt,name{1}), continue; end
+        mode = lower(strtrim(string(opt.(name{1}))));
+        if ~isscalar(mode) || ~any(mode==["pilotless","pilotless-apsk", ...
+                "pilotless-x4-nda-dd","pilotless-xm-nda-dd"])
+            error('run_ccsds_tm_evaluation:UnsupportedAPSKReceiverMode', ...
+                '%s must select the existing pilotless receiver. Legacy/pilot-aided modes are retired.',name{1});
+        end
+    end
+    opt.HasTMAPSKPilots = false;
+    opt.APSKReceiverMode = 'pilotless';
 end
 
 function opt = localResolveModulationRateInput(opt)
@@ -1514,7 +1583,8 @@ function [res, ctx] = runOneShot(opt)
     pulseShapingFilter = localResolveTMPulseShapingFilter( ...
         opt,modStr,dataPathMode);
     opt.PulseShapingFilter = char(pulseShapingFilter);
-    ordinaryPulseShapeMods = ["BPSK","QPSK","8PSK","16QAM","32QAM","OQPSK","UQPSK"];
+    ordinaryPulseShapeMods = ["BPSK","QPSK","8PSK","16QAM","32QAM", ...
+        "16APSK","32APSK","OQPSK","UQPSK"];
     ordinaryPulseShapePath = any(strcmpi(modStr,ordinaryPulseShapeMods));
     if ordinaryPulseShapePath
         pulseConfig = HelperTMPulseShapeConfig(pulseShapingFilter,sps, ...
@@ -1534,20 +1604,6 @@ function [res, ctx] = runOneShot(opt)
             'MSK waveform I/Q components are not independent TM rails.']);
     end
 
-    if isFACMEvaluation(opt, modStr)
-        if ~strcmpi(string(getfieldwithdefault(opt, ...
-                'TMDataSource', 'random')), 'random')
-            error('run_ccsds_tm_evaluation:FACMInternalDataSource', ...
-                ['TMDataSource is currently implemented for ordinaryTM. ', ...
-                 'Use TMDataSource="random" for FACM.']);
-        end
-        [res, ctx] = runFACMOneShot(opt, fSym, sps);
-        res.RandomizerEnabled = logical(randomizerEnabled);
-        res.RandomizerFECPosition = char(randomizerFECPosition);
-        res.DataPathMode = char(dataPathMode);
-        res.WaveformMode = char(opt.WaveformMode);
-        return;
-    end
 
 %         args = [args, {'WaveformSource','synchronization and channel coding', ...
 %                        'NumBytesInTransferFrame', 1115, 'Modulation', modStr}];
@@ -1651,7 +1707,7 @@ function [res, ctx] = runOneShot(opt)
                 end
         end
         if contains(modStr,'APSK')
-            hasTMAPSKPilots = true;
+            hasTMAPSKPilots = false;
             if isfield(opt,'HasTMAPSKPilots') && ~isempty(opt.HasTMAPSKPilots)
                 hasTMAPSKPilots = localFlagValue(opt.HasTMAPSKPilots);
             elseif isfield(opt,'hasTMAPSKPilots') && ~isempty(opt.hasTMAPSKPilots)
@@ -2399,6 +2455,7 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
     runtimeLockRequested = receiverTimelineRequested || getLogicalField(opt, ...
         'enableRuntimeLockTelemetry',false);
     timingErrorTrace = zeros(0,1);
+    timingTraceSamplesPerSymbol = 1; % Legacy sources; override when known.
     timingLockSource = 'unavailable';
     timingUnavailableReason = ...
         'selected receiver path does not expose a continuous timing error';
@@ -3106,13 +3163,32 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
                 'DampingFactor', 1/sqrt(2), ...
                 'NormalizedLoopBandwidth', uqpskTimingLoopBW);
 
+            % Diagnostic candidate only: unit-power input fixes the RC
+            % zero-delay case but regresses RC/seed917/delay1 acquisition.
+            % Keep the production default unchanged until that is resolved.
+            % One complex scale preserves unequal I/Q gain; not a stream AGC.
+            filteredForTiming = filtered;
+            uqpskTimingInputPower = mean(abs(filtered).^2);
+            uqpskTimingInputScale = 1;
+            if getLogicalField(opt,'debugUQPSKTimingInputNormalization',false) && ...
+                    isfinite(uqpskTimingInputPower) && uqpskTimingInputPower > eps
+                uqpskTimingInputScale = 1/sqrt(uqpskTimingInputPower);
+                filteredForTiming = filtered * uqpskTimingInputScale;
+            end
+            fprintf('   [UQPSK timing input] power=%.9g scale=%.9g normalizedPower=%.9g\n', ...
+                uqpskTimingInputPower,uqpskTimingInputScale,mean(abs(filteredForTiming).^2));
+            if uqPulseDebugEnabled
+                uqPulseDebug.TimingInputPower = uqpskTimingInputPower;
+                uqPulseDebug.TimingInputScale = uqpskTimingInputScale;
+            end
             if runtimeLockRequested
-                [TimeSynced,timingErrorTrace] = timingObj(filtered);
+                [TimeSynced,timingErrorTrace] = timingObj(filteredForTiming);
+                timingTraceSamplesPerSymbol = sps_after;
                 timingLockSource = ...
                     'UQPSK Gardner symbol synchronizer timing-error output';
                 timingUnavailableReason = '';
             else
-                TimeSynced = timingObj(filtered);
+                TimeSynced = timingObj(filteredForTiming);
             end
             if blindReliabilityInfo.Applied && ~isempty(TimeSynced) && ...
                     ~isempty(uqpskHighRateHoldMask)
@@ -3289,8 +3365,8 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
             end
         else
             % Common ordinary-TM path for BPSK / QPSK / 8PSK / APSK.
-            % FACM was returned above and retains its independent FLL/pilot
-            % acquisition chain. When enabled, APSK reuses the QAM coarse
+            % APSK uses ordinary TM framing and the pilotless receiver.
+            % When enabled, APSK reuses the QAM coarse
             % estimator; the option remains explicit for A/B debugging.
             useCoarseFreqSync = true;
             isOrdinaryPSKCoarsePath = any(strcmpi(strtrim(char(modStr)), ...
@@ -3389,12 +3465,30 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
                 end
             end
 
+            useFractional2SPSEqualizer = any(adaptiveEqSamplingMode == [ ...
+                "fractionally-spaced-2sps", "fractionally-spaced-2sps-dual"]);
+            receivePulseOutputSps = 2;
+            if any(strcmpi(modStr,{'16APSK','32APSK'})) && ...
+                    strcmpi(pulseShapingFilter,'none')
+                if useFractional2SPSEqualizer
+                    error('run_ccsds_tm_evaluation:APSKNoneFSEUnsupported', ...
+                        ['APSK none with a 2-sps FSE is not yet supported. ', ...
+                         'Use the non-FSE timing path or RRC; the equalizer ', ...
+                         'will not be silently disabled.']);
+                end
+                % Preserve rectangular matched-filter observations until
+                % Gardner selects the symbol timing. RRC/other modes stay
+                % on their original 2-sps interface.
+                receivePulseOutputSps = sps;
+            end
             [filtered,sps_after,rxFilterDecimationFactor, ...
                 receivePulseFilterActual] = localTMReceivePulseFilter( ...
-                coarseSynced,sps,rolloff,opt,pulseShapingFilter);
+                coarseSynced,sps,rolloff,opt,pulseShapingFilter,receivePulseOutputSps);
             syncDebugStages.FilterSamplesPerSymbol = sps_after;
             if syncDebugRequested
             syncDebugStages.Filtered = filtered;
+            fprintf('   [TM pulse/timing] %s: input=%g sps, decimation=%g, timing=%g sps\n', ...
+                pulseShapingFilter,sps,rxFilterDecimationFactor,sps_after);
             end
 
             % One blind, pre-normalization reliability observation is shared
@@ -3596,9 +3690,6 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
                 error('run_ccsds_tm_evaluation:InvalidTimingLoopBandwidth', ...
                     'timingLoopBandwidth must be a scalar in (0, 0.2].');
             end
-            useFractional2SPSEqualizer = any(adaptiveEqSamplingMode == [ ...
-                "fractionally-spaced-2sps", ...
-                "fractionally-spaced-2sps-dual"]);
             if useFractional2SPSEqualizer
                 if abs(sps_after-2) > 1e-12
                     error('run_ccsds_tm_evaluation:FractionalEqualizerInputRate', ...
@@ -3680,6 +3771,7 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
                 if runtimeLockRequested && ...
                         isfield(timingChunkInfo,'TimingErrorTrace')
                     timingErrorTrace = timingChunkInfo.TimingErrorTrace;
+                    timingTraceSamplesPerSymbol = sps_after;
                     timingLockSource = ...
                         'Gardner symbol synchronizer timing-error output';
                     timingUnavailableReason = '';
@@ -4640,6 +4732,7 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
             'PilotlessAPSKState',pilotlessAPSKState, ...
             'GMSKSecondOrderPLLInfo',gmskSecondOrderPLLInfo, ...
             'TimingErrorTrace',timingErrorTrace, ...
+            'TimingErrorSamplesPerSymbol',timingTraceSamplesPerSymbol, ...
             'TimingSource',timingLockSource, ...
             'TimingUnavailableReason',timingUnavailableReason, ...
             'FrameSyncTelemetry',runtimeFrameSyncTelemetry, ...
@@ -4799,6 +4892,9 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
     res.CarrierCaptureRangeConfigured_Hz = getfieldnumeric(opt, ...
         'carrierCaptureRangeHz', NaN);
     res.WaveformMode = char(opt.WaveformMode);
+    if any(strcmpi(modStr,["16APSK","32APSK"]))
+        res.HasTMAPSKPilots = logical(tmWaveGen.HasTMAPSKPilots);
+    end
     if isUnequalSplitPath
         res.UQPSKRRatio = 2;
         res.UQPSKARatio = 2;
@@ -5621,6 +5717,24 @@ fprintf('[POST-H TEST GAIN] %+g dB, amplitude x %.6f\n', ...
     ctx.Fs           = Fs;
     ctx.sps          = sps;
     ctx.bestRot      = bestRot;
+    % Local opt-in capture only. Never use TX truth in receiver processing.
+    if getLogicalField(opt,'captureBaselineData',false) && ...
+            contains(upper(string(modStr)),'APSK') && exist('filtered','var')
+        ctx.PulseStageCapture = struct('Filtered',filtered, ...
+            'TimingErrorTrace',timingErrorTrace, ...
+            'TimingErrorSamplesPerSymbol',timingTraceSamplesPerSymbol);
+        % Offline instruments only: never passed into receiver decisions.
+        ctx.PulseStageCapture.TxEncodedBits = int8(encodedBits(:));
+        ctx.PulseStageCapture.TxTransferFrames = validTxFrames;
+        ctx.PulseStageCapture.DemodNoiseVariance = demodNoiseVariance;
+        ctx.PulseStageCapture.PilotlessState = pilotlessAPSKState;
+        if isfield(syncDebugStages,'Carrier') && ~isempty(syncDebugStages.Carrier)
+            ctx.PulseStageCapture.PilotlessOutput = syncDebugStages.Carrier;
+        end
+        if exist('timingCfg','var')
+            ctx.PulseStageCapture.TimingConfiguration = timingCfg;
+        end
+    end
 
 end
 
@@ -5633,7 +5747,8 @@ end
 
 function pulseShapingFilter = localResolveTMPulseShapingFilter(opt,modStr,dataPathMode)
 % Resolve the public pulse-shaping option without silently changing an
-% unsupported request. New OQPSK/UQPSK RC/none choices are combined-TM only.
+% unsupported request. RC experiments remain available below this public
+% boundary for retained diagnostics, but are not a supported user option.
     requested = lower(strtrim(string(getfieldwithdefault( ...
         opt,'PulseShapingFilter','root raised cosine'))));
     requested = replace(requested,["_","-"]," ");
@@ -5642,51 +5757,54 @@ function pulseShapingFilter = localResolveTMPulseShapingFilter(opt,modStr,dataPa
             "root raised cosine filter","rrc","sqrt raised cosine"])
         pulseShapingFilter = "root raised cosine";
     elseif any(requested == ["raised cosine","normal raised cosine","rc"])
-        pulseShapingFilter = "raised cosine";
+        error('run_ccsds_tm_evaluation:UnsupportedRaisedCosine', ...
+            ['PulseShapingFilter="raised cosine" (RC) is outside the ', ...
+             'current supported interface. Use "root raised cosine" ', ...
+             '(RRC) or "none".']);
     elseif any(requested == ["none","off","bypass","no shaping"])
         pulseShapingFilter = "none";
     else
         error('run_ccsds_tm_evaluation:InvalidPulseShapingFilter', ...
             ['Unsupported PulseShapingFilter="%s". Use ', ...
-             '"root raised cosine", "raised cosine" or "none".'],char(requested));
+             '"root raised cosine" or "none".'],char(requested));
     end
 
     if pulseShapingFilter == "root raised cosine"
         return;
     end
-    if pulseShapingFilter == "raised cosine" && ...
-            ~any(strcmpi(string(modStr),["OQPSK","UQPSK"]))
-        error('run_ccsds_tm_evaluation:UnsupportedRCModulation', ...
-            'The public RC option currently supports OQPSK/UQPSK only.');
-    end
-    supported = ["BPSK","QPSK","8PSK","16QAM","32QAM","OQPSK","UQPSK"];
+    supported = ["BPSK","QPSK","8PSK","16QAM","32QAM", ...
+        "16APSK","32APSK","OQPSK","UQPSK"];
     if ~any(strcmpi(string(modStr),supported))
         error('run_ccsds_tm_evaluation:UnsupportedUnshapedModulation', ...
             ['PulseShapingFilter="none" currently supports BPSK, ', ...
-             'QPSK, 8PSK, 16QAM, 32QAM, OQPSK and UQPSK. %s uses a dedicated waveform ', ...
+             'QPSK, 8PSK, 16QAM, 32QAM, 16APSK, 32APSK, OQPSK and UQPSK. %s uses a dedicated waveform ', ...
              'front end and was not changed.'],char(string(modStr)));
     end
     if ~strcmpi(string(dataPathMode),'single')
         error('run_ccsds_tm_evaluation:UnsupportedUnshapedDataPath', ...
-            ['New RC/none pulse-shaping choices currently support only the ', ...
+            ['Pulse-shaping bypass currently supports only the ', ...
              'single/combined TM data path.']);
     end
 end
 
 function [filtered,spsOut,decimationFactor,actualFilter] = ...
-        localTMReceivePulseFilter(x,sps,rolloff,opt,pulseShapingFilter)
+        localTMReceivePulseFilter(x,sps,rolloff,opt,pulseShapingFilter,outputSps)
 % Common receive filter for the public RRC/RC/none selector. "none" means no
 % band-limiting pulse-shaping filter at TX; its sampled waveform is an
 % SPS-wide rectangular symbol hold, so the matching RX operation is an
-% integrate-and-dump FIR before reducing to the existing 2-sps timing path.
-    decimationFactor = sps/2;
+% sliding rectangular FIR. APSK none retains the original sample rate for
+% timing recovery; all existing callers default to the old 2-sps output.
+    if nargin < 6, outputSps = 2; end
+    decimationFactor = sps/outputSps;
+    validateattributes(outputSps,{'numeric'},{'scalar','integer','>=',2});
+    validateattributes(decimationFactor,{'numeric'},{'scalar','integer','>=',1});
     pulse = HelperTMPulseShapeConfig(pulseShapingFilter,sps,rolloff, ...
         getfieldnumeric(opt,'FilterSpanInSymbols',10));
     if strcmpi(string(pulseShapingFilter),'none')
         numerator = pulse.ReceiveTaps;
         matched = filter(numerator,1,x(:));
-        % At decimation phases sps/2 and sps this produces the half-symbol
-        % and full-symbol observations expected by the 2-sps synchronizer.
+        % Legacy 2-sps callers keep their half/full-symbol grid. Full-rate
+        % APSK none callers keep every observation for timing interpolation.
         filtered = matched(decimationFactor:decimationFactor:end);
         actualFilter = 'rectangular matched filter';
     else
@@ -5798,18 +5916,7 @@ function v = getfieldnumeric(s, name, defv)
 end
 
 function res = attachResidualMetrics(res, ctx)
-    residCFO_Hz = NaN;
-    residPhase_deg = NaN;
-
-    isFACM = isfield(res,'ACMFormat');
-
-    if isFACM
-        if isfield(res,'FACMResidualCFO_Hz') && isfinite(res.FACMResidualCFO_Hz)
-            residCFO_Hz = double(res.FACMResidualCFO_Hz);
-        end
-    else
-        [residCFO_Hz, residPhase_deg] = estimateResidualCarrierMetrics(ctx, res);
-    end
+    [residCFO_Hz, residPhase_deg] = estimateResidualCarrierMetrics(ctx, res);
 
     res.residCFO_Hz = residCFO_Hz;
     res.ResidualCFO_Hz = residCFO_Hz;
@@ -9043,7 +9150,7 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                     betterCandidate = bitsComparedBest <= 0 || ...
                         localIsBetterSplitReceiverStructureStats(stats, bestStats);
                 elseif useContinuousConvStructureSelection
-                    betterCandidate = bitsComparedBest <= 0 || ...
+                    betterCandidate = ~localHasCredibleContinuousConvStructure(bestStats) || ...
                         localIsBetterContinuousConvStructureStats( ...
                             stats,bestStats);
                 else
@@ -9078,8 +9185,14 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                 end
             else
                 % 如果还没有找到可靠候选，则暂时保留 lock 最高的
-                if bitsComparedBest <= 0 && ...
-                        (~isfinite(bestBer) || lock > bestLock)
+                if useContinuousConvStructureSelection
+                    keepFallback = ~localHasCredibleContinuousConvStructure(bestStats) && ...
+                        localIsBetterContinuousConvStructureStats(stats,bestStats);
+                else
+                    keepFallback = bitsComparedBest <= 0 && ...
+                        (~isfinite(bestBer) || lock > bestLock);
+                end
+                if keepFallback
                     bestBer = ber;
                     bestLock = lock;
                     bestRot = angle(r);
@@ -9126,7 +9239,7 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                         betterCandidate = bitsComparedBest <= 0 || ...
                             localIsBetterSplitReceiverStructureStats(stats, bestStats);
                     elseif useContinuousConvStructureSelection
-                        betterCandidate = bitsComparedBest <= 0 || ...
+                        betterCandidate = ~localHasCredibleContinuousConvStructure(bestStats) || ...
                             localIsBetterContinuousConvStructureStats( ...
                                 stats,bestStats);
                     else
@@ -9157,8 +9270,14 @@ function [berVal, lockRate, bestRot, berStats] = computeBER(fineSynced, validTxF
                         break;
                     end
                 else
-                    if bitsComparedBest <= 0 && ...
-                            (~isfinite(bestBer) || lock > bestLock)
+                    if useContinuousConvStructureSelection
+                        keepFallback = ~localHasCredibleContinuousConvStructure(bestStats) && ...
+                            localIsBetterContinuousConvStructureStats(stats,bestStats);
+                    else
+                        keepFallback = bitsComparedBest <= 0 && ...
+                            (~isfinite(bestBer) || lock > bestLock);
+                    end
+                    if keepFallback
                         bestBer = ber;
                         bestLock = lock;
                         bestRot = angle(r);
@@ -11008,9 +11127,10 @@ function enabled = localUseContinuousConvStreamReceiver( ...
     requirements = strings(0,1);
     modKey = upper(strtrim(string(tmMod)));
     codeKey = lower(strtrim(string(tmCode)));
-    if ~any(modKey == ["BPSK","QPSK","8PSK","16QAM","32QAM"])
+    if ~any(modKey == ["BPSK","QPSK","8PSK","16QAM","32QAM", ...
+            "16APSK","32APSK","OQPSK","UQPSK"])
         requirements(end+1) = ...
-            "Modulation must be BPSK, QPSK, 8PSK, 16QAM, or 32QAM"; %#ok<AGROW>
+            "Modulation must be BPSK, QPSK, 8PSK, 16QAM, 32QAM, 16APSK, 32APSK, OQPSK, or UQPSK"; %#ok<AGROW>
     end
     if ~any(codeKey == ["convolutional","concatenated"])
         requirements(end+1) = ...
@@ -11981,6 +12101,8 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
             "unequalDualIQ");
         useUQPSKTMStructureSelection = requireBothUQPSKRails && ...
             getLogicalField(opt, 'UseSplitReceiverCoordinator', true);
+        useUQPSKConvStructureSelection = localUseContinuousConvStreamReceiver( ...
+            opt,tmMod,tmCode,hasASM,randomizerEnabled);
 
         optLocal = opt;
         optLocal.uqpskSkipInternal = true;
@@ -12025,7 +12147,16 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                         candStats.Q_CountedFrames);
                 end
             end
-            if useUQPSKTMStructureSelection
+            if useUQPSKConvStructureSelection
+                candidateUsable = localHasCredibleContinuousConvStructure(candStats);
+                if getLogicalField(opt,'debugContinuousConvReceiver',false)
+                    evidence = localContinuousConvStructureEvidence(candStats);
+                    fprintf(['      [UQPSK raw ASM group] skip=%d credible=%d ', ...
+                        'run=%g good=%g meanErrors=%g punctureDrop=%g\n'], ...
+                        symSkip,candidateUsable,evidence.LongestGoodRun, ...
+                        evidence.GoodASMCount,evidence.MeanASMErrors,evidence.Offset);
+                end
+            elseif useUQPSKTMStructureSelection
                 candidateUsable = localHasCredibleSplitReceiverStructure(candStats);
             else
                 candidateUsable = candLock >= 0.80 && candBits > 0 && ...
@@ -12036,7 +12167,10 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                 % UQPSK grouping is a receiver framing decision.  Use the
                 % two rails' decoded TM header/counter evidence, never the
                 % evaluator BER, whenever the SplitReceiver is active.
-                if useUQPSKTMStructureSelection
+                if useUQPSKConvStructureSelection
+                    betterCandidate = ~bestLocalUsable || ...
+                        localIsBetterContinuousConvStructureStats(candStats,bestLocalStats);
+                elseif useUQPSKTMStructureSelection
                     betterCandidate = ~bestLocalUsable || ...
                         localIsBetterSplitReceiverStructureStats( ...
                         candStats, bestLocalStats, 1);
@@ -12054,8 +12188,21 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
                     bestLocalSkip = symSkip;
                     bestLocalUsable = true;
                 end
-                if ~useUQPSKTMStructureSelection && candBer == 0 && candLock >= 0.999
+                if ~useUQPSKConvStructureSelection && ...
+                        ~useUQPSKTMStructureSelection && candBer == 0 && candLock >= 0.999
                     break;
+                end
+            elseif useUQPSKConvStructureSelection
+                % Preserve only receiver evidence for an unacquired result.
+                % No BER/compared-bit fallback can choose a grouping here.
+                if ~bestLocalUsable && ...
+                        localIsBetterContinuousConvStructureStats(candStats,bestLocalStats)
+                    bestLocalBer = candBer;
+                    bestLocalLock = candLock;
+                    bestLocalErrs = candErrs;
+                    bestLocalBits = candBits;
+                    bestLocalStats = candStats;
+                    bestLocalSkip = symSkip;
                 end
             elseif ~bestLocalUsable && ...
                     (candLock > bestLocalLock || (candLock == bestLocalLock && candBits > bestLocalBits))
@@ -12078,7 +12225,9 @@ function [berVal, lockRate, errs, bitsComp, frameStats] = tryOneRotation(fineSyn
         bitsComp = bestLocalBits;
         frameStats = bestLocalStats;
         frameStats.UQPSKSymSkip = bestLocalSkip;
-        if useUQPSKTMStructureSelection
+        if useUQPSKConvStructureSelection
+            frameStats.UQPSKSymSkipSelectionMethod = 'continuous-raw-asm';
+        elseif useUQPSKTMStructureSelection
             frameStats.UQPSKSymSkipSelectionMethod = 'tmHeaderStructure';
         end
         return;
@@ -15849,6 +15998,54 @@ function printMetrics(res, opt)
     fprintf('==================================\n\n');
 end
 
+function capture = buildTMBaselineCapture(ctx,res,opt)
+%BUILDTMBASELINECAPTURE Full-fidelity regression snapshot (opt-in only).
+% Keep the transport/UI result compact by default.  The baseline script
+% enables this flag only for local struct calls and saves each modulation
+% to a MAT file before later APSK/interface changes.
+    capture = struct();
+    capture.SchemaVersion = 1;
+    capture.CapturedAt = char(datetime('now','Format','yyyy-MM-dd HH:mm:ss Z'));
+    capture.RequestedOptions = opt;
+    capture.SampleRate_Hz = double(ctx.Fs);
+    capture.SamplesPerSymbol = double(ctx.sps);
+    capture.TxWaveform = ctx.txWaveform(:);
+    capture.ReferenceConstellation = ctx.refConst(:);
+    capture.RawReceiverSymbols = ctx.rawSym(:);
+    capture.CoarseSynchronizedWaveform = ctx.coarseSynced(:);
+    capture.TimeSynchronizedSymbols = ctx.TimeSynced(:);
+    capture.FineSynchronizedSymbols = ctx.fineSynced(:);
+    capture.BestRotation_deg = double(ctx.bestRot);
+    if isfield(ctx,'PulseStageCapture')
+        capture.PulseStageCapture = ctx.PulseStageCapture;
+    end
+
+    actualFields = {'modType','WaveformMode','PulseShapingFilter', ...
+        'TransmitPulseShapeActual','ReceivePulseFilterActual', ...
+        'SymbolRate_Hz','ModulatorBitRate_bps','NominalBitsPerSymbol', ...
+        'ActualCodeRate','NominalInformationRate_bps','RateInputMode', ...
+        'Fs','ActualWaveformDuration_s','MeasurementDuration_s', ...
+        'BER','FER','CountedFrames','MatchedFrames','DecodedFrames', ...
+        'DataPathMode','HasASM','RandomizerEnabled','APSKReceiverMode','HasTMAPSKPilots', ...
+        'PilotlessAPSKApplied','PilotlessAPSKReason'};
+    actual = struct();
+    for k = 1:numel(actualFields)
+        name = actualFields{k};
+        if isfield(res,name)
+            actual.(name) = res.(name);
+        end
+    end
+    actual.DebugUQPSKTimingInputNormalization = getLogicalField(opt, ...
+        'debugUQPSKTimingInputNormalization',false);
+    if isfield(res,'MeasurementCoverage')
+        actual.MeasurementCoverage = res.MeasurementCoverage;
+    end
+    if isfield(res,'BurstCompletion')
+        actual.BurstCompletion = res.BurstCompletion;
+    end
+    capture.ActualConfiguration = actual;
+end
+
 function fe = buildFrontendArrays(ctx, res, includeRawData) %#ok<INUSD>
     if nargin < 3
         includeRawData = false;
@@ -16018,25 +16215,6 @@ function spec = buildCFOEstimatorSpectrum(ctx, res)
         'peak_corrected_hz', fLocal(iCo));
 end
 
-function tf = isFACMEvaluation(opt, modStr)
-    isAPSK = contains(upper(string(modStr)), 'APSK');
-    mode = lower(strtrim(string(opt.WaveformMode)));
-    switch mode
-        case "ordinarytm"
-            tf = false;
-        case "facm"
-            tf = true;
-        otherwise
-            error('run_ccsds_tm_evaluation:InvalidWaveformMode', ...
-                'Unsupported WaveformMode="%s". Use ordinaryTM or FACM.', ...
-                char(string(opt.WaveformMode)));
-    end
-
-    if tf && ~isAPSK
-        error('run_ccsds_tm_evaluation:FACMRequiresAPSK', ...
-            'WaveformMode="FACM" is only valid for APSK modulation.');
-    end
-end
 
 function tf = localFlagValue(raw)
     if islogical(raw) || isnumeric(raw)
@@ -16047,1057 +16225,6 @@ function tf = localFlagValue(raw)
     end
 end
 
-function [res, ctx] = runFACMOneShot(opt, fSym, sps)
-    acmFmt = resolveFACMFormat(opt);
-    snr_val = getf(opt,'snr',20);
-    cfo_val = getf(opt,'cfo',0);
-    delay_val = getf(opt,'delay',0);
-    phase_deg = getf(opt,'phaseOffset',0);
-
-    cfg = struct();
-    cfg.SamplesPerSymbol = sps;
-    cfg.NumBytesInTransferFrame = 1115;
-    cfg.RolloffFactor = getf(opt,'RolloffFactor',0.35);
-    cfg.FilterSpanInSymbols = 10;
-    cfg.ScramblingCodeNumber = 1;
-    cfg.HasPilots = getLogicalField(opt,'hasPilots',true);
-    cfg.PulseShapingFilter = 'Root Raised Cosine';
-    cfg.ACMFormat = acmFmt;
-
-    simParams = struct();
-    simParams.SymbolRate = fSym;
-    simParams.SPS = sps;
-    % The official helper is used for FACM waveform and receiver parameter
-    % generation. Channel impairments are applied below so that custom H
-    % channel/equalizer tests see exactly one CFO/phase/delay/AWGN pass.
-    simParams.EsNodB = 100;
-    simParams.CFO = 0;
-    simParams.DisableCFO = true;
-    simParams.SRO = 0;
-    simParams.DisableSRO = true;
-    simParams.PeakDoppler = 0;
-    simParams.DopplerRate = 0;
-    simParams.DisableDoppler = true;
-    simParams.DisablePhaseNoise = true;
-    simParams.DisableRFImpairments = true;
-    simParams.DisableAWGN = true;
-    simParams.InitalSyncFrames = getf(opt,'facmWarmupFrames',15);
-    simParams.NumFramesForBER = getf(opt,'facmBERFrames',30);
-    simParams.NumPLFrames = simParams.InitalSyncFrames + simParams.NumFramesForBER;
-    simParams.AttenuationFactor = 1;
-
-    fprintf('[FACM] generating %d PL frames: warmup=%d, berFrames=%d, ACM=%d, sps=%d ...\n', ...
-        simParams.NumPLFrames, simParams.InitalSyncFrames, simParams.NumFramesForBER, acmFmt, sps);
-    [bits, txWaveform, ~, phyParams, rxParams] = HelperCCSDSFACMRxInputGenerate(cfg, simParams);
-    fprintf('[FACM] waveform generated: %d samples\n', length(txWaveform));
-
-    Fs = fSym*sps;
-    actualWaveformDuration_s = numel(txWaveform) / Fs;
-    fprintf(['[Test length] waveform=%.3f ms | warmup=%d | ', ...
-        'BER=%d | total=%d frames\n'], ...
-        1e3*actualWaveformDuration_s, simParams.InitalSyncFrames, ...
-        simParams.NumFramesForBER, simParams.NumPLFrames);
-    rxWaveform = txWaveform;
-    if cfo_val ~= 0 || phase_deg ~= 0
-        pfo = comm.PhaseFrequencyOffset( ...
-            'FrequencyOffset', cfo_val, ...
-            'PhaseOffset', phase_deg, ...
-            'SampleRate', Fs);
-        rxWaveform = pfo(rxWaveform);
-    end
-    if delay_val ~= 0
-        varDelay = dsp.VariableFractionalDelay('InterpolationMethod','Farrow');
-        rxWaveform = varDelay(rxWaveform, delay_val);
-    end
-
-    channelInput = rxWaveform;
-    [channelOutput, hInfo, hState] = applyHChannelDamage(channelInput, opt, Fs);
-    rxSNRForAWGN = snr_val - 10*log10(sps);
-    noisePlacement = getNoisePlacementMode(opt);
-    % APSK/FACM has its own frame-marker/pilot aided equalizer below.
-    % Do not run the generic known-H FFT equalizer on the whole FACM waveform:
-    % it can allocate a huge FFT buffer and it also disturbs FACM phase recovery.
-    enableKnownHPreEq = isfield(opt,'enableKnownHPreEqualizer') && logical(opt.enableKnownHPreEqualizer);
-    if noisePlacement == "afterEqualizer" && enableKnownHPreEq
-        rxEqualizedClean = applyKnownChannelEqualizer(channelOutput, opt, rxSNRForAWGN, false, hState);
-        [rxNoisyWaveform, noiseInfo] = addReceiverNoise(rxEqualizedClean, opt, Fs, rxSNRForAWGN, rxEqualizedClean);
-        rxWaveform = rxNoisyWaveform;
-    else
-        [rxNoisyWaveform, noiseInfo] = addReceiverNoise(channelOutput, opt, Fs, rxSNRForAWGN, channelInput);
-        rxWaveform = rxNoisyWaveform;
-        if enableKnownHPreEq
-            rxWaveform = applyKnownChannelEqualizer(rxWaveform, opt, noiseInfo.EquivalentSNR_dB, false, hState);
-        end
-    end
-
-    [fineSynced, payloadSym, decodedTFBits, rxWork, syncSym, decodedFrames, snrFrame, facmStats] = ...
-        facmReceiveAndDecode(rxWaveform, cfg, rxParams, phyParams, simParams, fSym, acmFmt, opt);
-
-    refConst = HelperCCSDSFACMReferenceConstellation(acmFmt);
-    refConst = refConst(:) / sqrt(mean(abs(refConst(:)).^2));
-
-    rawSym = rxWaveform(1:sps:end);
-    rawSym = normPwr(rawSym);
-    fineSynced = normPwr(fineSynced);
-    payloadSym = normPwr(payloadSym);
-
-    [berVal, lockRate] = computeFACMBER(decodedTFBits, bits, simParams, decodedFrames, opt);
-    [evm_pre, ~] = computeEVM(rawSym, refConst);
-    [evm_post, mer_post] = computeEVM(fineSynced, refConst);
-    snr_est = computeSNRest(fineSynced, refConst);
-    if isfinite(snrFrame) && snrFrame > 0
-        snr_est = 10*log10(snrFrame);
-    end
-    papr_dB = 10*log10(max(abs(txWaveform).^2)/mean(abs(txWaveform).^2));
-
-    res = struct();
-    res.modType = facmModulationName(acmFmt);
-    res.ActualWaveformDuration_s = actualWaveformDuration_s;
-    res.ACMFormat = acmFmt;
-    res.CodeRate = facmCodeRate(acmFmt);
-    res.snr_in = snr_val;
-    res.NoisePlacement = char(noisePlacement);
-    res.NoiseMode = char(noiseInfo.Mode);
-    if isfinite(noiseInfo.PSD_dBmHz)
-        res.NoisePSD_dBmHz = noiseInfo.PSD_dBmHz;
-        res.NoiseBandwidthHz = noiseInfo.BandwidthHz;
-        res.NoisePower_dBm = noiseInfo.NoisePower_dBm;
-        res.NoiseReferenceLevel_dBm = noiseInfo.ReferenceLevel_dBm;
-    end
-    res.NoiseEquivalentSNR_dB = noiseInfo.EquivalentSNR_dB;
-    res.cfo_in = cfo_val;
-    res.phase_in = phase_deg;
-    res.delay_in = delay_val;
-    res.centerFrequencyHz = getCenterFrequencyHz(opt, 0);
-    res.IFHz = res.centerFrequencyHz;
-    res.carrierFreqHz = res.centerFrequencyHz;
-    res.inputLevelDbm = getInputLevelDbm(opt, -10);
-    res.outputLevelDbm = res.inputLevelDbm;
-    res.BER = berVal;
-    res.EVM_pre_pct = evm_pre;
-    res.EVM_post_pct = evm_post;
-    res.MER_dB = mer_post;
-    res.SNR_est_dB = snr_est;
-    res.PAPR_dB = papr_dB;
-    res.LockRate = lockRate;
-    res.Fs = Fs;
-    if isfield(facmStats,'cfo_est_Hz')
-        res.cfo_est_Hz = facmStats.cfo_est_Hz;
-        res.FACMCFOEstimates_Hz = facmStats.cfoEstimates_Hz;
-    end
-    if isfield(facmStats,'residualCFO_Hz')
-        res.FACMResidualCFO_Hz = facmStats.residualCFO_Hz;
-        res.FACMResidualCFOEstimates_Hz = facmStats.residualCFOEstimates_Hz;
-    end
-    if isfield(facmStats,'FDOK'), res.FDOK = facmStats.FDOK; end
-    if isfield(facmStats,'FDFail'), res.FDFail = facmStats.FDFail; end
-    if isfield(facmStats,'TFOK'), res.TFOK = facmStats.TFOK; end
-    if isfield(facmStats,'TFEmpty'), res.TFEmpty = facmStats.TFEmpty; end
-    if isfield(facmStats,'AcquisitionFrames')
-        res.AcquisitionFrames = facmStats.AcquisitionFrames;
-        res.AcquisitionTime_s = facmStats.AcquisitionTime_s;
-    end
-    res.HEnabled = hInfo.Enabled;
-    res.HMode = char(hInfo.Mode);
-    res.HNumTaps = hInfo.NumTaps;
-    res.HEffectiveTaps = hInfo.EffectiveTaps;
-    res.HGain_dB = hInfo.Gain_dB;
-    if isfield(hInfo, 'Meta')
-        res.HChannelMeta = hInfo.Meta;
-    end
-
-    ctx.txWaveform = txWaveform;
-    ctx.channelInput = channelInput;
-    ctx.channelOutput = channelOutput;
-    ctx.rxNoisyWaveform = rxNoisyWaveform;
-    ctx.rxWaveform = rxWaveform;
-    % 保持旧字段表示实际进入同步器的信号。
-    ctx.coarseSynced = rxWork;
-    ctx.TimeSynced = syncSym;
-    ctx.fineSynced = fineSynced;
-    ctx.rawSym = rawSym;
-    ctx.refConst = refConst;
-    ctx.Fs = Fs;
-    ctx.sps = sps;
-    ctx.bestRot = 0;
-end
-
-function [fineSynced, payloadAll, decodedTFBits, filteredRx, syncSym, decodedFrames, snrMean, facmStats] = facmReceiveAndDecode(rxWaveform, cfg, rxParams, phyParams, simParams, fSym, acmFmt, opt)
-    sps = cfg.SamplesPerSymbol;
-    rrcfilt = comm.RaisedCosineReceiveFilter( ...
-        'RolloffFactor', cfg.RolloffFactor, ...
-        'FilterSpanInSymbols', cfg.FilterSpanInSymbols, ...
-        'InputSamplesPerSymbol', sps, ...
-        'DecimationFactor', 1);
-    b = coeffs(rrcfilt);
-    rrcfilt.Gain = sum(b.Numerator);
-
-    Kp = 1/(pi*(1-((cfg.RolloffFactor^2)/4)))*sin(pi*cfg.RolloffFactor/2);
-    symsyncobj = comm.SymbolSynchronizer( ...
-        'DampingFactor', 1/sqrt(2), ...
-        'DetectorGain', Kp, ...
-        'TimingErrorDetector', 'Gardner (non-data-aided)', ...
-        'Modulation', 'PAM/PSK/QAM', ...
-        'NormalizedLoopBandwidth', 0.005, ...
-        'SamplesPerSymbol', sps);
-
-    filteredRx = [];
-    syncSym = [];
-
-    fineSynced = [];
-    payloadAll = [];
-    decodedTFBits = [];
-    decodedFrames = 0;
-    snrVals = [];
-    cfoEstVals = [];
-    residualCFOVals = [];
-    acquisitionFrame = NaN;
-    facmStats = struct();
-    debugFACM = isfield(opt,'debugFACM') && logical(opt.debugFACM);
-    dbgPhaseOK = 0;
-    dbgPhaseFail = 0;
-    dbgFDOK = 0;
-    dbgFDFail = 0;
-    dbgTFOK = 0;
-    dbgTFEmpty = 0;
-    dbgBERFrames = 0;
-    dbgPayloadShort = 0;
-    fll = HelperCCSDSFACMFLL('SampleRate', fSym, 'K1', 0.17, 'K2', 0);
-    fineCFOSync = comm.PhaseFrequencyOffset('SampleRate', fSym);
-    G = 1;
-    plFrameSize = rxParams.plFrameSize;
-    scrambler = rxParams.PLRandomSymbols(:);
-    extraBits = [];
-    numIter = 10;
-    if isfield(opt,'facmNumIterations') && ~isempty(opt.facmNumIterations)
-        numIter = max(1, round(double(opt.facmNumIterations)));
-    end
-
-    stIdx = 0;
-    endIdx = min(stIdx + plFrameSize*sps, length(rxWaveform));
-    rxData = rxWaveform(stIdx+1:endIdx);
-    stIdx = endIdx;
-    filteredChunk = rrcfilt(rxData);
-    filteredRx = [filteredRx; filteredChunk]; %#ok<AGROW>
-    syncChunk = symsyncobj(filteredChunk);
-    syncSym = [syncSym; syncChunk]; %#ok<AGROW>
-    syncidx = HelperCCSDSFACMFrameSync(syncChunk, rxParams.RefFM);
-    if isempty(syncidx)
-        if debugFACM
-            fprintf('   [FACM DEBUG] frame sync failed: no sync index found, syncSym=%d\n', length(syncChunk));
-        end
-        snrMean = NaN;
-        facmStats = localFACMStats(cfoEstVals, residualCFOVals, dbgFDOK, dbgFDFail, dbgTFOK, dbgTFEmpty, ...
-            acquisitionFrame, plFrameSize, fSym);
-        return;
-    end
-    leftOutSym = syncChunk(syncidx(1):end);
-
-    if debugFACM
-        fprintf('   [FACM DEBUG] syncidx(1)=%d, syncSym=%d, plFrameSize=%d, warmup=%d, berFrames=%d\n', ...
-            syncidx(1), length(syncChunk), rxParams.plFrameSize, simParams.InitalSyncFrames, simParams.NumFramesForBER);
-    end
-
-    frameIndex = 1;
-    snrAveragingFactor = 6;
-    snrWindow = zeros(snrAveragingFactor,1);
-    idxTemp = 0;
-    while stIdx < length(rxWaveform)
-        endIdx = min(stIdx + plFrameSize*sps, length(rxWaveform));
-        rxData = rxWaveform(stIdx+1:endIdx);
-        stIdx = endIdx;
-        if length(rxData) < plFrameSize*sps
-            break;
-        end
-
-        filteredChunk = rrcfilt(rxData);
-        filteredRx = [filteredRx; filteredChunk]; %#ok<AGROW>
-        syncChunk = symsyncobj(filteredChunk);
-        syncSym = [syncSym; syncChunk]; %#ok<AGROW>
-        syncidx = HelperCCSDSFACMFrameSync(syncChunk, rxParams.RefFM);
-        if isempty(syncidx)
-            dbgFDFail = dbgFDFail + 1;
-            extraBits = [];
-            frameIndex = frameIndex + 1;
-            continue;
-        end
-
-        oneFrame = [leftOutSym; syncChunk(1:syncidx(1)-1)];
-        leftOutSym = syncChunk(syncidx(1):end);
-        if length(oneFrame) < plFrameSize
-            oneFrame = [oneFrame; zeros(plFrameSize-length(oneFrame),1)];
-        else
-            oneFrame = oneFrame(1:plFrameSize);
-        end
-
-        [fllOut, ~] = fll(oneFrame);
-        cfoEst = HelperCCSDSFACMFMFrequencyEstimate(fllOut(1:256), rxParams.RefFM, fSym);
-        cfoEstVals(end+1,1) = cfoEst; %#ok<AGROW>
-        fineCFOSync.FrequencyOffset = -cfoEst;
-        cfoCorrected = fineCFOSync(fllOut);
-        cfoCorrected = facmFrameMarkerEqualize(cfoCorrected, rxParams, opt, acmFmt);
-        residualCFOVals(end+1,1) = localFACMResidualCFOFromFrameMarker( ...
-            cfoCorrected(1:min(256,end)), rxParams.RefFM, fSym); %#ok<AGROW>
-
-        frameSNR = HelperCCSDSFACMSNREstimate(cfoCorrected(1:256), rxParams.RefFM);
-        if ~isfinite(frameSNR) || frameSNR <= 0
-            frameSNR = 10^(20/10);
-        end
-        snrWindow(idxTemp+1) = frameSNR;
-        idxTemp = mod(idxTemp + 1, snrAveragingFactor);
-        if frameIndex < snrAveragingFactor
-            finalFrameSNR = mean(snrWindow(1:max(frameIndex,1)));
-        else
-            finalFrameSNR = mean(snrWindow);
-        end
-        if ~isfinite(finalFrameSNR) || finalFrameSNR <= 0
-            finalFrameSNR = frameSNR;
-        end
-        snrVals(end+1,1) = finalFrameSNR; %#ok<AGROW>
-
-        phaseRecovered = false;
-        if cfg.HasPilots
-            try
-                if isFACMPostPilotLSEnabled(opt)
-                    [payloadWithPilots, frameDescriptor] = facmPhaseRecoveryKeepPilots( ...
-                        cfoCorrected, rxParams.PilotSeq, rxParams.RefFM);
-                    agcIn = [frameDescriptor; payloadWithPilots];
-                else
-                    [payload, frameDescriptor] = HelperCCSDSFACMPhaseRecovery(cfoCorrected, rxParams.PilotSeq, rxParams.RefFM);
-                    agcIn = [frameDescriptor; payload];
-                    payloadWithPilots = [];
-                end
-                if frameIndex >= snrAveragingFactor
-                    [agcOut, G] = HelperDigitalAutomaticGainControl(agcIn, finalFrameSNR, G);
-                else
-                    agcOut = agcIn;
-                end
-                if isFACMPostPilotLSEnabled(opt)
-                    frameDescriptor = agcOut(1:64);
-                    payloadWithPilots = agcOut(65:end);
-                    [payload, payloadWithPilotsEq] = facmPostPilotLSEqualize(payloadWithPilots, rxParams, opt);
-                    agcOut = [frameDescriptor; payload];
-                    if isfield(opt,'debugFACM') && logical(opt.debugFACM)
-                        [pilotEVM, pilotMER] = facmPilotErrorMetric(payloadWithPilotsEq, rxParams);
-                        fprintf('   [FACM POST EQ] mode=pilot-ls, pilotEVM=%.2f%%, pilotMER=%.2fdB\n', ...
-                            pilotEVM, pilotMER);
-                    end
-                else
-                    payload = agcOut(65:end);
-                end
-                fineSynced = [fineSynced; agcOut]; %#ok<AGROW>
-                dbgPhaseOK = dbgPhaseOK + 1;
-                phaseRecovered = true;
-            catch
-                payload = cfoCorrected(321:min(end,320+8100*16));
-                [payload, G] = HelperDigitalAutomaticGainControl(payload, finalFrameSNR, G);
-                fineSynced = [fineSynced; payload]; %#ok<AGROW>
-                dbgPhaseFail = dbgPhaseFail + 1;
-            end
-        else
-            phaseFixed = compensateFACMFrameMarkerPhase(cfoCorrected, rxParams.RefFM);
-            [agcOut, G] = HelperDigitalAutomaticGainControl(phaseFixed, finalFrameSNR, G);
-            payload = agcOut(321:min(end,320+8100*16));
-            fineSynced = [fineSynced; agcOut]; %#ok<AGROW>
-            dbgPhaseOK = dbgPhaseOK + 1;
-            phaseRecovered = true;
-        end
-
-        payload = payload(:);
-        if length(payload) >= 8100*16
-            payload = payload(1:8100*16);
-            payloadDescrambled = payload .* conj(scrambler(1:length(payload)));
-            payloadAll = [payloadAll; payloadDescrambled]; %#ok<AGROW>
-            nVar = max(1/finalFrameSNR, 1e-6);
-            fullFrameDecoded = zeros(16*phyParams.K,1);
-            for iBlk = 1:16
-                idx = (iBlk-1)*8100 + (1:8100);
-                softBits = HelperCCSDSFACMDemodulate(payloadDescrambled(idx), acmFmt, nVar);
-                decoded = HelperSCCCDecode(softBits(:), acmFmt, numIter);
-                fullFrameDecoded((iBlk-1)*phyParams.K+1:iBlk*phyParams.K) = decoded;
-            end
-
-            try
-                [fdACMFormat, fdHasPilots, decFail] = HelperCCSDSFACMFDRecover(agcOut(1:64));
-            catch
-                fdACMFormat = acmFmt;
-                fdHasPilots = cfg.HasPilots;
-                decFail = false;
-            end
-            fdOK = ~decFail && fdACMFormat == acmFmt && fdHasPilots == cfg.HasPilots;
-            if fdOK
-                dbgFDOK = dbgFDOK + 1;
-            else
-                dbgFDFail = dbgFDFail + 1;
-            end
-
-            decodedCols = 0;
-            if fdOK
-                [~, decodedBuffer, extraBits] = HelperCCSDSFACMTFSynchronize( ...
-                    [extraBits; fullFrameDecoded], phyParams.ASM, phyParams.NumInputBits);
-                if ~isempty(decodedBuffer)
-                    decodedCols = size(decodedBuffer,2);
-                    if isnan(acquisitionFrame)
-                        acquisitionFrame = frameIndex;
-                    end
-                    prnSeq = satcom.internal.ccsds.tmrandseq(phyParams.NumInputBits);
-                    finalBits = xor(decodedBuffer(33:end,:) > 0, prnSeq);
-                    if frameIndex > simParams.InitalSyncFrames
-                        decodedTFBits = [decodedTFBits, finalBits]; %#ok<AGROW>
-                        dbgBERFrames = dbgBERFrames + size(finalBits,2);
-                    end
-                    dbgTFOK = dbgTFOK + 1;
-                else
-                    dbgTFEmpty = dbgTFEmpty + 1;
-                end
-            end
-            decodedFrames = decodedFrames + 1;
-            if debugFACM && (frameIndex <= 5 || frameIndex == simParams.InitalSyncFrames || mod(frameIndex,20) == 0)
-                fprintf('   [FACM DEBUG] frame=%3d cfoEst=%+.2fHz SNR=%.2fdB phaseOK=%d FD=%d/%d/%d TFcols=%d payload=%d decodedTFcols=%d\n', ...
-                    frameIndex, cfoEst, 10*log10(finalFrameSNR), phaseRecovered, ...
-                    fdACMFormat, fdHasPilots, ~decFail, decodedCols, length(payload), size(decodedTFBits,2));
-            end
-        else
-            dbgPayloadShort = dbgPayloadShort + 1;
-            if debugFACM && frameIndex <= 5
-                fprintf('   [FACM DEBUG] frame=%3d short payload=%d, expected=%d\n', ...
-                    frameIndex, length(payload), 8100*16);
-            end
-        end
-        frameIndex = frameIndex + 1; %#ok<NASGU>
-    end
-
-    if debugFACM
-        fprintf('   [FACM DEBUG] summary: PL=%d phaseOK=%d phaseFail=%d FDOK=%d FDFail=%d TFOK=%d TFEmpty=%d shortPayload=%d BERcols=%d decodedFrames=%d\n', ...
-            max(frameIndex-1,0), dbgPhaseOK, dbgPhaseFail, dbgFDOK, dbgFDFail, dbgTFOK, dbgTFEmpty, dbgPayloadShort, dbgBERFrames, decodedFrames);
-    end
-
-    if isempty(payloadAll)
-        payloadAll = fineSynced;
-    end
-    if isempty(snrVals)
-        snrMean = NaN;
-    else
-        snrMean = mean(snrVals);
-    end
-    facmStats = localFACMStats(cfoEstVals, residualCFOVals, dbgFDOK, dbgFDFail, dbgTFOK, dbgTFEmpty, ...
-        acquisitionFrame, plFrameSize, fSym);
-end
-
-function tf = isFACMPostPilotLSEnabled(opt)
-    tf = false;
-    mode = "";
-    if isfield(opt,'facmEqualizerMode') && ~isempty(opt.facmEqualizerMode)
-        mode = lower(string(opt.facmEqualizerMode));
-    elseif isfield(opt,'equalizerMode') && ~isempty(opt.equalizerMode)
-        mode = lower(string(opt.equalizerMode));
-    end
-    tf = any(strcmp(mode, ["pilot-ls", "pilot-post-ls"]));
-end
-
-function stats = localFACMStats(cfoEstVals, residualCFOVals, fdOK, fdFail, tfOK, tfEmpty, acquisitionFrame, plFrameSize, fSym)
-    stats = struct();
-    cfoEstVals = cfoEstVals(:);
-    cfoEstVals = cfoEstVals(isfinite(cfoEstVals));
-    stats.cfoEstimates_Hz = cfoEstVals;
-    if isempty(cfoEstVals)
-        stats.cfo_est_Hz = NaN;
-    else
-        nTail = min(10, numel(cfoEstVals));
-        stats.cfo_est_Hz = median(cfoEstVals(end-nTail+1:end));
-    end
-
-    residualCFOVals = residualCFOVals(:);
-    residualCFOVals = residualCFOVals(isfinite(residualCFOVals));
-    stats.residualCFOEstimates_Hz = residualCFOVals;
-    if isempty(residualCFOVals)
-        stats.residualCFO_Hz = NaN;
-    else
-        nTail = min(10, numel(residualCFOVals));
-        stats.residualCFO_Hz = median(residualCFOVals(end-nTail+1:end));
-    end
-
-    stats.FDOK = fdOK;
-    stats.FDFail = fdFail;
-    stats.TFOK = tfOK;
-    stats.TFEmpty = tfEmpty;
-    stats.AcquisitionFrames = acquisitionFrame;
-    if isfinite(acquisitionFrame) && isfinite(plFrameSize) && isfinite(fSym) && fSym > 0
-        stats.AcquisitionTime_s = acquisitionFrame * plFrameSize / fSym;
-    else
-        stats.AcquisitionTime_s = NaN;
-    end
-end
-
-function residCFO_Hz = localFACMResidualCFOFromFrameMarker(frameMarker, refFM, fSym)
-    residCFO_Hz = NaN;
-    if isempty(frameMarker) || isempty(refFM) || ~isfinite(fSym) || fSym <= 0
-        return;
-    end
-
-    y = frameMarker(:);
-    ref = refFM(:);
-    L = min([numel(y), numel(ref), 256]);
-    if L < 16
-        return;
-    end
-
-    phErr = unwrap(angle(y(1:L) .* conj(ref(1:L))));
-    n = (0:L-1).';
-    coef = polyfit(n, phErr, 1);
-    residCFO_Hz = coef(1) * fSym / (2*pi);
-end
-
-function [payloadWithPilots, frameDescriptor] = facmPhaseRecoveryKeepPilots(framesym, pilots, refFM)
-    numSymPerBlk = 540;
-    numFD = 64;
-    numSubSections = 240;
-    symPerSubSection = 556;
-
-    codeBlks = reshape(framesym(321:end), symPerSubSection, []);
-    pilotBlks = reshape(pilots, 16, []);
-    Tm = angle(sum(codeBlks(end-15:end,:).*conj(pilotBlks)));
-
-    payloadWithPilotsTemp = zeros(symPerSubSection, numSubSections);
-
-    Tm0 = angle(sum(framesym(256-15:256).*conj(refFM(end-15:end))));
-    phasesInBlk = wrapToPi(Tm0 + (wrapToPi(Tm(1)-Tm0)/(numSymPerBlk+numFD+1))*(1:(numSymPerBlk+numFD)));
-    phaseCompensated = framesym(257:256+numFD+numSymPerBlk).*exp(-1j*phasesInBlk.');
-    frameDescriptor = phaseCompensated(1:numFD);
-    payloadWithPilotsTemp(1:numSymPerBlk,1) = phaseCompensated(numFD+1:end);
-    payloadWithPilotsTemp(numSymPerBlk+1:end,1) = codeBlks(numSymPerBlk+1:end,1).*exp(-1j*Tm(1));
-
-    for iSubSection = 2:numSubSections
-        % Match the MathWorks helper data phase convention, and keep pilots
-        % phase-normalized to their own pilot block for post-equalizer training.
-        phasesInBlk = Tm(iSubSection-1) * ones(numSymPerBlk,1);
-        payloadWithPilotsTemp(1:numSymPerBlk,iSubSection) = ...
-            codeBlks(1:numSymPerBlk,iSubSection).*exp(-1j*phasesInBlk);
-        payloadWithPilotsTemp(numSymPerBlk+1:end,iSubSection) = ...
-            codeBlks(numSymPerBlk+1:end,iSubSection).*exp(-1j*Tm(iSubSection));
-    end
-
-    payloadWithPilots = payloadWithPilotsTemp(:);
-end
-
-function [payloadNoPilots, payloadWithPilotsEq] = facmPostPilotLSEqualize(payloadWithPilots, rxParams, opt)
-    y = payloadWithPilots(:);
-    n = length(y);
-    payloadWithPilotsEq = y;
-
-    if ~isfield(rxParams,'PilotIndices') || ~isfield(rxParams,'PilotSeq') || ...
-            isempty(rxParams.PilotIndices) || isempty(rxParams.PilotSeq)
-        payloadNoPilots = facmRemovePilots(payloadWithPilotsEq, rxParams);
-        return;
-    end
-
-    nTaps = 11;
-    if isfield(opt,'facmEqualizerTaps') && ~isempty(opt.facmEqualizerTaps)
-        nTaps = max(3, round(double(opt.facmEqualizerTaps)));
-    elseif isfield(opt,'pilotLSTaps') && ~isempty(opt.pilotLSTaps)
-        nTaps = max(3, round(double(opt.pilotLSTaps)));
-    end
-    if mod(nTaps,2) == 0
-        nTaps = nTaps + 1;
-    end
-    dly = floor(nTaps/2);
-
-    reg = 1e-2;
-    if isfield(opt,'pilotLSReg') && ~isempty(opt.pilotLSReg)
-        reg = max(0, double(opt.pilotLSReg));
-    elseif isfield(opt,'facmEqualizerReg') && ~isempty(opt.facmEqualizerReg)
-        reg = max(0, double(opt.facmEqualizerReg));
-    end
-
-    pilotIdx = double(rxParams.PilotIndices(:));
-    pilotRef = rxParams.PilotSeq(:);
-    valid = pilotIdx > dly & pilotIdx <= n-dly;
-    pilotIdx = pilotIdx(valid);
-    pilotRef = pilotRef(valid);
-    if numel(pilotIdx) < max(32, 2*nTaps)
-        payloadNoPilots = facmRemovePilots(payloadWithPilotsEq, rxParams);
-        return;
-    end
-
-    maxTrain = inf;
-    if isfield(opt,'pilotLSMaxTrain') && ~isempty(opt.pilotLSMaxTrain)
-        maxTrain = max(32, round(double(opt.pilotLSMaxTrain)));
-    end
-    if isfinite(maxTrain) && numel(pilotIdx) > maxTrain
-        pick = round(linspace(1, numel(pilotIdx), maxTrain));
-        pilotIdx = pilotIdx(pick);
-        pilotRef = pilotRef(pick);
-    end
-
-    X = zeros(numel(pilotIdx), nTaps);
-    for k = 1:numel(pilotIdx)
-        ii = pilotIdx(k);
-        X(k,:) = y(ii+dly:-1:ii-dly).';
-    end
-
-    w = (X' * X + reg * eye(nTaps)) \ (X' * pilotRef);
-    yEq = filter(w, 1, y);
-    if dly > 0
-        yEq = [yEq(dly+1:end); repmat(yEq(end), dly, 1)];
-    end
-
-    if ~isfield(opt,'normalizeEqualizerOutput') || logical(opt.normalizeEqualizerOutput)
-        inPower = mean(abs(y).^2) + eps;
-        outPower = mean(abs(yEq).^2) + eps;
-        yEq = yEq / sqrt(outPower) * sqrt(inPower);
-    end
-
-    payloadWithPilotsEq = yEq(:);
-    payloadNoPilots = facmRemovePilots(payloadWithPilotsEq, rxParams);
-end
-
-function payloadNoPilots = facmRemovePilots(payloadWithPilots, rxParams)
-    y = payloadWithPilots(:);
-    mask = true(length(y),1);
-    if isfield(rxParams,'PilotIndices') && ~isempty(rxParams.PilotIndices)
-        idx = double(rxParams.PilotIndices(:));
-        idx = idx(idx >= 1 & idx <= length(y));
-        mask(idx) = false;
-    end
-    payloadNoPilots = y(mask);
-end
-
-function [evmPct, merDB] = facmPilotErrorMetric(payloadWithPilots, rxParams)
-    evmPct = NaN;
-    merDB = NaN;
-    if ~isfield(rxParams,'PilotIndices') || ~isfield(rxParams,'PilotSeq') || ...
-            isempty(rxParams.PilotIndices) || isempty(rxParams.PilotSeq)
-        return;
-    end
-    idx = double(rxParams.PilotIndices(:));
-    valid = idx >= 1 & idx <= length(payloadWithPilots);
-    idx = idx(valid);
-    ref = rxParams.PilotSeq(valid);
-    if isempty(idx)
-        return;
-    end
-    err = payloadWithPilots(idx) - ref(:);
-    evmPct = sqrt(mean(abs(err).^2) / (mean(abs(ref).^2) + eps)) * 100;
-    merDB = -20*log10(evmPct/100 + eps);
-end
-
-function y = compensateFACMFrameMarkerPhase(x, refFM)
-    y = x;
-    if length(x) < 256
-        return;
-    end
-    Tm0 = angle(sum(x(1:16).*conj(refFM(1:16))));
-    Tm1 = angle(sum(x(241:256).*conj(refFM(end-15:end))));
-    phases = wrapToPi(Tm0 + (wrapToPi(Tm1-Tm0)/257)*(1:length(x)));
-    y = x(:).*exp(-1j*phases(:));
-end
-
-function y = facmFrameMarkerEqualize(x, rxParams, opt, acmFmt)
-    y = x(:);
-    refFM = rxParams.RefFM;
-    useEq = isfield(opt,'enableHChannel') && logical(opt.enableHChannel);
-    if isfield(opt,'enableFACMEqualizer') && ~isempty(opt.enableFACMEqualizer)
-        useEq = logical(opt.enableFACMEqualizer);
-    end
-    if ~useEq || length(y) < 256 || isempty(refFM)
-        return;
-    end
-
-    nTaps = 7;
-    if isfield(opt,'facmEqualizerTaps') && ~isempty(opt.facmEqualizerTaps)
-        nTaps = max(3, round(double(opt.facmEqualizerTaps)));
-    end
-    if mod(nTaps, 2) == 0
-        nTaps = nTaps + 1;
-    end
-    mu = 1e-3;
-    if isfield(opt,'facmEqualizerReg') && ~isempty(opt.facmEqualizerReg)
-        mu = max(0, double(opt.facmEqualizerReg));
-    end
-    mode = "frame-ls";
-    if isfield(opt,'facmEqualizerMode') && ~isempty(opt.facmEqualizerMode)
-        mode = lower(string(opt.facmEqualizerMode));
-    elseif isfield(opt,'equalizerMode') && ~isempty(opt.equalizerMode)
-        eqMode = lower(string(opt.equalizerMode));
-        if any(strcmp(eqMode, ["dd16apsk", "cma16apsk", "rde16apsk", ...
-                "rde-apsk", "rdeapsk", "pilot-lms", "pilot-dfe", "frame-ls"]))
-            mode = eqMode;
-        end
-    end
-    if mode == "pilot-dfe" && ...
-            ~(isfield(opt,'enableExperimentalPilotDFE') && logical(opt.enableExperimentalPilotDFE))
-        mode = "pilot-lms";
-    end
-
-    dly = floor(nTaps/2);
-    trainLen = min(256, length(refFM));
-    rows = trainLen - nTaps + 1;
-    if rows < 32
-        return;
-    end
-
-    X = zeros(rows, nTaps);
-    d = zeros(rows, 1);
-    for r = 1:rows
-        center = r + dly;
-        X(r,:) = y(center + dly : -1 : center - dly).';
-        d(r) = refFM(center);
-    end
-    w = (X' * X + mu * eye(nTaps)) \ (X' * d);
-
-    if any(strcmp(mode, ["dd16apsk", "cma16apsk", "rde16apsk", ...
-            "rde-apsk", "rdeapsk", "pilot-lms", "pilot-dfe"]))
-        refConst = HelperCCSDSFACMReferenceConstellation(acmFmt);
-        refConst = refConst(:) ./ sqrt(mean(abs(refConst(:)).^2) + eps);
-        yNorm = y ./ sqrt(mean(abs(y).^2) + eps);
-        if any(strcmp(mode, ["pilot-lms", "pilot-dfe"]))
-            w = facmPilotLMSWeights(yNorm, w, rxParams, nTaps, opt);
-            if mode == "pilot-dfe"
-                yEq = facmPilotDFEEqualize(yNorm, w, rxParams, refConst, nTaps, opt);
-            else
-                yEq = filter(w, 1, yNorm);
-            end
-        elseif any(strcmp(mode, ["rde16apsk", "rde-apsk", "rdeapsk"]))
-            w = facmRDEAPSKEqualizer(yNorm, w, refConst, nTaps, opt);
-            yEq = filter(w, 1, yNorm);
-        else
-            w = facmDecisionDirectedEqualizer(yNorm, w, refConst, nTaps, opt);
-            yEq = filter(w, 1, yNorm);
-        end
-    else
-        yEq = filter(w, 1, y);
-    end
-    if dly > 0 && mode ~= "pilot-dfe"
-        yEq = [yEq(dly+1:end); repmat(yEq(end), dly, 1)];
-    end
-    pwr = mean(abs(yEq).^2);
-    if isfinite(pwr) && pwr > 0
-        y = yEq ./ sqrt(pwr);
-    else
-        y = yEq;
-    end
-
-    if isfield(opt,'debugFACM') && logical(opt.debugFACM)
-        preErr = mean(abs(y(1:trainLen) - refFM(1:trainLen)).^2);
-        postErr = mean(abs(yEq(1:trainLen) - refFM(1:trainLen)).^2);
-        fprintf('   [FACM EQ] mode=%s, taps=%d, train=%d, preMSE=%.4g, postMSE=%.4g\n', ...
-            mode, nTaps, trainLen, preErr, postErr);
-    end
-end
-
-function w = facmPilotLMSWeights(y, w0, rxParams, nTaps, opt)
-    y = y(:);
-    w = w0(:);
-    dly = floor(nTaps/2);
-
-    [knownIdx, knownSym] = facmKnownTrainingSymbols(rxParams, length(y));
-    if numel(knownIdx) < 32
-        return;
-    end
-
-    mu = 2e-4;
-    if isfield(opt,'pilotLMSStep') && ~isempty(opt.pilotLMSStep)
-        mu = max(0, double(opt.pilotLMSStep));
-    elseif isfield(opt,'lmsStep') && ~isempty(opt.lmsStep)
-        mu = max(0, double(opt.lmsStep));
-    end
-    nPass = 1;
-    if isfield(opt,'pilotLMSPasses') && ~isempty(opt.pilotLMSPasses)
-        nPass = max(1, round(double(opt.pilotLMSPasses)));
-    end
-    if mu == 0
-        return;
-    end
-
-    knownSym = knownSym ./ sqrt(mean(abs(knownSym).^2) + eps);
-    for pass = 1:nPass
-        for k = 1:numel(knownIdx)
-            n = knownIdx(k);
-            if n <= dly || n > length(y)-dly
-                continue;
-            end
-            xv = y(n+dly:-1:n-dly);
-            z = w.' * xv;
-            err = z - knownSym(k);
-            normX = real(xv' * xv) + 1e-6;
-            w = w - (mu / normX) * conj(err) * conj(xv);
-        end
-    end
-end
-
-function yEq = facmPilotDFEEqualize(y, w, rxParams, refConst, nTaps, opt)
-    y = y(:);
-    w = w(:);
-    dly = floor(nTaps/2);
-    nFb = 3;
-    if isfield(opt,'dfeFeedbackTaps') && ~isempty(opt.dfeFeedbackTaps)
-        nFb = max(0, round(double(opt.dfeFeedbackTaps)));
-    end
-    muFF = 8e-5;
-    if isfield(opt,'dfeFFStep') && ~isempty(opt.dfeFFStep)
-        muFF = max(0, double(opt.dfeFFStep));
-    end
-    muFB = 8e-5;
-    if isfield(opt,'dfeFBStep') && ~isempty(opt.dfeFBStep)
-        muFB = max(0, double(opt.dfeFBStep));
-    end
-    errGate = 0.45;
-    if isfield(opt,'dfeDecisionErrorGate') && ~isempty(opt.dfeDecisionErrorGate)
-        errGate = max(0, double(opt.dfeDecisionErrorGate));
-    end
-
-    [knownIdx, knownSym] = facmKnownTrainingSymbols(rxParams, length(y));
-    knownSym = knownSym ./ sqrt(mean(abs(knownSym).^2) + eps);
-    knownMap = containers.Map('KeyType','double','ValueType','any');
-    for k = 1:numel(knownIdx)
-        knownMap(knownIdx(k)) = knownSym(k);
-    end
-
-    b = zeros(nFb,1);
-    fb = zeros(nFb,1);
-    yEq = zeros(size(y));
-    for n = dly+1:length(y)-dly
-        xv = y(n+dly:-1:n-dly);
-        zFF = w.' * xv;
-        if n <= 320
-            yEq(n) = zFF;
-            continue;
-        end
-        z = zFF;
-        if nFb > 0
-            z = z - b.' * fb;
-        end
-
-        isKnown = isKey(knownMap, n);
-        if isKnown
-            dHat = knownMap(n);
-            allowUpdate = true;
-        else
-            [dist, idx] = min(abs(z - refConst));
-            dHat = refConst(idx);
-            allowUpdate = isfinite(dist) && dist <= errGate;
-        end
-
-        if allowUpdate
-            err = z - dHat;
-            normX = real(xv' * xv) + 1e-6;
-            w = w - (muFF / normX) * conj(err) * conj(xv);
-            if nFb > 0
-                normFb = real(fb' * fb) + 1e-6;
-                b = b + (muFB / normFb) * conj(err) * conj(fb);
-            end
-        end
-
-        yEq(n) = z;
-        if nFb > 0
-            fb = [dHat; fb(1:end-1)];
-        end
-    end
-
-    if dly > 0
-        yEq(1:dly) = yEq(dly+1);
-        yEq(end-dly+1:end) = yEq(end-dly);
-    end
-end
-
-function [idx, sym] = facmKnownTrainingSymbols(rxParams, frameLen)
-    idxFM = (1:min(256, frameLen)).';
-    symFM = rxParams.RefFM(1:numel(idxFM));
-    idx = idxFM(:);
-    sym = symFM(:);
-
-    if isfield(rxParams,'PilotIndices') && isfield(rxParams,'PilotSeq') && ...
-            ~isempty(rxParams.PilotIndices) && ~isempty(rxParams.PilotSeq)
-        idxPilot = 320 + double(rxParams.PilotIndices(:));
-        valid = idxPilot >= 1 & idxPilot <= frameLen;
-        idx = [idx; idxPilot(valid)];
-        sym = [sym; rxParams.PilotSeq(valid)];
-    end
-
-    [idx, order] = sort(idx);
-    sym = sym(order);
-end
-
-function w = facmRDEAPSKEqualizer(y, w0, refConst, nTaps, opt)
-    y = y(:);
-    w = w0(:);
-    dly = floor(nTaps/2);
-
-    radii = sort(unique(round(abs(refConst(:))*1e5)/1e5));
-    radii = radii(radii > 1e-6);
-    if numel(radii) < 2
-        return;
-    end
-
-    mu = 8e-5;
-    if isfield(opt,'rdeStep') && ~isempty(opt.rdeStep)
-        mu = max(0, double(opt.rdeStep));
-    elseif isfield(opt,'cmaStep') && ~isempty(opt.cmaStep)
-        mu = max(0, double(opt.cmaStep));
-    end
-
-    nPass = 2;
-    if isfield(opt,'rdePasses') && ~isempty(opt.rdePasses)
-        nPass = max(1, round(double(opt.rdePasses)));
-    end
-
-    startIdx = 257 + dly;
-    if isfield(opt,'rdeStart') && ~isempty(opt.rdeStart)
-        startIdx = max(dly+1, round(double(opt.rdeStart)));
-    elseif isfield(opt,'ddEqualizerStart') && ~isempty(opt.ddEqualizerStart)
-        startIdx = max(dly+1, round(double(opt.ddEqualizerStart)));
-    end
-    stopIdx = length(y) - dly;
-    if stopIdx <= startIdx || mu == 0
-        return;
-    end
-
-    for pass = 1:nPass
-        for n = startIdx:stopIdx
-            xv = y(n+dly:-1:n-dly);
-            z = w.' * xv;
-            az = abs(z);
-            if az < 1e-8 || ~isfinite(az)
-                continue;
-            end
-            [~, idx] = min(abs(az - radii));
-            dHat = radii(idx) * z / az;
-            err = z - dHat;
-            normX = real(xv' * xv) + 1e-6;
-            w = w - (mu / normX) * conj(err) * conj(xv);
-        end
-    end
-
-    useDDPolish = true;
-    if isfield(opt,'rdeUseDDPolish') && ~isempty(opt.rdeUseDDPolish)
-        useDDPolish = logical(opt.rdeUseDDPolish);
-    end
-    if useDDPolish
-        optDD = opt;
-        if ~isfield(optDD,'ddEqualizerPasses') || isempty(optDD.ddEqualizerPasses)
-            optDD.ddEqualizerPasses = 1;
-        end
-        if ~isfield(optDD,'ddEqualizerStep') || isempty(optDD.ddEqualizerStep)
-            optDD.ddEqualizerStep = mu * 0.5;
-        end
-        w = facmDecisionDirectedEqualizer(y, w, refConst, nTaps, optDD);
-    end
-end
-
-function w = facmDecisionDirectedEqualizer(y, w0, refConst, nTaps, opt)
-    y = y(:);
-    w = w0(:);
-    dly = floor(nTaps/2);
-    mu = 2e-4;
-    if isfield(opt,'ddEqualizerStep') && ~isempty(opt.ddEqualizerStep)
-        mu = max(0, double(opt.ddEqualizerStep));
-    elseif isfield(opt,'cmaStep') && ~isempty(opt.cmaStep)
-        mu = max(0, double(opt.cmaStep));
-    end
-    nPass = 2;
-    if isfield(opt,'ddEqualizerPasses') && ~isempty(opt.ddEqualizerPasses)
-        nPass = max(1, round(double(opt.ddEqualizerPasses)));
-    end
-    startIdx = 257 + dly;
-    if isfield(opt,'ddEqualizerStart') && ~isempty(opt.ddEqualizerStart)
-        startIdx = max(dly+1, round(double(opt.ddEqualizerStart)));
-    end
-    stopIdx = length(y) - dly;
-    if stopIdx <= startIdx
-        return;
-    end
-
-    for pass = 1:nPass
-        for n = startIdx:stopIdx
-            xv = y(n+dly:-1:n-dly);
-            z = w.' * xv;
-            [~, idx] = min(abs(z - refConst));
-            dHat = refConst(idx);
-            err = z - dHat;
-            normX = real(xv' * xv) + 1e-6;
-            w = w - (mu / normX) * conj(err) * conj(xv);
-        end
-    end
-end
-
-function [berVal, lockRate] = computeFACMBER(decodedTFBits, txBits, simParams, decodedFrames, opt)
-    berVal = 0.5;
-    lockRate = min(1, decodedFrames/max(simParams.NumFramesForBER,1));
-    if isempty(decodedTFBits)
-        lockRate = 0;
-        if nargin >= 5 && isfield(opt,'debugFACM') && logical(opt.debugFACM)
-            fprintf('   [FACM BER DEBUG] no decoded TF bits available\n');
-        end
-        return;
-    end
-
-    if nargin >= 5 && isfield(opt,'debugFACM') && logical(opt.debugFACM)
-        nTx = size(txBits,2);
-        nRx = size(decodedTFBits,2);
-        numErr = inf(max(nTx-nRx+1,1),1);
-        if nTx >= nRx
-            for iSliding = 1:nTx-nRx+1
-                txCompBits = txBits(:,iSliding+(0:nRx-1));
-                numErr(iSliding) = nnz(xor(txCompBits,decodedTFBits));
-            end
-            [bestErr, bestIdx] = min(numErr);
-            fprintf('   [FACM BER DEBUG] txCols=%d rxCols=%d bestStartCol=%d err=%d bits=%d ber=%.6g\n', ...
-                nTx, nRx, bestIdx, bestErr, numel(decodedTFBits), bestErr/max(numel(decodedTFBits),1));
-        else
-            fprintf('   [FACM BER DEBUG] txCols=%d rxCols=%d (rx longer than tx)\n', nTx, nRx);
-        end
-    end
-
-    berinfo = struct('NumBitsInError',0,'TotalNumBits',0,'BitErrorRate',0);
-    berinfo = HelperBitErrorRate(txBits, decodedTFBits, berinfo);
-    berVal = berinfo.BitErrorRate;
-end
-
-function acmFmt = resolveFACMFormat(opt)
-    if isfield(opt,'acmFormat')
-        acmFmt = double(opt.acmFormat);
-    elseif isfield(opt,'ACMFormat')
-        acmFmt = double(opt.ACMFormat);
-    else
-        modStr = upper(string(opt.modType));
-        if contains(modStr,'64APSK')
-            acmFmt = 24;
-        elseif contains(modStr,'32APSK')
-            acmFmt = 21;
-        elseif contains(modStr,'16APSK')
-            acmFmt = 14;
-        elseif contains(modStr,'8PSK')
-            acmFmt = 9;
-        else
-            acmFmt = 3;
-        end
-    end
-    acmFmt = max(1, min(27, round(acmFmt)));
-end
-
-function name = facmModulationName(acmFmt)
-    mVals = [2;2;2;2;2;2;3;3;3;3;3;3;4;4;4;4;4;5;5;5;5;5;6;6;6;6;6];
-    switch mVals(acmFmt)
-        case 2
-            name = 'QPSK';
-        case 3
-            name = '8PSK';
-        case 4
-            name = '16APSK';
-        case 5
-            name = '32APSK';
-        otherwise
-            name = '64APSK';
-    end
-end
-
-function r = facmCodeRate(acmFmt)
-    mVals = [2;2;2;2;2;2;3;3;3;3;3;3;4;4;4;4;4;5;5;5;5;5;6;6;6;6;6];
-    kVals = [5758;6958;8398;9838;11278;13198;11278;13198;14878;17038;...
-        19198;21358;19198;21358;23518;25918;28318;25918;28318;30958;33358;...
-        35998;33358;35998;38638;41038;43678];
-    r = kVals(acmFmt)/(mVals(acmFmt)*8100);
-end
 
 function v = getLogicalField(s, name, defv)
     if isfield(s,name) && ~isempty(s.(name))
@@ -17347,6 +16474,33 @@ function r = codeRateNum(opt)
         return;
     end
 end
+function out = localReplayUQPSKTail(timed, capturedRun)
+    [opt,~] = parseEvaluationEntryInputs(capturedRun.Parameters);
+    opt = localNormalizeOrdinaryTPCDefaults(opt);
+    opt = localResolveModulationRateInput(opt);
+    assert(strcmpi(opt.modType,'UQPSK') && strcmpi(opt.channelCoding,'none') && ...
+        strcmpi(opt.DataPathMode,'single') && ~opt.RandomizerEnabled && ...
+        strcmpi(opt.PCMFormat,'NRZ-L') && opt.hasASM, ...
+        'UQPSKReplay:Scope','Replay supports the captured single/no-FEC/NRZ-L case only.');
+    d = capturedRun.Metrics.UQPSKPulseDebug;
+    bitsPerTF = opt.NumBytesInTransferFrame*8;
+    frames = reshape(int8(d.EncodedBits(:)),bitsPerTF+32,[]);
+    refs = num2cell(frames(33:end,:),1).';
+    % Exactly the existing normalization location, carrier and BER chain.
+    timed = timed(:);
+    power = mean(abs(timed).^2);
+    if isfinite(power) && power>eps, timed = timed/sqrt(power); end
+    [carrier,carrierInfo] = uqpskCarrierRecover(timed,2, ...
+        getfieldnumeric(opt,'uqpskCarrierLoopBW',0.002),opt,d.SymbolRate);
+    carrierForBER = carrier;
+    carrierPower = mean(abs(carrierForBER).^2);
+    if carrierPower>0, carrierForBER=carrierForBER/sqrt(carrierPower); end
+    [ber,lock,rotation,stats] = computeBER(carrierForBER,refs,'UQPSK',opt, ...
+        false,true,0.3,opt.berWarmUpFrames);
+    out = struct('Timing',timed,'Carrier',carrier,'CarrierInfo',carrierInfo, ...
+        'BER',ber,'LockRate',lock,'Rotation',rotation,'Stats',stats);
+end
+
 function [y, info] = uqpskCarrierRecover(x, aRatio, loopBW, opt, symbolRate)
 %UQPSKCARRIERRECOVER UQPSK structure-aided second-order carrier PLL.
 % Uses a wide acquisition bandwidth, a narrow tracking bandwidth, an

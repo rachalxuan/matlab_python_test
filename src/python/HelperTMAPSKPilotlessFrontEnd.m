@@ -292,12 +292,15 @@ if enableGain
             % across their thresholds.  Ring-directed magnitude tracking
             % removes data-ring power without borrowing transmitted bits.
             gainOpt.MagnitudeEstimationMode = 'ring-directed';
-        else
-            % Preserve the established static/no-H receiver default.  The
-            % denser 32APSK ring set also prefers a short power estimate
-            % after the preceding RDE normalizer; per-symbol ring selection
-            % produced a repeatable 46-bit burst on normalized std7.
+        elseif localLogical(options,'enableHChannel',false)
+            % Preserve the existing H-path acquisition strategy until its
+            % own migration is validated (dense-ring recovery can fail).
             gainOpt.MagnitudeEstimationMode = 'power';
+        else
+            % APSK ring occupancy changes data power even at constant H.
+            % Estimate residual channel gain from reliable symbol decisions,
+            % as on the ordinary QAM path; never track short-window data RMS.
+            gainOpt.MagnitudeEstimationMode = 'decision';
         end
     end
     if ~isfield(gainOpt,'TrackPowerMagnitudeDuringFade')

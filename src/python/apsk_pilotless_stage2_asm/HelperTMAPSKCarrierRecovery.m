@@ -71,7 +71,7 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
 %   RequireFourthPowerQualification = true
 %   UseGlobalNDAPhase               = true
 %   ApplyNDAResidualCFO             = false
-%   EnableWideRangeRingCoarseCFO   = false
+%   EnableWideRangeRingCoarseCFO   = true % 32APSK ring-selected, holdout-verified
 %   CoarsePowerOrder                = 12 (wide mode), 48 (legacy 32APSK)
 %   CoarseUseInnerMiddleRings       = true for 32APSK
 %   EnablePreDDGainTracker          = false
@@ -173,6 +173,8 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
     maxAcqCFOHz = max(0, double(maxAcqCFOHz));
     requireAcq = localLogical(options,'RequireAcquisitionQualification',true);
     debugEnabled = localLogical(options,'Debug',false);
+    % Read-only replay instrumentation; disabled for ordinary reception.
+    capturePhaseStages = localLogical(options,'CapturePhaseStages',false);
 
     enableFourthPower = localLogical(options, ...
         'EnableFourthPowerFFTCoarseCFO',true);
@@ -189,11 +191,11 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
     % lets the inner+middle (4/12-point) subset use x^12, extending the
     % unambiguous range to about +/-Rs/24 while keeping a clean spectral
     % line. 16APSK already has only 4/12-point rings and also uses x^12.
-    % Preserve the historical 32APSK x^48 acquisition unless the isolated
-    % wide-range experiment is explicitly enabled. This keeps the main
-    % receiver default unchanged and makes the new path easy to A/B test.
+    % Use the existing ring-partitioned x^12 observation for 32APSK. A peak
+    % is only a candidate until independently confirmed on held-out data.
+    % Explicit false retains x^48 for historical regression only.
     enableWideRangeCoarse = modulation == "32APSK" && ...
-        localLogical(options,'EnableWideRangeRingCoarseCFO',false);
+        localLogical(options,'EnableWideRangeRingCoarseCFO',true);
     if modulation == "32APSK" && ~enableWideRangeCoarse
         defaultPowerOrder = 48;
     else
@@ -211,6 +213,7 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
                 'FourthPowerMinConfidenceDB',6), ...
             'UseUnitMagnitude',localLogical(options, ...
                 'FourthPowerUseUnitMagnitude',true));
+        fftOpt.VerifyOnHoldout = enableWideRangeCoarse;
         useInnerMiddleRings = enableWideRangeCoarse && ...
             localLogical(options,'CoarseUseInnerMiddleRings',true) && ...
             coarsePowerOrder == 12;
@@ -230,7 +233,22 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
             'CoarseRangeToleranceHz',NaN);
         [coarseCFOHz,fourthPowerInfo] = ...
             HelperTMAPSKFourthPowerCoarseCFO( ...
-                xNorm(1:acqSymbols),Rs,fftOpt);
+                xNorm(1:min(numel(xNorm),acqSymbols*(1+double(enableWideRangeCoarse)))), ...
+                Rs,fftOpt);
+        info.CoarseAcquisition = fourthPowerInfo;
+        if debugEnabled && fftOpt.VerifyOnHoldout
+            fprintf(['  [APSK coarse validation] candidate=%+.3f Hz, ', ...
+                'fit=%d holdout=%d, coherentEnergy=%.3f / %.3f, ', ...
+                'dominance=%.2f dB, accepted=%d\n'], ...
+                coarseCFOHz,fourthPowerInfo.CandidateSymbols, ...
+                fourthPowerInfo.ValidationSymbols, ...
+                fourthPowerInfo.ValidationStatistic, ...
+                fourthPowerInfo.ValidationThreshold, ...
+                fourthPowerInfo.ValidationDominanceDB,fourthPowerInfo.Qualified);
+            fprintf('    candidates Hz:'); fprintf(' %+.1f',fourthPowerInfo.CandidateCFOHz);
+            fprintf('\n    holdout energy:'); fprintf(' %.3f',fourthPowerInfo.CandidateValidationStatistics);
+            fprintf('\n');
+        end
         if requireFourthPower && ~fourthPowerInfo.Qualified
             yOut = xNorm;
             state = localEmptyState();
@@ -243,8 +261,8 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
             info.FourthPowerConfidence_dB = fourthPowerInfo.ConfidenceDB;
             info.Reason = sprintf([ ...
                 'fourth-power coarse CFO not qualified: CFO=%+.3f Hz, ', ...
-                'confidence=%.2f dB'], ...
-                coarseCFOHz,fourthPowerInfo.ConfidenceDB);
+                'confidence=%.2f dB; %s'], ...
+                coarseCFOHz,fourthPowerInfo.ConfidenceDB,fourthPowerInfo.Reason);
             if debugEnabled
                 localPrintInfo(info,NaN,NaN,0,0,0);
             end
@@ -311,6 +329,9 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
         acquisitionRangeToleranceHz = localInfoNumber( ...
             fourthPowerInfo,'RangeToleranceHz',0);
     end
+    if ~isfinite(acquisitionRangeToleranceHz)
+        acquisitionRangeToleranceHz = 0; % no FFT estimator => no FFT-bin tolerance
+    end
 
     % ================================================================
     % 1) Pilotless feed-forward acquisition
@@ -361,9 +382,11 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
         state = localEmptyState();
         state.Mode = 'ACQUIRE_FAILED';
         info.Applied = false;
-        info.Reason = sprintf(['NDA acquisition not qualified: medianMetric=%.4g ', ...
-            '(limit %.4g), CFO=%+.3f Hz'], ...
-            acq.MedianMetric, acqMetricMax, acq.CFOHz);
+        info.Reason = sprintf(['NDA acquisition not qualified: medianMetric=%.4g, ', ...
+            'globalMetric=%.4g (used=%d, limit %.4g), CFO=%+.3f Hz ', ...
+            '(range +/-%.3f Hz)'], acq.MedianMetric,acq.GlobalMetric, ...
+            useGlobalNDAPhase,acqMetricMax,acq.CFOHz, ...
+            maxAcqCFOHz+acquisitionRangeToleranceHz);
         if debugEnabled
             localPrintInfo(info, NaN, NaN, 0, 0, 0);
         end
@@ -479,6 +502,11 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
     % merely because the current hard decision crossed a narrow gate.  It
     % is kept as an independent, opt-in stage so the historical Mth/DD path
     % remains available for strict A/B regression.
+    if capturePhaseStages
+        phaseStages = struct('NormalizedInput',xNorm,'Acquisition',xFF, ...
+            'MthPower',xPhaseTracked,'PreDDGain',xAmplitudeTracked, ...
+            'RingNormalizer',xForDD);
+    end
     enableBlindPhaseSearch = localLogical(options, ...
         'EnableBlindPhaseSearch',false);
     blindPhaseState = struct();
@@ -491,6 +519,9 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
         end
         if ~isfield(blindPhaseOpt,'Debug')
             blindPhaseOpt.Debug = debugEnabled;
+        end
+        if isfield(options,'BlindPhaseSearchTrajectoryMode')
+            blindPhaseOpt.TrajectoryMode = options.BlindPhaseSearchTrajectoryMode;
         end
         [xForDD,blindPhaseState,blindPhaseInfo] = ...
             HelperTMFeedforwardBlindPhaseSearch( ...
@@ -815,6 +846,14 @@ function [yOut, state, info] = HelperTMAPSKCarrierRecovery(x, modulation, option
     state.RingNormalizer = ringState;
     state.BlindPhaseSearch = blindPhaseState;
     state.CommonSecondOrderLoop = commonLoopState;
+    if capturePhaseStages
+        phaseStages.BlindPhaseSearch = xForDD;
+        phaseStages.DDLoop = yOut;
+        state.PhaseStages = phaseStages;
+        state.PhaseStageInfo = struct('MthPower',mthPhaseInfo, ...
+            'BlindPhaseSearch',blindPhaseInfo,'DDAccepted',accepted, ...
+            'DDPhaseErrorRad',phaseErrorVec);
+    end
 
     if debugEnabled
         try

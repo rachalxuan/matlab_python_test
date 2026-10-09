@@ -16,6 +16,9 @@ function [yOut,state,info] = HelperTMFeedforwardBlindPhaseSearch( ...
 % FadeOverrideMaxMetricFraction times the squared minimum constellation
 % distance.  The normalized form gives comparable meaning to the threshold
 % for 16/32QAM and APSK instead of silently reusing a 16QAM scale.
+% TrajectoryMode='trusted-slope' separates fast phase correction from a
+% robust slope fitted to a bounded history of non-overlapping observations.
+% 'legacy' retains the historical tracker for non-migrated callers and A/B.
 
 if nargin < 3 || isempty(options)
     options = struct();
@@ -74,6 +77,15 @@ reacquireConsistency = min(pi/4,max(deg2rad(1),localNumber(options, ...
     'ReacquireConsistencyRad',deg2rad(12))));
 maxFrequency = max(0,localNumber(options, ...
     'MaxFrequencyRadPerSymbol',0.01));
+% Keep non-migrated callers unchanged. APSK selects trusted-slope explicitly.
+trajectoryMode = "legacy";
+if isfield(options,'TrajectoryMode') && ~isempty(options.TrajectoryMode)
+    trajectoryMode=lower(string(options.TrajectoryMode));
+end
+if ~isscalar(trajectoryMode) || ~any(trajectoryMode == ["legacy","trusted-slope"])
+    error('HelperTMFeedforwardBlindPhaseSearch:TrajectoryMode','Unknown trajectory mode.');
+end
+trustedSlope = trajectoryMode == "trusted-slope";
 debugEnabled = localLogical(options,'Debug',false);
 debugEventCount = max(0,round(localNumber(options,'DebugEventCount',0)));
 preserveInitialPhase = localLogical(options,'PreserveInitialPhase',false);
@@ -316,6 +328,13 @@ frequencyAtCenters(1:firstReliable) = frequencyState;
 largeInnovationCount = 0;
 reacquireInnovation = NaN;
 reacquisitions = 0;
+frequencyUpdated = false(size(measuredPhase));
+observationAccepted = false(size(measuredPhase));
+pendingFirstCenter = NaN;
+historyTime = zeros(0,1); historyPhase = zeros(0,1);
+if reliable(firstReliable)
+    historyTime = centers(firstReliable); historyPhase = phaseState;
+end
 for k = firstReliable+1:numel(centers)
     deltaSymbols = max(1,centers(k)-centers(k-1));
     prediction = phaseState+frequencyState*deltaSymbols;
@@ -325,12 +344,46 @@ for k = firstReliable+1:numel(centers)
     innovationAtCenters(k) = innovation;
     previousPhase = phaseState;
     if reliable(k)
-        if abs(innovation) <= maxInnovation
+        % A local minimum alone is not permission to jump the trajectory.
+        % Use the same continuity tolerance as reacquisition consensus;
+        % larger innovations require evidence across non-overlapping windows.
+        continuityLimit = maxInnovation;
+        if trustedSlope, continuityLimit = min(maxInnovation,reacquireConsistency); end
+        if abs(innovation) <= continuityLimit
             largeInnovationCount = 0;
+            pendingFirstCenter = NaN;
             phaseState = prediction+trajectoryAlpha*innovation;
-            measuredFrequency = (phaseState-previousPhase)/deltaSymbols;
-            frequencyState = (1-frequencyAlpha)*frequencyState + ...
-                frequencyAlpha*measuredFrequency;
+            observationAccepted(k) = true;
+            if trustedSlope
+                % Estimate frequency from accepted OBSERVATIONS, never from
+                % the phase correction just applied to the NCO. Decimate
+                % the history by a full metric window to avoid treating
+                % strongly overlapping BPS blocks as independent evidence.
+                if isempty(historyTime) || centers(k)-historyTime(end)>=windowSymbols
+                    historyTime(end+1,1)=centers(k); %#ok<AGROW>
+                    historyPhase(end+1,1)=measurement; %#ok<AGROW>
+                    if numel(historyTime)>9
+                        historyTime=historyTime(end-8:end);
+                        historyPhase=historyPhase(end-8:end);
+                    end
+                    if numel(historyTime)>=4
+                        slopes=zeros(0,1);
+                        for h=1:numel(historyTime)-1
+                            slopes=[slopes; (historyPhase(h+1:end)-historyPhase(h))./ ...
+                                (historyTime(h+1:end)-historyTime(h))]; %#ok<AGROW>
+                        end
+                        measuredFrequency=median(slopes);
+                        frequencyState=(1-frequencyAlpha)*frequencyState+ ...
+                            frequencyAlpha*measuredFrequency;
+                        frequencyUpdated(k)=true;
+                    end
+                end
+            else
+                measuredFrequency = (phaseState-previousPhase)/deltaSymbols;
+                frequencyState = (1-frequencyAlpha)*frequencyState + ...
+                    frequencyAlpha*measuredFrequency;
+                frequencyUpdated(k)=true;
+            end
             trackingAction(k) = 1;
         else
             % A real fading coefficient can change phase abruptly while
@@ -347,6 +400,7 @@ for k = firstReliable+1:numel(centers)
                 largeInnovationCount = largeInnovationCount+1;
                 if largeInnovationCount == 1
                     reacquireInnovation = innovation;
+                    pendingFirstCenter = centers(k);
                 else
                     reacquireInnovation = reacquireInnovation + ...
                         (innovation-reacquireInnovation)/largeInnovationCount;
@@ -354,8 +408,14 @@ for k = firstReliable+1:numel(centers)
             else
                 largeInnovationCount = 1;
                 reacquireInnovation = innovation;
+                pendingFirstCenter = centers(k);
             end
-            if largeInnovationCount >= reacquireBlocks
+            enoughEvidence = largeInnovationCount >= reacquireBlocks;
+            if trustedSlope
+                enoughEvidence = enoughEvidence && centers(k)-pendingFirstCenter >= ...
+                    (reacquireBlocks-1)*windowSymbols;
+            end
+            if enoughEvidence
                 % Re-anchor phase to the consensus observation but keep the
                 % old carrier slope.  A phase discontinuity is not a
                 % frequency measurement: feeding this jump into the
@@ -370,6 +430,11 @@ for k = firstReliable+1:numel(centers)
                 reacquireInnovation = NaN;
                 reacquisitions = reacquisitions+1;
                 trackingAction(k) = 3;
+                observationAccepted(k) = true;
+                if trustedSlope
+                    % Never fit a frequency slope across a phase re-anchor.
+                    historyTime=centers(k); historyPhase=measurement;
+                end
             else
                 phaseState = prediction;
                 trackingAction(k) = 2;
@@ -427,6 +492,9 @@ info.FinalCorrection_deg = rad2deg(phaseCorrection(end));
 info.CorrectionRMS_deg = rad2deg(sqrt(mean(phaseCorrection.^2)));
 info.FinalFrequencyRadPerSymbol = frequencyState;
 info.Reacquisitions = reacquisitions;
+info.TrajectoryMode = char(trajectoryMode);
+info.FrequencyUpdateBlocks = nnz(frequencyUpdated);
+info.AcceptedObservationBlocks = nnz(observationAccepted);
 info.InitialFrequencyRadPerSymbol = localMedianOrNaN( ...
     initialFrequencySamples);
 info.InitialFrequency_HzPerSymbolRate = ...
@@ -448,6 +516,7 @@ info.FadeOverrideRecoverBlocks = fadeOverrideRecoverBlocks;
 info.FadeOverrideReliableBlocks = nnz(fadeOverrideReliable);
 
 state = struct('FinalPhaseRad',phaseState, ...
+    'TrajectoryMode',char(trajectoryMode), ...
     'FinalFrequencyRadPerSymbol',frequencyState, ...
     'PhaseAtCentersRad',phaseAtCenters, ...
     'MeasuredPhaseModuloRad',measuredPhase, ...
@@ -456,6 +525,8 @@ state = struct('FinalPhaseRad',phaseState, ...
     'InnovationRad',innovationAtCenters, ...
     'FrequencyRadPerSymbol',frequencyAtCenters, ...
     'TrackingAction',trackingAction, ...
+    'ObservationAccepted',observationAccepted, ...
+    'FrequencyUpdated',frequencyUpdated, ...
     'PowerRatio',powerRatioAtCenters, ...
     'FadeHold',fadeHold, ...
     'ExternalHold',externalHoldAtCenters, ...
@@ -463,6 +534,8 @@ state = struct('FinalPhaseRad',phaseState, ...
 
 if debugEnabled
     fprintf('\n[TM feed-forward blind phase search]\n');
+    fprintf('  trajectory       : %s, accepted=%d, frequency updates=%d\n', ...
+        info.TrajectoryMode,info.AcceptedObservationBlocks,info.FrequencyUpdateBlocks);
     fprintf('  phases/window/hop: %d / %d / %d\n', ...
         numTestPhases,windowSymbols,hopSymbols);
     fprintf('  reliable blocks  : %d/%d = %.2f%%\n', ...
@@ -580,6 +653,8 @@ info = struct('Applied',false,'Reason','', ...
     'PreservedInitialPhase',false, ...
     'FinalCorrection_deg',NaN,'CorrectionRMS_deg',NaN, ...
     'FinalFrequencyRadPerSymbol',NaN,'Reacquisitions',0, ...
+    'TrajectoryMode','legacy','FrequencyUpdateBlocks',0, ...
+    'AcceptedObservationBlocks',0, ...
     'InitialFrequencyRadPerSymbol',NaN, ...
     'InitialFrequency_HzPerSymbolRate',NaN, ...
     'FadeHoldBlocks',0,'FadeEvents',0,'FadeRecoveries',0, ...

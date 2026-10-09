@@ -171,20 +171,26 @@ end
 
 windowSymbols = max(8,round(localNumber(options, ...
     'runtimeTimingWindowSymbols',64)));
+traceSps = localNumber(cfg,'TimingErrorSamplesPerSymbol',1);
+if ~isfinite(traceSps) || traceSps < 1
+    track.Reason = 'invalid timing observation sample rate';
+    return;
+end
+windowSamples = max(1,round(windowSymbols*traceSps));
 maxRMS = max(1e-5,localNumber(options,'runtimeTimingMaxJitterRMS',0.02));
 % comm.SymbolSynchronizer returns a normalized fractional timing estimate
 % on [0,1].  Its absolute value is an arbitrary sampling phase, not an
 % error-to-zero.  Lock evidence is therefore the short-window jitter of
 % its circular increment; a wrap from 1 back to 0 is not a loss of lock.
-timingIncrement = [0;angle(exp(1j*2*pi*diff(timingError)))/(2*pi)];
-nWindow = floor(numel(timingError)/windowSymbols);
+timingIncrement = [0;angle(exp(1j*2*pi*diff(timingError)))/(2*pi)]/traceSps;
+nWindow = floor(numel(timingError)/windowSamples);
 time = zeros(nWindow,1);
 quality = nan(nWindow,1);
 for k = 1:nWindow
-    index = (k-1)*windowSymbols+(1:windowSymbols);
+    index = (k-1)*windowSamples+(1:windowSamples);
     value = double(timingIncrement(index));
     value = value(isfinite(value));
-    time(k) = (mean(index)-1)/symbolRate;
+    time(k) = (mean(index)-1)/(symbolRate*traceSps);
     if ~isempty(value)
         centered = abs(value-median(value));
         centered = sort(centered.^2);
@@ -198,7 +204,7 @@ state = localHysteresis(good, ...
     localNumber(options,'runtimeTimingLoseWindows',2));
 track.Available = nWindow > 0;
 track.Source = localText(cfg,'TimingSource','Gardner timing-error detector');
-track.Cadence = sprintf('%d-symbol non-overlapping windows',windowSymbols);
+track.Cadence = sprintf('%d-symbol windows, timing observations at %g sps',windowSymbols,traceSps);
 track.Time_s = time;
 track.EvidenceGood = good;
 track.State = state;

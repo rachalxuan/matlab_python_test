@@ -5,8 +5,8 @@ export const PCM_MODS = ["BPSK", "QPSK", "8PSK", "OQPSK", "UQPSK", "16QAM", "32Q
 export const TURBO_BLOCKS = [1784, 3568, 7136, 8920];
 export const FULL_RS_MESSAGE_LENGTHS = [223, 239];
 export const FULL_RS_INTERLEAVING_DEPTHS = [1, 2, 3, 4, 5, 8];
-export const CONTINUOUS_CONV_MODS = ["BPSK", "QPSK", "8PSK", "16QAM", "32QAM"];
-export const SELECTABLE_PULSE_SHAPING_MODS = ["BPSK", "QPSK", "8PSK", "16QAM", "32QAM", "OQPSK", "UQPSK"];
+export const CONTINUOUS_CONV_MODS = ["BPSK", "QPSK", "8PSK", "16QAM", "32QAM", "16APSK", "32APSK", "OQPSK", "UQPSK"];
+export const SELECTABLE_PULSE_SHAPING_MODS = ["BPSK", "QPSK", "8PSK", "16QAM", "32QAM", "16APSK", "32APSK", "OQPSK", "UQPSK"];
 
 // This is the number of coded bits presented to the mapper for one symbol.
 // It is deliberately separate from the FEC code rate.  The equipment UI calls
@@ -73,6 +73,32 @@ export function codingDefaults(coding) {
 }
 
 export function finalizeTMRequest(input) {
+  if (input.WaveformMode != null && String(input.WaveformMode).trim() !== "" &&
+      String(input.WaveformMode).trim().toLowerCase() !== "ordinarytm") {
+    throw new Error("当前入口只支持普通 TM；FACM 已停用，请显式选择 ordinaryTM。");
+  }
+  for (const key of ["useFACM", "UseFACM", "waveformSource", "WaveformSource"]) {
+    if (Object.prototype.hasOwnProperty.call(input, key)) {
+      throw new Error(`${key} 已停用，请使用 WaveformMode=ordinaryTM。`);
+    }
+  }
+  if (/^(16|32)APSK$/i.test(input.modType)) {
+    for (const key of ["ACMFormat", "acmFormat"]) {
+      if (input[key] != null && input[key] !== "") throw new Error(`${key} 属于已停用的 FACM 配置；普通 TM 由调制方式选择星座映射。`);
+    }
+    for (const key of ["HasTMAPSKPilots", "hasTMAPSKPilots", "HasPilots", "hasPilots", "useTMAPSKPilots", "enableFACMEqualizer"]) {
+      if (input[key] != null && input[key] !== "" &&
+          !["0", "false", "off", "no"].includes(String(input[key]).trim().toLowerCase())) {
+        throw new Error(`${key} 当前必须关闭；普通 TM APSK 只支持无额外导频的 pilotless 接收器。`);
+      }
+    }
+    for (const key of ["APSKReceiverMode", "apskReceiverMode"]) {
+      if (input[key] != null && input[key] !== "" &&
+          !["pilotless", "pilotless-apsk", "pilotless-x4-nda-dd", "pilotless-xm-nda-dd"].includes(String(input[key]).trim().toLowerCase())) {
+        throw new Error(`${key} 当前只支持 pilotless；旧导频接收模式已停用。`);
+      }
+    }
+  }
   const p = resolveModulationRates({ ...input, WaveformMode: "ordinaryTM" });
   if (!Number.isFinite(Number(p.symbolRate)) || Number(p.symbolRate) < 1e3 || Number(p.symbolRate) > 1e9) {
     throw new Error("由调制码率换算出的符号率必须在 1 ksym/s～1 Gsym/s 之间。");
@@ -101,14 +127,11 @@ export function finalizeTMRequest(input) {
   if (["root raised cosine", "square root raised cosine", "rrc", "sqrt raised cosine"].includes(pulseShapeKey)) {
     p.PulseShapingFilter = "root raised cosine";
   } else if (["raised cosine", "normal raised cosine", "rc"].includes(pulseShapeKey)) {
-    p.PulseShapingFilter = "raised cosine";
+    throw new Error("升余弦（RC）当前不在支持范围；请选择平方根升余弦（RRC）或旁路（none）。");
   } else if (["none", "off", "bypass", "no shaping"].includes(pulseShapeKey)) {
     p.PulseShapingFilter = "none";
   } else {
-    throw new Error("成型滤波支持平方根升余弦（RRC）、升余弦（RC）或旁路（none）。");
-  }
-  if (p.PulseShapingFilter === "raised cosine" && !["OQPSK", "UQPSK"].includes(p.modType)) {
-    throw new Error("升余弦（RC）本轮仅开放 OQPSK/UQPSK。");
+    throw new Error("成型滤波当前仅支持平方根升余弦（RRC）或旁路（none）。");
   }
   if (p.PulseShapingFilter !== "root raised cosine") {
     if (!SELECTABLE_PULSE_SHAPING_MODS.includes(p.modType)) {

@@ -1,0 +1,4 @@
+# Waitress 3.0.2 requires Python >=3.9. R2022a supports Python 3.9.
+# Python 3.8 on the source computer can use --development for local checks.
+-r requirements.txt
+waitress==3.0.2

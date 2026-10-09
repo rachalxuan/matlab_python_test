@@ -251,14 +251,12 @@ for k = 1:numel(xWork)
         hHat = trackedMagnitude*exp(1j*angle(hHat));
     end
 
-    % A fade exit gets a decision-free magnitude re-seed.  The phase of the
-    % last reliable channel estimate is preserved.
-    if wasInFade && ~inFade
-        if magnitudeMode == "ring-directed"
-            reseedMagnitude = abs(hHat);
-        else
-            reseedMagnitude = sqrt(max(powerIIR,eps)/refPower);
-        end
+    % Only the power estimator may seed gain from raw envelope power.
+    % Decision/ring-directed modes retain their last estimate and recover
+    % through their own observations. Raw-power reseeding here would undo
+    % data-independent tracking whenever ring occupancy triggers a fade.
+    if wasInFade && ~inFade && magnitudeMode == "power"
+        reseedMagnitude = sqrt(max(powerIIR,eps)/refPower);
         hHat = reseedMagnitude*exp(1j*angle(hHat));
     end
 

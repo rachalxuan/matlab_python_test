@@ -1,0 +1,888 @@
+classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds.tmBase
+    % HelperCCSDSTMDemodulator [完美版]
+    % 1. 逻辑：GMSK 方案2 (Mask=1010..., Prev=1, 反馈差分) -> BER=0
+    % 2. 接口：修复了 isInactivePropertyImpl 导致的警告
+    
+    properties(Nontunable)
+        % Complex decision-noise variance used by soft demappers.
+        % The receiver estimates this from synchronized symbols unless the
+        % caller supplies an explicit value.
+        NoiseVariance = 0.01
+    end
+
+    properties(Nontunable, Access = private)
+        pDemod
+        pIsGMSK
+        pIsMSK
+        pIsOQPSK
+        pIsUQPSK
+        pIs4D8PSKTCM
+        pIsQAM
+        pIsAPSK
+        pQAMOrder
+        pAPSKACMFormat
+
+    end
+    
+    properties(Access = private)
+        pDreg % 差分寄存器
+        pPCMLineSoft % NRZ-M/NRZ-S 上一个线码 soft 符号
+        pCount % 计数器
+        pLastSymbol % GMSK 差分检测寄存器 (previous complex symbol)
+        pTCMConvState
+        pTCMDiffState
+    end
+    
+    methods
+        function obj = HelperCCSDSTMDemodulator(varargin)
+            setProperties(obj,nargin,varargin{:})
+        end
+    end
+    
+    methods(Access = protected)
+        function setupImpl(obj)
+            setupImpl@satcom.internal.ccsds.tmBase(obj);
+            
+            % 初始化状态，必须和 Generator 匹配
+            obj.pDreg = 1; 
+            obj.pPCMLineSoft = -1;
+            obj.pCount = 0;
+            obj.pLastSymbol = complex(0, 0); % 用于存储上一个复数符号
+            obj.pTCMConvState = zeros(6, 1, 'int8');
+            obj.pTCMDiffState = zeros(3, 1, 'int8');
+
+            obj.pIsGMSK = strcmp(obj.Modulation, 'GMSK');
+            obj.pIsMSK  = strcmp(obj.Modulation, 'MSK');
+            obj.pIsOQPSK = strcmp(obj.Modulation, 'OQPSK');
+            obj.pIs4D8PSKTCM = strcmp(obj.Modulation, '4D-8PSK-TCM');
+            obj.pIsUQPSK = strcmp(obj.Modulation, 'UQPSK');
+            obj.pIsQAM = contains(string(obj.Modulation), 'QAM');
+            obj.pIsAPSK = contains(string(obj.Modulation), 'APSK');
+            if strcmp(obj.Modulation, '16QAM')
+                obj.pQAMOrder = 16;
+            elseif strcmp(obj.Modulation, '32QAM')
+                obj.pQAMOrder = 32;
+            else
+                obj.pQAMOrder = 0;
+            end
+            if strcmp(obj.Modulation, '16APSK')
+                obj.pAPSKACMFormat = 14;
+            elseif strcmp(obj.Modulation, '32APSK')
+                obj.pAPSKACMFormat = 21;
+            else
+                obj.pAPSKACMFormat = 0;
+            end
+            % Preserve existing Viterbi/TPC/RS metrics. APP/BP decoders
+            % consume calibrated LLRs, supplied by the common receiver.
+            pskVariance=1;
+            if HelperTMUsesCalibratedPSKLLR(obj.Modulation,obj.ChannelCoding)
+                validateattributes(obj.NoiseVariance,{'numeric'}, ...
+                    {'scalar','real','finite','positive'});
+                pskVariance=double(obj.NoiseVariance);
+            end
+            if strcmp(obj.Modulation, 'QPSK')
+                obj.pDemod = comm.PSKDemodulator( ...
+                    'PhaseOffset',pi/4, ...
+                    'ModulationOrder',4, ...
+                    'BitOutput',true, ...
+                    'DecisionMethod',"Approximate log-likelihood ratio", ...
+                    'Variance',pskVariance, ...
+                    'SymbolMapping','Custom', ...
+                    'CustomSymbolMapping',[0;2;3;1]);
+            
+            elseif strcmp(obj.Modulation, 'OQPSK')
+                % R2022a comm.OQPSKDemodulator only exposes hard bits.  Keep
+                % the matched-filter/staggered-rail demapper below so coded
+                % OQPSK receives a genuine continuous soft metric.
+                obj.pDemod = [];
+            elseif strcmp(obj.Modulation, '8PSK')
+                obj.pDemod = comm.PSKDemodulator('PhaseOffset', pi/8, 'ModulationOrder', 8, ...
+                    'BitOutput', true, 'DecisionMethod', "Approximate log-likelihood ratio", ...
+                    'Variance',pskVariance, ...
+                    'SymbolMapping', 'Custom', 'CustomSymbolMapping', [0 4 6 2 3 7 5 1]); 
+            elseif obj.pIsQAM
+                obj.pDemod = [];
+            elseif obj.pIsAPSK
+                obj.pDemod = [];
+            elseif obj.pIsUQPSK
+                % UQPSK 使用自定义 soft demap，不需要 MATLAB 官方 demod 对象
+                obj.pDemod = [];
+            elseif obj.pIs4D8PSKTCM
+                % 4D-8PSK-TCM uses a custom hard-decision 4-symbol mapper below.
+            elseif obj.pIsGMSK
+                
+            end
+        end
+        
+        function y = stepImpl(obj,u)
+            if isempty(u), y=zeros(0,1); return; end
+            
+            if obj.pIs4D8PSKTCM
+                hardBits = fourD8PSKTCMViterbiDemod(u, double(obj.ModulationEfficiency));
+
+                % 先保持和原 hard demod 输出约定一致：
+                % bit 0 -> -5, bit 1 -> +5
+                y = double(hardBits);
+                y(y == 0) = -5;
+                y(y == 1) = 5;
+            elseif obj.pIsMSK
+                % =========================================================
+                % 标准 MSK 一符号差分 soft metric
+                %
+                % bit 0 -> 每符号相位变化 -pi/2
+                % bit 1 -> 每符号相位变化 +pi/2
+                %
+                % decoder soft 约定：
+                % positive -> bit 0
+                % negative -> bit 1
+                % =========================================================
+
+                u = u(:);
+
+                firstCall = (obj.pLastSymbol == 0);
+
+                if firstCall
+                    prevBlock = [u(1); u(1:end-1)];
+                else
+                    prevBlock = [obj.pLastSymbol; u(1:end-1)];
+                end
+
+                obj.pLastSymbol = u(end);
+
+                phaseDiff = angle(u .* conj(prevBlock));
+
+                ampConfidence = abs(u) .* abs(prevBlock);
+
+                % phaseDiff < 0：bit 0 -> positive
+                % phaseDiff > 0：bit 1 -> negative
+                rawMetric = -sin(phaseDiff) .* ampConfidence;
+
+                % 第一个符号没有真实前一符号
+                if firstCall && ~isempty(rawMetric)
+                    rawMetric(1) = 0;
+                end
+
+                metricRMS = sqrt(mean(rawMetric.^2) + eps);
+                rawMetric = rawMetric / metricRMS;
+
+                y = 5 * rawMetric;
+
+                % 限幅，避免极端 soft value
+                y = max(min(y, 20), -20);
+
+                y = double(y);
+    
+            elseif obj.pIsGMSK
+                  % =========================================================
+                  % GMSK 非相干差分 soft metric 检测
+                  % 输出约定：
+                  %   bit 0 -> positive soft value
+                  %   bit 1 -> negative soft value
+                  % =========================================================
+                  len = length(u);
+
+                  % 1. 构造差分向量：当前点乘以上一点的共轭。
+                  % 物理含义是计算相位变化 delta_phi。
+                  if obj.pLastSymbol == 0 % 第一帧处理
+                      prev_block = [u(1); u(1:end-1)]; % 简单填充
+                  else
+                      prev_block = [obj.pLastSymbol; u(1:end-1)];
+                  end
+
+                  % 保存最后一个符号给下一帧
+                  obj.pLastSymbol = u(end);
+                  % 2. 差分相位
+                  d = u .* conj(prev_block);
+                  phase_diff = angle(d);
+
+                  % 3. raw GMSK soft metric
+                  % 原硬判决中 phase_diff > 0 判为 1。
+                  % 因此这里用 -sin(phase_diff)，保证：
+                  %   phase_diff > 0 -> negative -> bit 1
+                  %   phase_diff < 0 -> positive -> bit 0
+                  ampConf = abs(u) .* abs(prev_block);
+                  rawMetric = -sin(phase_diff) .* ampConf;
+
+                  % 4. 归一化，避免幅度太小或太大
+                  rmsMetric = sqrt(mean(rawMetric.^2) + eps);
+                  rawMetric = rawMetric / rmsMetric;
+
+                  % Turbo 对幅度比较敏感，先用 4~8 之间的尺度
+                  softScale = 5;
+                  rawMetric = softScale * rawMetric;
+
+                  % 5. 逻辑层 soft 解码
+                  % 原硬逻辑：
+                  %   temp = rawBit XOR altMask
+                  %   decoded = temp XOR lastDecoded
+                  %
+                  % LLR/soft metric 下，XOR 1 等价于 soft 符号翻转。
+                  idx = (obj.pCount + (1:len))';
+                  altMask = mod(idx, 2);  % 1,0,1,0,...
+
+                  y = zeros(len, 1);
+                  lastDecoded = obj.pDreg;
+
+                  for kk = 1:len
+                      m = rawMetric(kk);
+
+                      % 去掉交替反转：XOR altMask
+                      if altMask(kk)
+                          m = -m;
+                      end
+
+                      % 反馈差分解码：XOR lastDecoded
+                      if lastDecoded
+                          m = -m;
+                      end
+
+                      % 当前 decoded bit 的 soft metric
+                      y(kk) = m;
+
+                      % 用 soft metric 的硬判决更新反馈状态
+                      % 约定：positive -> bit 0，negative -> bit 1
+                      lastDecoded = y(kk) < 0;
+                  end
+
+                  % 6. 更新状态
+                  obj.pDreg = logical(lastDecoded);
+                  obj.pCount = obj.pCount + len;
+
+                  % 7. 限幅，避免极端值把 Turbo 迭代推爆
+                  llrMax = 20;
+                  y = max(min(y, llrMax), -llrMax);
+                  y = double(y);
+                  % 旧版 GMSK 硬判决/反馈差分逻辑保留过一段时间用于对照，
+                  % 现在已经由上面的 soft metric 路径替代，因此这里不再保留整段旧注释。
+%                 obj.pDreg = lastDecoded;
+%                 obj.pCount = obj.pCount + len;
+%                 
+%                 % 3. 转为 Soft LLR (0->+5, 1->-5)
+%                 y = double(decodedBits);
+%                 y(y==0) = 5; 
+%                 y(y==1) = -5;
+
+            elseif obj.pIsOQPSK
+                % True OQPSK soft output.  The two rails are sampled one
+                % half-symbol apart after the receive RRC.  Positive output
+                % means bit 1, matching the project decoder convention.
+                y = localOQPSKSoftLLR(u, double(obj.SamplesPerSymbol), ...
+                    double(obj.RolloffFactor), ...
+                    double(obj.FilterSpanInSymbols), ...
+                    double(obj.NoiseVariance),obj.PulseShapingFilter);
+            elseif obj.pIsUQPSK
+                % =========================================================
+                % UQPSK soft demap
+                %
+                % 固定结构：
+                %   RRatio = 2：每 2 个 UQPSK 符号为一组
+                %   ARatio = 2：Q 路幅度为 I 路的 1/2
+                %
+                % 映射关系：
+                %   每 3 bit -> 2 个符号
+                %   b1,b2 -> 两个连续符号的 I 路
+                %   b3    -> 两个符号共用的 Q 路
+                %
+                % 输出约定：
+                %   当前 extension 实测 decoder 需要 inverted UQPSK soft
+                %   所以这里直接输出翻号后的 soft bits
+                % =========================================================
+
+                rRatio = 2;
+                aRatio = 2;
+
+                rxUQPSK = u(:);
+
+                nGroups = floor(numel(rxUQPSK) / rRatio);
+                if nGroups <= 0
+                    y = zeros(0,1);
+                    return;
+                end
+
+                rxUQPSK = rxUQPSK(1:nGroups*rRatio);
+                symMat = reshape(rxUQPSK, rRatio, nGroups);
+
+                % I 路每个符号一个 bit
+                iSoft = real(symMat);
+
+                % Q 路每组共用一个 bit，两个符号的 Q 取平均后乘回 aRatio
+                qSoft = mean(imag(symMat), 1) * aRatio;
+
+                softMat = [iSoft; qSoft];
+                y = double(softMat(:));
+
+                % 关键：extension 中验证 decoder polarity = inverted UQPSK soft
+                y = -y;
+            elseif obj.pIsQAM
+                % =========================================================
+                % 16QAM / 32QAM soft demod
+                % 输入 u 应该已经完成：
+                % coarse CFO + RRC + timing sync + carrier sync + 功率归一
+                %
+                % 输出约定：
+                %   bit 0 -> positive soft value
+                %   bit 1 -> negative soft value
+                % 这个方向和 HelperCCSDSTMDecoder 期望一致
+                % =========================================================
+
+                rxQAM = u(:);
+
+                % 再保险：QAM 解调前做一次单位平均功率归一
+                if ~isempty(rxQAM)
+                    pwr = mean(abs(rxQAM).^2);
+                    if pwr > 0
+                        rxQAM = rxQAM / sqrt(pwr);
+                    end
+                end
+
+                M = obj.pQAMOrder;
+                bitsPerSym = log2(M);
+
+                % 这里无法直接知道真实 SNR，先给一个温和默认值。
+                % 对 Viterbi/CCSDS 解码来说，LLR 尺度不是绝对关键，但不能太离谱。
+                noiseVar = max(eps, double(obj.NoiseVariance));
+
+                llrRaw = qamdemod(rxQAM, M, ...
+                    'OutputType','approxllr', ...
+                    'UnitAveragePower',true, ...
+                    'NoiseVariance',noiseVar);
+
+                if isvector(llrRaw)
+                    y = double(llrRaw(:));
+                elseif size(llrRaw,1) == numel(rxQAM) && size(llrRaw,2) == bitsPerSym
+                    y = double(reshape(llrRaw.', [], 1));
+                else
+                    y = double(llrRaw(:));
+                end
+
+                % 关键：实测 MATLAB qamdemod 的 LLR 极性和当前 CCSDS decoder 期望相反
+                % 你之前 QAM 扩展脚本中显示 Soft polarity = inverted LLR
+                y = -y;
+            elseif obj.pIsAPSK
+                rxAPSK = u(:);
+                pwr = NaN;
+
+                if ~isempty(rxAPSK)
+                    pwr = mean(abs(rxAPSK).^2);
+                    if pwr > 0
+                        rxAPSK = rxAPSK / sqrt(pwr);
+                    end
+                end
+
+                noiseVar = max(eps, double(obj.NoiseVariance));
+                y = HelperCCSDSFACMDemodulate(rxAPSK, obj.pAPSKACMFormat, noiseVar);
+                y = double(y(:));
+                if evalin('base','exist(''DEBUG_APSK'',''var'') && logical(DEBUG_APSK)')
+                    if isempty(y)
+                        llrMin = NaN;
+                        llrMax = NaN;
+                        llrMean = NaN;
+                    else
+                        llrMin = min(y);
+                        llrMax = max(y);
+                        llrMean = mean(y);
+                    end
+                    fprintf('[APSK RX demod] inputPwr=%.4f, LLR len=%d, LLR range=[%.2f,%.2f], LLR mean=%.3f\n', ...
+                        pwr, length(y), llrMin, llrMax, llrMean);
+                    assignin('base','debug_apsk_rx_llr', y(1:min(500,end)));
+                end
+            elseif strcmp(obj.Modulation, 'BPSK')
+                y = double(real(u));
+                if HelperTMUsesCalibratedPSKLLR(obj.Modulation,obj.ChannelCoding)
+                    % TX convention: bit 1 -> +1. For complex variance N0,
+                    % log(P(bit1|y)/P(bit0|y)) = 4*real(y)/N0.
+                    y=4*y/double(obj.NoiseVariance);
+                end
+
+            else
+                y = obj.pDemod(u);
+                 if any(strcmp(obj.Modulation, {'QPSK','8PSK'}))
+                    y = -1*y;
+                elseif strcmp(obj.Modulation,'OQPSK')
+%                     y = -1*y;
+                    % 不翻号：保留 PSKDemodulator 原生 LLR 极性（>0 表示 bit 0）。
+                    % 早期版本 y = -1*y 是排查 BER=0.5 时留下的占位。
+                    % 实测 SNR=25 + conv 7/8 场景下，翻号会把 Viterbi 推到全 1 解码鞍点。
+                    % 4 重旋转搜索也救不回来（旋转只能 XOR 编码 bit，不改 LLR 整体偏置）。
+                end
+            end
+
+            if HelperTMUsesCalibratedPSKLLR(obj.Modulation,obj.ChannelCoding)
+                % Finite confidence in clean records; never change signs.
+                y=max(-50,min(50,y));
+            end
+            if any(strcmp(obj.PCMFormat,{'NRZ-M','NRZ-S'})) && ...
+                    ~any(strcmp(obj.ChannelCoding,{'convolutional','concatenated'})) && ...
+                     ~obj.pIsGMSK && ...
+                     ~obj.pIsMSK && ...
+                     ~obj.pIs4D8PSKTCM
+                [y, obj.pPCMLineSoft] = localPCMDifferentialSoftDecode(y, obj.pPCMLineSoft, obj.PCMFormat);
+            end
+        end
+        
+        function resetImpl(obj)
+            if ~isempty(obj.pDemod), reset(obj.pDemod); end
+            obj.pDreg = 1; 
+            obj.pPCMLineSoft = -1;
+            obj.pCount = 0;
+            obj.pLastSymbol = complex(0, 0);
+            obj.pTCMConvState = zeros(6, 1, 'int8');
+            obj.pTCMDiffState = zeros(3, 1, 'int8');
+        end
+        
+        % ... Boilerplate ...
+        function s = saveObjectImpl(obj), s = saveObjectImpl@matlab.System(obj); end
+        function loadObjectImpl(obj,s,wasLocked), loadObjectImpl@matlab.System(obj,s,wasLocked); end
+        function flag = isInputSizeMutableImpl(~,~), flag = true; end
+        
+        function flag = isInactivePropertyImpl(obj,prop)
+            % 控制属性可见性（修复警告的关键）
+            flag = true; 
+            isFACM = false; 
+            
+            if strcmp(prop,'ChannelCoding')
+                flag = false;
+            elseif strcmp(prop,'Modulation')
+                flag = isFACM;
+            elseif strcmp(prop,'PCMFormat')
+                flag = ~any(strcmp(obj.Modulation,{'PCM/PSK/PM','BPSK','QPSK','8PSK', ...
+                    'OQPSK','UQPSK','16QAM','32QAM','16APSK','32APSK'})) || isFACM;
+            % 允许 GMSK 模式下设置 BandwidthTimeProduct
+            elseif strcmp(prop, 'BandwidthTimeProduct')
+                flag = ~contains(string(obj.Modulation), 'GMSK');
+            elseif strcmp(prop, 'SamplesPerSymbol')
+                flag = ~strcmp(obj.Modulation, 'OQPSK');
+            
+            elseif strcmp(prop, 'PulseShapingFilter')
+                flag = ~strcmp(obj.Modulation, 'OQPSK');
+            elseif strcmp(prop, 'RolloffFactor')
+                flag = ~strcmp(obj.Modulation, 'OQPSK');
+            elseif strcmp(prop, 'FilterSpanInSymbols')
+                flag = ~strcmp(obj.Modulation, 'OQPSK');
+            elseif strcmp(prop, 'ModulationEfficiency')
+                flag = ~strcmp(obj.Modulation, '4D-8PSK-TCM');
+            elseif strcmp(prop, 'NoiseVariance')
+                flag = ~(contains(string(obj.Modulation), 'QAM') || ...
+                    contains(string(obj.Modulation), 'APSK') || ...
+                    strcmp(obj.Modulation, 'OQPSK') || ...
+                    HelperTMUsesCalibratedPSKLLR(obj.Modulation,obj.ChannelCoding));
+            end
+        end
+    end
+
+    methods(Static)
+        function [rxBits, rxSoft, info] = demodulateFM(rxWaveform, params, fmInfo)
+            if nargin < 2 || isempty(params)
+                params = struct();
+            end
+            if nargin < 3
+                fmInfo = [];
+            end
+            [rxBits, rxSoft, info] = ccsdsFMDemodulateWaveform(rxWaveform, params, fmInfo);
+        end
+    end
+    
+    methods(Access = protected, Static)
+        function group = getPropertyGroupsImpl
+            genprops = {'Modulation', 'PCMFormat', 'ChannelCoding', ...
+                'ModulationEfficiency', 'NoiseVariance'};
+            group = matlab.system.display.SectionGroup('PropertyList', genprops);
+        end
+    end
+end
+
+function softBits = localOQPSKSoftLLR(x, sps, rolloff, span, noiseVar, pulseShape)
+%LOCALOQPSKSOFTLLR Matched-filter OQPSK demapper with staggered I/Q rails.
+% The transmitter emits the I bit at the symbol epoch and the Q bit one
+% half-symbol later.  Sampling both rails at one common instant turns the
+% transition samples into artificial constellation error and discards the
+% reliability needed by convolutional/LDPC/Turbo decoding.
+    x = complex(x(:));
+    sps = max(2, round(sps));
+    if mod(sps,2) ~= 0
+        error('HelperCCSDSTMDemodulator:OQPSKRequiresEvenSPS', ...
+            'OQPSK soft demodulation requires an even SamplesPerSymbol.');
+    end
+    pulse = HelperTMPulseShapeConfig(pulseShape,sps,rolloff,span);
+    span = pulse.TransientSymbols;
+    if mod(span*sps,2) ~= 0
+        error('HelperCCSDSTMDemodulator:OQPSKInvalidFilterSpan', ...
+            'OQPSK pulse span*sps must be even.');
+    end
+
+    h = pulse.ReceiveTaps;
+    matched = filter(h, 1, x);
+    [iSamples, qSamples] = localOQPSKSelectRailTiming( ...
+        matched, sps, span);
+    nSymbols = min(numel(iSamples), numel(qSamples));
+    if nSymbols <= 0
+        softBits = zeros(0,1);
+        return;
+    end
+
+    iSamples = iSamples(1:nSymbols);
+    qSamples = qSamples(1:nSymbols);
+    % Normalize the common rail amplitude before forming LLRs.  This keeps
+    % the LLR calibration independent of the receive-filter gain while
+    % preserving any I/Q imbalance as demodulation error.
+    railAmplitude = sqrt(mean(iSamples.^2 + qSamples.^2)/2 + eps);
+    iSamples = iSamples / railAmplitude;
+    qSamples = qSamples / railAmplitude;
+    noiseVar = max(1e-8, double(noiseVar));
+    % BPSK max-log LLR on each orthogonal rail.  The sign is inverted
+    % because the modulator maps bit 0 to +rail and bit 1 to -rail while
+    % the surrounding TM decoder expects positive soft values for bit 1.
+    scale = 2/noiseVar;
+    softMatrix = [-scale*iSamples.'; -scale*qSamples.'];
+    softBits = double(softMatrix(:));
+    softBits = max(min(softBits, 50), -50);
+end
+
+function [iSamples, qSamples] = localOQPSKSelectRailTiming(matched, sps, span)
+% Select the fractional symbol phase without transmitted-data knowledge.
+% At the correct OQPSK eye center each individual BPSK rail has nearly
+% constant magnitude.  Transition samples have a much larger magnitude
+% spread, so the minimum normalized rail-envelope variance is a robust
+% receiver-observable timing score.
+    bestScore = inf;
+    iSamples = zeros(0,1);
+    qSamples = zeros(0,1);
+    for offset = 0:sps-1
+        iCandidate = real(matched(1+offset:sps:end));
+        qStart = 1 + offset + sps/2;
+        qCandidate = imag(matched(qStart:sps:end));
+        n = min(numel(iCandidate), numel(qCandidate));
+        if n <= max(8, 2*span)
+            continue;
+        end
+        iCandidate = iCandidate(1:n);
+        qCandidate = qCandidate(1:n);
+        guard = min(span, floor((n-1)/4));
+        use = (1+guard):(n-guard);
+        railAmplitude = sqrt(mean( ...
+            iCandidate(use).^2 + qCandidate(use).^2)/2 + eps);
+        score = mean((abs(iCandidate(use))-railAmplitude).^2 + ...
+            (abs(qCandidate(use))-railAmplitude).^2) / ...
+            (2*railAmplitude^2 + eps);
+        if score < bestScore
+            bestScore = score;
+            iSamples = iCandidate;
+            qSamples = qCandidate;
+        end
+    end
+end
+
+function [bitsSoft, lastLineSoft] = localPCMDifferentialSoftDecode(lineSoft, lastLineSoft, pcmFormat)
+% NRZ-M/NRZ-S soft differential decode for ordinary symbol demodulator outputs.
+% Positive soft values represent bit 1 in the CCSDS decoder path.
+    lineSoft = double(lineSoft(:));
+    if isempty(lineSoft)
+        bitsSoft = lineSoft;
+        return;
+    end
+
+    prevSign = sign(real(lastLineSoft));
+    if prevSign == 0
+        prevSign = 1;
+    end
+
+    bitsSoft = zeros(size(lineSoft));
+    bitsSoft(1) = -lineSoft(1) * prevSign;
+    if numel(lineSoft) > 1
+        bitsSoft(2:end) = -lineSoft(2:end) .* signNonzero(lineSoft(1:end-1));
+    end
+    if strcmp(pcmFormat,'NRZ-S')
+        bitsSoft = -bitsSoft;
+    end
+
+    lastLineSoft = lineSoft(end);
+end
+
+function s = signNonzero(x)
+    s = sign(real(x));
+    s(s == 0) = 1;
+end
+
+function [bitsOut, convState, diffState] = fourD8PSKTCMHardDemod(sym, rEff, convState, diffState)
+    sym = sym(:);
+    nGroups = floor(length(sym) / 4);
+    nBits = round(4 * rEff);
+    bitsOut = zeros(nGroups * nBits, 1, 'int8');
+    pskmodSymbols = [1+0j; (1+1j)/sqrt(2); 0+1j; (-1+1j)/sqrt(2); -1+0j; ...
+        (-1-1j)/sqrt(2); 0-1j; (1-1j)/sqrt(2)];
+
+    for iGroup = 1:nGroups
+        rx4 = sym((iGroup-1)*4 + 1:iGroup*4);
+        bestMetric = inf;
+        bestBits = zeros(nBits, 1, 'int8');
+        bestConvState = convState;
+        bestDiffState = diffState;
+
+        for word = 0:(2^nBits - 1)
+            candBits = int8(de2bi(word, nBits, 'left-msb').');
+            [candSym, candConvState, candDiffState] = fourD8PSKTCMMapGroup( ...
+                candBits, rEff, convState, diffState, pskmodSymbols);
+            metric = sum(abs(rx4 - candSym).^2);
+            if metric < bestMetric
+                bestMetric = metric;
+                bestBits = candBits;
+                bestConvState = candConvState;
+                bestDiffState = candDiffState;
+            end
+        end
+
+        bitsOut((iGroup-1)*nBits + 1:iGroup*nBits) = bestBits;
+        convState = bestConvState;
+        diffState = bestDiffState;
+    end
+end
+
+function [modSym, convState, diffState] = fourD8PSKTCMMapGroup(bits, rEff, convState, diffState, pskmodSymbols)
+    switch rEff
+        case 2
+            diffInd = [1; 5; 8];
+        case 2.25
+            diffInd = [2; 6; 9];
+        case 2.5
+            diffInd = [3; 7; 10];
+        case 2.75
+            diffInd = [4; 8; 11];
+        otherwise
+            error('Unsupported 4D-8PSK-TCM modulation efficiency: %g', rEff);
+    end
+
+    dataIn = int8(bits(:));
+    [diffBits, diffState] = fourD8PSKTCMDifferentialCoder(dataIn(diffInd), diffState);
+    dataIn(diffInd) = diffBits;
+
+    [xout, convState] = fourD8PSKTrellisEnc(dataIn(1:3), convState);
+    symbols = fourD8PSKConstellationMapper([xout; dataIn], rEff);
+    modSym = pskmodSymbols(double(symbols) + 1);
+end
+
+function stateId = tcmStateToId(convState, diffState)
+    s = [convState(:); diffState(:)];
+    s = double(s(:) ~= 0);
+
+    stateId = 0;
+    for k = 1:numel(s)
+        stateId = stateId * 2 + s(k);
+    end
+
+    % MATLAB index
+    stateId = stateId + 1;
+end
+function bitsOut = fourD8PSKTCMViterbiDemod(sym, rEff)
+    sym = sym(:);
+
+    supportedEff = [2 2.25 2.5 2.75];
+    [minDelta, effIdx] = min(abs(rEff - supportedEff));
+    if minDelta > 1e-9
+        error('Unsupported 4D-8PSK-TCM modulation efficiency: %g', rEff);
+    end
+    rEff = supportedEff(effIdx);
+
+    nBits = round(4 * rEff);   % rEff=2 -> 8 bits/group
+    nStates = 512;
+    nGroups = floor(length(sym) / 4);
+    sym = sym(1:4*nGroups);
+
+    [fromStateVec, wordVec, branchSym, branchesByNext] = ...
+        fourD8PSKTCMBranchTable(rEff);
+
+    initConv = zeros(6, 1, 'int8');
+    initDiff = zeros(3, 1, 'int8');
+    initState = tcmStateToId(initConv, initDiff);
+
+    infMetric = 1e30;
+    pathMetric = infMetric * ones(nStates, 1);
+    pathMetric(initState) = 0;
+
+    survivorPrev = zeros(nGroups, nStates, 'uint16');
+    survivorWord = zeros(nGroups, nStates, 'uint16');
+
+    for ig = 1:nGroups
+        rx4 = sym((ig-1)*4 + 1:ig*4);
+
+        branchMetric = sum(abs(branchSym - rx4).^2, 1).';
+        candMetric = pathMetric(double(fromStateVec)) + branchMetric;
+
+        newMetric = infMetric * ones(nStates, 1);
+        newPrev = zeros(nStates, 1, 'uint16');
+        newWord = zeros(nStates, 1, 'uint16');
+
+        for nextState = 1:nStates
+            idx = branchesByNext{nextState};
+            [bestMetric, relIdx] = min(candMetric(idx));
+            if isfinite(bestMetric) && bestMetric < infMetric/2
+                bestBranch = idx(relIdx);
+                newMetric(nextState) = bestMetric;
+                newPrev(nextState) = fromStateVec(bestBranch);
+                newWord(nextState) = wordVec(bestBranch);
+            end
+        end
+
+        pathMetric = newMetric;
+        survivorPrev(ig, :) = newPrev;
+        survivorWord(ig, :) = newWord;
+    end
+
+    [~, bestState] = min(pathMetric);
+
+    outWords = zeros(nGroups, 1, 'uint16');
+    state = bestState;
+
+    for ig = nGroups:-1:1
+        outWords(ig) = survivorWord(ig, state);
+        state = double(survivorPrev(ig, state));
+
+        if state == 0
+            state = initState;
+        end
+    end
+
+    bitsOut = zeros(nGroups*nBits, 1, 'int8');
+    for ig = 1:nGroups
+        w = double(outWords(ig));
+        bitsOut((ig-1)*nBits+1:ig*nBits) = int8(de2bi(w, nBits, 'left-msb').');
+    end
+end
+
+function [fromStateVec, wordVec, branchSym, branchesByNext] = fourD8PSKTCMBranchTable(rEff)
+    persistent cache
+
+    supportedEff = [2 2.25 2.5 2.75];
+    [minDelta, effIdx] = min(abs(rEff - supportedEff));
+    if minDelta > 1e-9
+        error('Unsupported 4D-8PSK-TCM modulation efficiency: %g', rEff);
+    end
+    rEff = supportedEff(effIdx);
+
+    if isempty(cache)
+        cache = cell(numel(supportedEff), 1);
+    end
+
+    if ~isempty(cache{effIdx})
+        entry = cache{effIdx};
+        fromStateVec = entry.fromStateVec;
+        wordVec = entry.wordVec;
+        branchSym = entry.branchSym;
+        branchesByNext = entry.branchesByNext;
+        return;
+    end
+
+    nBits = round(4 * rEff);
+    nStates = 512;
+    nWords = 2^nBits;
+    nBranches = nStates * nWords;
+
+    pskmodSymbols = [ ...
+        1+0j; ...
+        (1+1j)/sqrt(2); ...
+        0+1j; ...
+        (-1+1j)/sqrt(2); ...
+        -1+0j; ...
+        (-1-1j)/sqrt(2); ...
+        0-1j; ...
+        (1-1j)/sqrt(2)];
+
+    fromStateVec = zeros(nBranches, 1, 'uint16');
+    nextStateVec = zeros(nBranches, 1, 'uint16');
+    wordVec = zeros(nBranches, 1, 'uint16');
+    branchSym = complex(zeros(4, nBranches));
+
+    branchIdx = 1;
+    for oldState = 1:nStates
+        [oldConv, oldDiff] = tcmIdToState(oldState);
+        for w = 0:nWords-1
+            candBits = int8(de2bi(w, nBits, 'left-msb').');
+            [candSym, nextConv, nextDiff] = fourD8PSKTCMMapGroup( ...
+                candBits, rEff, oldConv, oldDiff, pskmodSymbols);
+
+            fromStateVec(branchIdx) = uint16(oldState);
+            nextStateVec(branchIdx) = uint16(tcmStateToId(nextConv, nextDiff));
+            wordVec(branchIdx) = uint16(w);
+            branchSym(:, branchIdx) = candSym;
+            branchIdx = branchIdx + 1;
+        end
+    end
+
+    branchesByNext = cell(nStates, 1);
+    for nextState = 1:nStates
+        branchesByNext{nextState} = find(nextStateVec == nextState);
+    end
+
+    cache{effIdx} = struct( ...
+        'fromStateVec',fromStateVec, ...
+        'wordVec',wordVec, ...
+        'branchSym',branchSym, ...
+        'branchesByNext',{branchesByNext});
+end
+function [convState, diffState] = tcmIdToState(stateId)
+    v = stateId - 1;
+
+    bits = zeros(9, 1, 'int8');
+    for k = 9:-1:1
+        bits(k) = int8(mod(v, 2));
+        v = floor(v / 2);
+    end
+
+    convState = bits(1:6);
+    diffState = bits(7:9);
+end
+
+function [diffOut, diffState] = fourD8PSKTCMDifferentialCoder(diffIn, diffState)
+    w = logical(diffIn(:));
+    states = logical(diffState(:));
+    diffOut = zeros(3, 1, 'int8');
+
+    r0 = and(w(1), states(1));
+    r1 = (w(2) & states(2)) | (w(2) & r0) | (states(2) & r0);
+    diffOut(1) = int8(xor(w(1), states(1)));
+    diffOut(2) = int8(xor(xor(w(2), states(2)), r0));
+    diffOut(3) = int8(xor(xor(w(3), states(3)), r1));
+    diffState = diffOut;
+end
+
+function [xout, convState] = fourD8PSKTrellisEnc(inBits, convState)
+    xin = logical(inBits(:));
+    states = logical(convState(:));
+
+    xout = int8(states(6));
+    states(6) = xor(xor(states(5), xin(1)), logical(xout));
+    states(5) = xor(xor(xin(1), xin(2)), states(4));
+    states(4) = xor(states(3), xin(3));
+    states(3) = xor(states(2), xin(2));
+    states(2) = xor(states(1), xin(3));
+    states(1) = logical(xout);
+    convState = int8(states);
+end
+
+function z = fourD8PSKConstellationMapper(x, rEff)
+    x = double(x(:));
+    z = zeros(4, 1);
+
+    switch rEff
+        case 2
+            z(1) = (4*x(9)) + (2*x(6)) + x(2);
+            z(2) = z(1) + ((4*x(8)) + (2*x(4)));
+            z(3) = z(1) + ((4*x(7)) + (2*x(3)));
+            z(4) = z(1) + ((4*(x(8)+x(7)+x(5))) + (2*(x(4)+x(3)+x(1))));
+        case 2.25
+            z(1) = (4*x(10)) + (2*x(7)) + x(3);
+            z(2) = z(1) + ((4*x(9)) + (2*x(5)) + x(1));
+            z(3) = z(1) + ((4*x(8)) + (2*x(4)));
+            z(4) = z(1) + ((4*(x(9)+x(8)+x(6))) + (2*(x(5)+x(4)+x(2))) + x(1));
+        case 2.5
+            z(1) = (4*x(11)) + (2*x(8)) + x(4);
+            z(2) = z(1) + ((4*x(10)) + (2*x(6)) + x(2));
+            z(3) = z(1) + ((4*x(9)) + (2*x(5))) + x(1);
+            z(4) = z(1) + ((4*(x(10)+x(9)+x(7))) + (2*(x(6)+x(5)+x(3))) + (x(2)+x(1)));
+        otherwise
+            z(1) = (4*x(12)) + (2*x(9)) + x(5);
+            z(2) = z(1) + ((4*x(11)) + 2*x(7) + x(3));
+            z(3) = z(1) + ((4*x(10)) + 2*x(6) + x(2));
+            z(4) = z(1) + ((4*(x(11)+x(10)+x(8))) + (2*(x(7)+x(6)+x(4))) + (x(3)+x(2)+x(1)));
+    end
+    z = mod(z, 8);
+end

@@ -35,6 +35,10 @@ __pycache__/
 /src/python/debug/*.csv
 /src/python/debug/*.png
 /src/python/debug/*.mat
+/tmp/**/*.mat
+/tmp/**/*.csv
+/tmp/**/*.log
+/tmp/**/*.txt
 
 # Local extraction/runtime scratch folders
 /tmp_mlx_extract/

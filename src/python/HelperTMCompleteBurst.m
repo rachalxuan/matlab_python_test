@@ -84,7 +84,8 @@ function [waveform, applied] = localApplyUnshapedSymbolHold(generator,waveform)
 % contract, so represent an unshaped symbol stream as an SPS-sample
 % rectangular pulse (zero-order hold).  Do not touch CPM/OQPSK/dedicated
 % waveform paths whose generator output is already oversampled.
-supported = ["BPSK","QPSK","8PSK","16QAM","32QAM","UQPSK"];
+supported = ["BPSK","QPSK","8PSK","16QAM","32QAM", ...
+    "16APSK","32APSK","UQPSK"];
 applied = strcmpi(string(generator.PulseShapingFilter),"none") && ...
     any(strcmpi(string(generator.Modulation),supported));
 waveform = waveform(:);

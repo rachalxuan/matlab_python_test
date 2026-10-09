@@ -1,5 +1,9 @@
 # 卷积码连续打孔接收改造方案：先验证 3/4，再逐项推广
 
+2026-10-07 更新：OQPSK/UQPSK 的合路 RRC/none 已接入公共连续卷积路径，并开放前端路由。五种码率、3/4 三种帧余数、RS 代表组合、另一 seed 的相偏/定时偏移共 60/60 主链用例通过，均 120/120、BER/FER=0；旧路径 12/12 等价，普通调制/APSK 14/14 回归通过。UQPSK 新路径以 raw ASM 而非 BER 选择分组；未重写调制/同步。详细边界、命令及紧凑结果见 `src/python/regression/oq_uq_continuous_conv_notes.md`。后文各日期段为历史记录。
+
+2026-09-28 更新：16APSK/32APSK 的 RRC/none 已接入同一公共连续卷积接收器，并接入前端参数路由。APSK 卷积 20 组、RS223 I=1 串联码 20 组、RS239 交织深度代表抽查 24 组、正负 90° 相位对照 8 组，共 72/72 通过 No-H 无噪声测试，均 BER/FER=0、120/120；串联码测量区 RS 前错误和纠正数为 0。仍限定 single、NRZ-L、ASM 开、加扰关；MATLAB 直接调用需显式选择 stream-raw-asm。详见 `src/python/regression/apsk_continuous_conv_notes.md`，包括首次 MATLAB 进程异常退出及独立完整重跑记录。下文 2026-09-23 状态为历史阶段记录，不代表 APSK 仍未接入。
+
 日期：2026-09-23。状态：公共连续卷积接收器已覆盖 1/2、2/3、3/4、5/6、7/8，并与发射端共用 `ccsdsTMConvolutionalPunctureConfig`。五种码率的比特层全部打孔偏移、整段/随机分块等价性共 46/46 组通过；真实 `ccsdsTMWaveformGenerator` 的整批/逐帧输出、波形、guard 续发和独立连续编码参考在五种码率下均一致。QPSK 主入口新增 1/2、2/3 回归 6/6 通过，原 3/4 回归 3/3、5/6 和 7/8 回归 6/6 通过，测量覆盖完整且 BER/FER 均为 0。BPSK、8PSK、16QAM、32QAM 已接入同一公共入口；非缩短 RS(255,223)/(255,239) 的 I=1/2/3/4/5/8 与五种内码率矩阵已通过 No-H 长测。网页已对上述普通合路、NRZ-L、ASM 开、加扰关的组合提交 `stream-raw-asm`，并开放 12 个完整 RS 配置。尚未开放缩短 RS、I=6/7、加扰、差分、分路、APSK 和专用 CPM/OQPSK/UQPSK 连续接收路径。
 
 ## 1. 目标与边界

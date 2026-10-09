@@ -1803,9 +1803,7 @@ const CCSDSPlatform = () => {
                 >
                   <Select
                     onChange={(value) => {
-                      if (!SELECTABLE_PULSE_SHAPING_MODS.includes(value) ||
-                          (form.getFieldValue("PulseShapingFilter") === "raised cosine" &&
-                           !["OQPSK", "UQPSK"].includes(value))) {
+                      if (!SELECTABLE_PULSE_SHAPING_MODS.includes(value)) {
                         form.setFieldValue(
                           "PulseShapingFilter",
                           "root raised cosine",
@@ -2059,9 +2057,6 @@ const CCSDSPlatform = () => {
                           <Col span={4}>
                             <Form.Item
                               name="PulseShapingFilter"
-                              extra={getFieldValue("PulseShapingFilter") === "raised cosine"
-                                ? "RC 使用 RC 接收匹配滤波，级联仍有残余 ISI；UQPSK 部分帧长尚未通过无噪声回归，默认建议保留 RRC。"
-                                : undefined}
                               label={labelWithDefault(
                                 "成型滤波",
                                 "PulseShapingFilter",
@@ -2070,7 +2065,7 @@ const CCSDSPlatform = () => {
                               rules={[
                                 ...defaultRule("PulseShapingFilter"),
                                 enumRule(
-                                  ["root raised cosine", "none", ...(["OQPSK", "UQPSK"].includes(mod) ? ["raised cosine"] : [])],
+                                  ["root raised cosine", "none"],
                                   "成型滤波",
                                 ),
                               ]}
@@ -2079,9 +2074,6 @@ const CCSDSPlatform = () => {
                                 <Option value="root raised cosine">
                                   平方根升余弦（RRC）
                                 </Option>
-                                {["OQPSK", "UQPSK"].includes(mod) && (
-                                  <Option value="raised cosine">升余弦（RC，待验证）</Option>
-                                )}
                                 <Option value="none">旁路（不成形）</Option>
                               </Select>
                             </Form.Item>

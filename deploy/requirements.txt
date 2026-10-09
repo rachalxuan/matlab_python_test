@@ -1,0 +1,4 @@
+# HTTP dependencies observed on the source computer (2026-10-08).
+# Install MATLAB Engine separately from the matching MATLAB installation.
+Flask==3.0.3
+Flask-Cors==5.0.0
