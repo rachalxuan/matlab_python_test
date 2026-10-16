@@ -101,11 +101,10 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
     % block followed by DD over the complete capture.  That is unsafe for
     % an effectively single-path H snapshot: the extra taps can manufacture
     % ISI and a short burst of wrong decisions can move all taps together.
-    % Keep the public 11-tap default, but select a scalar path after blind
-    % acquisition and supervise DD in short windows.
-    sideTapOnRatio = localNumber(options, ...
-        'adaptiveEqualizerScalarSideTapOnRatio', 0.02);
-    sideTapOnRatio = min(max(sideTapOnRatio,0),1);
+    % Preserve the requested FIR structure. Small side taps after a short
+    % blind startup do not prove a scalar channel (they may be unlearned).
+    % Legacy AutoScalar/SideTapOnRatio options no longer delete learned taps;
+    % select adaptiveEqualizerTaps=1 explicitly to request a scalar equalizer.
     ddWindowSymbols = max(32, round(localNumber(options, ...
         'adaptiveEqualizerDDWindowSymbols', 256)));
     ddMinWindowAcceptance = localNumber(options, ...
@@ -118,10 +117,6 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
         modulationName = localString(options,'modulationName','');
     end
     modulationName = upper(string(modulationName));
-    autoScalarForQAM = localLogical(options, ...
-        'adaptiveEqualizerAutoScalarForQAM', false);
-    autoScalarAllowed = contains(modulationName,'APSK') || ...
-        (contains(modulationName,'QAM') && autoScalarForQAM);
     enableQAMWindowHold = localLogical(options, ...
         'adaptiveEqualizerEnableQAMWindowHold', false);
     if contains(modulationName,'QAM') && ~enableQAMWindowHold
@@ -269,23 +264,11 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
             phaseConfidence >= minCMAConfidence;
         w = w * exp(-1j*phaseRotation);
 
-        % A scalar H path should not be forced through a full FIR/DD
-        % tracker.  Estimate the energy outside the dominant tap after the
-        % blind stage.  The thresholds have hysteresis so a noisy estimate
-        % cannot switch the structure on every capture.
+        % Diagnostic only: do not confuse an unlearned side tap with proof
+        % that adjacent-symbol interference is absent.
         centerEnergy = abs(w(delay+1)).^2;
         totalEnergy = sum(abs(w).^2) + eps;
         sideTapEnergyRatio = max(0, (totalEnergy-centerEnergy)/totalEnergy);
-        scalarMode = scalarMode || (autoScalarAllowed && ...
-            sideTapEnergyRatio <= sideTapOnRatio);
-        if scalarMode && nTaps > 1
-            centerTap = w(delay+1);
-            w(:) = 0;
-            w(delay+1) = centerTap;
-            if abs(w(delay+1)) < eps
-                w(delay+1) = 1;
-            end
-        end
     else
         cmaLast = valid(1)-1;
         phaseOrder = localPhaseOrder(options, refConst);
@@ -298,8 +281,8 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
         ddPassesEffective = 0;
     end
 
-    % APSK already has a ring-directed blind stage and (in ordinary TM)
-    % pilot-based complex correction before this helper.  On a scalar path,
+    % Ordinary TM APSK uses the pilotless carrier/gain front end. On an
+    % explicitly requested scalar path,
     % allowing an unanchored nearest-point DD loop to run is more likely to
     % create a sector slip than to remove ISI.  QAM keeps DD because the
     % short A/B tests show that it is needed when residual structure remains.
@@ -414,8 +397,9 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
                     decisionOK = abs(errDD) <= gate;
                     windowDecisions = windowDecisions + 1;
                     if decisionOK
-                        wCandidate = w + (muDD / powerX) * xv * conj(errDD);
-                        if all(isfinite(wCandidate)) && norm(wCandidate) <= maxTapNorm
+                        [wCandidate,updateAccepted] = HelperTMNormalizedTapUpdate( ...
+                            w,xv,errDD,muDD,powerX,maxTapNorm);
+                        if updateAccepted
                             w = wCandidate;
                             accepted(n) = true;
                             windowAccepted = windowAccepted + 1;
@@ -577,12 +561,14 @@ function [yEq, state, info] = HelperTMBlindCMAEqualizer(x, refConst, options)
         (~runCMA || cmaQualified) && outputAccepted;
     if ~outputAccepted
         info.Reason = rollbackReason;
-    elseif ddPassesRequested > 0 && ddPassesEffective == 0 && runCMA
+    elseif ddPassesRequested > 0 && ddPassesEffective == 0 && runCMA && ~cmaQualified
         info.Reason = sprintf( ...
             ['%s blind startup retained; CMA qualification failed ', ...
              '(MSE %.4g/%.4g, confidence %.1f%%/%.1f%%)'], ...
             upper(blindCostMode),phaseScore,switchMSE, ...
             100*phaseConfidence,100*minCMAConfidence);
+    elseif ddPassesRequested > 0 && ddPassesEffective == 0 && scalarMode
+        info.Reason = 'explicit scalar structure; DD tracking disabled by scalar policy';
     elseif ddPassesEffective == 0 && runCMA
         info.Reason = sprintf('%s blind startup only', upper(blindCostMode));
     elseif ddPassesEffective == 0

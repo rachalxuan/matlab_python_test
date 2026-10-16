@@ -60,6 +60,7 @@ import {
   modulationBitsPerSymbol,
   SELECTABLE_PULSE_SHAPING_MODS,
   resolveModulationRates,
+  adaptiveEqualizerProfile,
 } from "./parameterContract";
 
 const { Option } = Select;
@@ -1803,6 +1804,10 @@ const CCSDSPlatform = () => {
                 >
                   <Select
                     onChange={(value) => {
+                      const eqProfile = adaptiveEqualizerProfile(value);
+                      if (!eqProfile.options.some(option => option.value === form.getFieldValue("adaptiveEqualizerSamplingMode"))) {
+                        form.setFieldValue("adaptiveEqualizerSamplingMode", eqProfile.defaultMode);
+                      }
                       if (!SELECTABLE_PULSE_SHAPING_MODS.includes(value)) {
                         form.setFieldValue(
                           "PulseShapingFilter",
@@ -2644,7 +2649,14 @@ const CCSDSPlatform = () => {
                   valuePropName="checked"
                   label=" "
                 >
-                  <Checkbox>开启自适应均衡（非已知 H）</Checkbox>
+                  <Checkbox onChange={(event) => {
+                    if (!event.target.checked) return;
+                    const profile = adaptiveEqualizerProfile(form.getFieldValue("modType"));
+                    const current = form.getFieldValue("adaptiveEqualizerSamplingMode");
+                    if (!profile.options.some((item) => item.value === current)) {
+                      form.setFieldsValue({ adaptiveEqualizerSamplingMode: profile.defaultMode });
+                    }
+                  }}>开启自适应均衡（非已知 H）</Checkbox>
                 </Form.Item>
               </Col>
             </Row>
@@ -2672,8 +2684,10 @@ const CCSDSPlatform = () => {
                 </Form.Item>
               </Col>
               <Col span={6}>
-                <Form.Item name="adaptiveEqualizerSamplingMode" label="自适应均衡结构" extra="通用 PSK/QAM 分支；APSK、CPM、OQPSK/UQPSK 保留专用前端。">
-                  <Select options={[{value:"1sps",label:"1 sps CMA/LMS"},{value:"2sps",label:"2 sps CMA"},{value:"2sps-dual",label:"2 sps 同抽头双模（实验）"}]} />
+                <Form.Item noStyle dependencies={["modType", "enableEqualizer"]}>
+                  {({ getFieldValue }) => <Form.Item name="adaptiveEqualizerSamplingMode" label="自适应均衡结构" extra={adaptiveEqualizerProfile(getFieldValue("modType")).description}>
+                    <Select disabled={!getFieldValue("enableEqualizer") || !adaptiveEqualizerProfile(getFieldValue("modType")).options.length} options={adaptiveEqualizerProfile(getFieldValue("modType")).options} />
+                  </Form.Item>}
                 </Form.Item>
               </Col>
             </Row>

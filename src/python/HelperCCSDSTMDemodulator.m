@@ -8,6 +8,9 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
         % The receiver estimates this from synchronized symbols unless the
         % caller supplies an explicit value.
         NoiseVariance = 0.01
+        % Internal OQPSK receiver interface; prevents a second matched filter
+        % after the staggered-rail adaptive equalizer. Default is unchanged.
+        OQPSKInputMatchedFiltered = false
     end
 
     properties(Nontunable, Access = private)
@@ -269,7 +272,8 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
                 y = localOQPSKSoftLLR(u, double(obj.SamplesPerSymbol), ...
                     double(obj.RolloffFactor), ...
                     double(obj.FilterSpanInSymbols), ...
-                    double(obj.NoiseVariance),obj.PulseShapingFilter);
+                    double(obj.NoiseVariance),obj.PulseShapingFilter, ...
+                    obj.OQPSKInputMatchedFiltered);
             elseif obj.pIsUQPSK
                 % =========================================================
                 % UQPSK soft demap
@@ -455,6 +459,8 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
             
             elseif strcmp(prop, 'PulseShapingFilter')
                 flag = ~strcmp(obj.Modulation, 'OQPSK');
+            elseif strcmp(prop, 'OQPSKInputMatchedFiltered')
+                flag = ~strcmp(obj.Modulation, 'OQPSK');
             elseif strcmp(prop, 'RolloffFactor')
                 flag = ~strcmp(obj.Modulation, 'OQPSK');
             elseif strcmp(prop, 'FilterSpanInSymbols')
@@ -491,7 +497,7 @@ classdef HelperCCSDSTMDemodulator < comm.internal.Helper & satcom.internal.ccsds
     end
 end
 
-function softBits = localOQPSKSoftLLR(x, sps, rolloff, span, noiseVar, pulseShape)
+function softBits = localOQPSKSoftLLR(x, sps, rolloff, span, noiseVar, pulseShape, inputMatched)
 %LOCALOQPSKSOFTLLR Matched-filter OQPSK demapper with staggered I/Q rails.
 % The transmitter emits the I bit at the symbol epoch and the Q bit one
 % half-symbol later.  Sampling both rails at one common instant turns the
@@ -511,8 +517,12 @@ function softBits = localOQPSKSoftLLR(x, sps, rolloff, span, noiseVar, pulseShap
     end
 
     h = pulse.ReceiveTaps;
-    matched = filter(h, 1, x);
-    [iSamples, qSamples] = localOQPSKSelectRailTiming( ...
+    if inputMatched
+        matched = x;
+    else
+        matched = filter(h, 1, x);
+    end
+    [iSamples, qSamples] = HelperTMOQPSKRailSamples( ...
         matched, sps, span);
     nSymbols = min(numel(iSamples), numel(qSamples));
     if nSymbols <= 0
@@ -536,40 +546,6 @@ function softBits = localOQPSKSoftLLR(x, sps, rolloff, span, noiseVar, pulseShap
     softMatrix = [-scale*iSamples.'; -scale*qSamples.'];
     softBits = double(softMatrix(:));
     softBits = max(min(softBits, 50), -50);
-end
-
-function [iSamples, qSamples] = localOQPSKSelectRailTiming(matched, sps, span)
-% Select the fractional symbol phase without transmitted-data knowledge.
-% At the correct OQPSK eye center each individual BPSK rail has nearly
-% constant magnitude.  Transition samples have a much larger magnitude
-% spread, so the minimum normalized rail-envelope variance is a robust
-% receiver-observable timing score.
-    bestScore = inf;
-    iSamples = zeros(0,1);
-    qSamples = zeros(0,1);
-    for offset = 0:sps-1
-        iCandidate = real(matched(1+offset:sps:end));
-        qStart = 1 + offset + sps/2;
-        qCandidate = imag(matched(qStart:sps:end));
-        n = min(numel(iCandidate), numel(qCandidate));
-        if n <= max(8, 2*span)
-            continue;
-        end
-        iCandidate = iCandidate(1:n);
-        qCandidate = qCandidate(1:n);
-        guard = min(span, floor((n-1)/4));
-        use = (1+guard):(n-guard);
-        railAmplitude = sqrt(mean( ...
-            iCandidate(use).^2 + qCandidate(use).^2)/2 + eps);
-        score = mean((abs(iCandidate(use))-railAmplitude).^2 + ...
-            (abs(qCandidate(use))-railAmplitude).^2) / ...
-            (2*railAmplitude^2 + eps);
-        if score < bestScore
-            bestScore = score;
-            iSamples = iCandidate;
-            qSamples = qCandidate;
-        end
-    end
 end
 
 function [bitsSoft, lastLineSoft] = localPCMDifferentialSoftDecode(lineSoft, lastLineSoft, pcmFormat)

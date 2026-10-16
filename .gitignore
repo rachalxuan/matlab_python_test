@@ -39,6 +39,10 @@ __pycache__/
 /tmp/**/*.csv
 /tmp/**/*.log
 /tmp/**/*.txt
+/tmp/*.mat
+/tmp/*.csv
+/tmp/*.log
+/tmp/*.txt
 
 # Local extraction/runtime scratch folders
 /tmp_mlx_extract/

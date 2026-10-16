@@ -233,10 +233,24 @@ if n < 1
     return;
 end
 index = index(1:n);
-if isfinite(frameDuration) && frameDuration > 0
+if strcmp(localText(frame,'PositionDomain',''),'decoded-raw-bit')
+    positions = localVector(frame,'PeakPosition');
+    frameLength = localNumber(frame,'InputFrameLength',NaN);
+    bitOffset = localNumber(frame,'NominalRawBitOffset',0);
+    if numel(positions) ~= n || any(~isfinite(positions) | positions < 1) || ...
+            any(diff(positions) <= 0) || ~isfinite(frameLength) || frameLength <= 0 || ...
+            ~isfinite(frameDuration) || frameDuration <= 0 || ~isfinite(bitOffset)
+        track.Reason = 'invalid decoded-raw-bit frame observation coordinates';
+        return;
+    end
+    time = ((positions-1+bitOffset)/frameLength+0.5)*frameDuration;
+    track.TimeBasis = 'receiver-input-relative; nominal puncture offset; no TX delay calibration';
+elseif isfinite(frameDuration) && frameDuration > 0
     time = (index-0.5)*frameDuration;
+    track.TimeBasis = 'legacy observation-index frame clock';
 else
     time = index;
+    track.TimeBasis = 'observation index (frame duration unavailable)';
 end
 quality = nan(n,1);
 if isfield(frame,'Correlation')

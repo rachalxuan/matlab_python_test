@@ -335,14 +335,24 @@ function sync = localFindPeriodicASM(bits,asm,frameLength,errorThreshold,minFram
             best.GoodASMCount = goodCount;
             best.MeanASMErrors = meanErrors;
             best.WorstASMErrors = worstErrors;
-            if runLength > 0
-                first = positions(runStart);
+            % The longest run scores the candidate, NOT its output origin.
+            % Recover from the first independently qualifying run, including
+            % subsequent bad-ASM frames. Never select frames using TX truth.
+            if best.Locked
+                firstQualified = find(conv(double(good), ...
+                    ones(minFrames,1),'valid') == minFrames,1,'first');
+                first = positions(firstQualified);
                 starts = (first:frameLength: ...
                     (numel(bits)-frameLength+1)).';
                 best.FirstFrameStart = first;
                 best.CompleteFrames = numel(starts);
                 best.FrameStarts = starts;
                 best.ASMErrors = allErrors(starts);
+            else
+                best.FirstFrameStart = NaN;
+                best.CompleteFrames = 0;
+                best.FrameStarts = zeros(0,1);
+                best.ASMErrors = zeros(0,1);
             end
         end
     end

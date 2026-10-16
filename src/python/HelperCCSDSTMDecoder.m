@@ -79,6 +79,12 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         % Five iterations is too shallow near the decoder waterfall and
         % can turn a low raw BER into an otherwise avoidable frame loss.
         LDPCMaxIterations = 20
+        % LDPCDecoderMode selects the ordinary-TM LDPC implementation.
+        %   legacy-dense-bp    - established receiver (default/rollback)
+        %   standard-sparse-bp - exact shortened CCSDS 7/8 sparse graph
+        %   capture-only       - capture aligned, derandomized LLRs and
+        %                        bypass BP for offline A/B diagnosis
+        LDPCDecoderMode = 'legacy-dense-bp'
         CodedSyncOffset = 0
         UsePeriodicCodedASMSync = true
         CodedASMPeriodicFrames = 8
@@ -108,6 +114,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
         pLDPCPuncturedLength = 0
         pLDPCMessageLength
         pLDPCMaxIterations = 20
+        pLDPCDecoderMode = 'legacy-dense-bp'
+        pLDPCCapturedLLR = zeros(0,0,'single')
         pTurboDecoder
         pTurboCodewordLength
         pTurboMessageLength
@@ -178,6 +186,36 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 'Source','decoder-input-bit-position', ...
                 'InputStartBit',obj.pDecodedFrameStartBits(:), ...
                 'InputFrameLength',double(obj.pFullInputBufferLength));
+        end
+
+        function capture = getLDPCCapture(obj)
+            % Receiver-only diagnostic at the exact LDPC decoder boundary.
+            % The samples have already been frame aligned, stripped of ASM,
+            % polarity-normalized (positive=zero), and derandomized when the
+            % randomizer is after FEC. No TX reference is used to create them.
+            llr = obj.pLDPCCapturedLLR;
+            n = size(llr,2);
+            starts = nan(n,1);
+            availableStarts = min(n,numel(obj.pDecodedFrameStartBits));
+            if availableStarts > 0
+                starts(1:availableStarts) = ...
+                    obj.pDecodedFrameStartBits(1:availableStarts);
+            end
+            capture = struct( ...
+                'Available',n > 0, ...
+                'Mode',char(obj.pLDPCDecoderMode), ...
+                'LLR',llr, ...
+                'LLRPolarity','positive-zero', ...
+                'ASMRemoved',true, ...
+                'Derandomized',~obj.RandomizerEnabled || strcmpi( ...
+                    obj.RandomizerFECPosition,'afterEncoding'), ...
+                'RandomizerEnabled',logical(obj.RandomizerEnabled), ...
+                'RandomizerFECPosition',char(obj.RandomizerFECPosition), ...
+                'TransmittedCodewordLength',double(obj.pLDPCCodewordLength), ...
+                'InformationLength',double(obj.pLDPCMessageLength), ...
+                'InputStartBit',starts, ...
+                'InputFrameLength',double(obj.pFullInputBufferLength), ...
+                'CodewordIndex',(1:n).');
         end
 
         function telemetry = getFrameSyncTelemetry(obj)
@@ -537,8 +575,6 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             if strcmp(obj.ChannelCoding, "LDPC")
                 invr = getInverseCodeRate(obj);
                 kReq = double(obj.NumBitsInInformationBlock);
-                S = loadOrCreateTMLDPCH(kReq, invr);
-
                 maxIterations = double(obj.LDPCMaxIterations);
                 if ~isscalar(maxIterations) || ~isfinite(maxIterations) || ...
                         maxIterations < 1
@@ -547,18 +583,46 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 end
                 obj.pLDPCMaxIterations = max(1, round(maxIterations));
 
-                obj.pLDPCMessageLength = S.k;
-                obj.pLDPCCodewordLength = S.n;
-                obj.pLDPCFullCodewordLength = size(S.H, 2);
-                obj.pLDPCPuncturedLength = ...
-                    obj.pLDPCFullCodewordLength - obj.pLDPCCodewordLength;
-                if obj.pLDPCPuncturedLength < 0
-                    error('HelperCCSDSTMDecoder:InvalidLDPCMatrixLength', ...
-                        ['LDPC parity-check matrix has %d columns but the ', ...
-                         'transmitted codeword has %d bits.'], ...
-                        obj.pLDPCFullCodewordLength, obj.pLDPCCodewordLength);
+                mode = validatestring(lower(strtrim(char(string( ...
+                    obj.LDPCDecoderMode)))), ...
+                    {'legacy-dense-bp','standard-sparse-bp','capture-only'}, ...
+                    mfilename,'LDPCDecoderMode');
+                obj.pLDPCDecoderMode = mode;
+                usesStandard78 = any(strcmp(mode, ...
+                    {'standard-sparse-bp','capture-only'}));
+                if usesStandard78
+                    % "7/8" is the nominal CCSDS code name. tmBase returns
+                    % the actual wire inverse rate 8160/7136 (=255/223),
+                    % not 8/7, after shortening and the two fill bits.
+                    if kReq ~= 7136 || ~strcmp(obj.CodeRate,'7/8') || ...
+                            obj.IsLDPCOnSMTF
+                        error('HelperCCSDSTMDecoder:LDPCModeOnlySupports78', ...
+                            ['LDPCDecoderMode="%s" currently supports only ', ...
+                             'ordinary TM CCSDS 7/8 with k=7136, n=8160.'],mode);
+                    end
+                    obj.pLDPCMessageLength = 7136;
+                    obj.pLDPCCodewordLength = 8160;
+                    obj.pLDPCFullCodewordLength = 8160;
+                    obj.pLDPCPuncturedLength = 0;
+                    obj.pLDPCDecoderCfg = [];
+                    graphNNZ = 32632;
+                else
+                    S = loadOrCreateTMLDPCH(kReq, invr);
+                    obj.pLDPCMessageLength = S.k;
+                    obj.pLDPCCodewordLength = S.n;
+                    obj.pLDPCFullCodewordLength = size(S.H, 2);
+                    obj.pLDPCPuncturedLength = ...
+                        obj.pLDPCFullCodewordLength - obj.pLDPCCodewordLength;
+                    if obj.pLDPCPuncturedLength < 0
+                        error('HelperCCSDSTMDecoder:InvalidLDPCMatrixLength', ...
+                            ['LDPC parity-check matrix has %d columns but the ', ...
+                             'transmitted codeword has %d bits.'], ...
+                            obj.pLDPCFullCodewordLength, obj.pLDPCCodewordLength);
+                    end
+                    obj.pLDPCDecoderCfg = ...
+                        ldpcDecoderConfig(sparse(logical(S.H)));
+                    graphNNZ = nnz(S.H);
                 end
-                obj.pLDPCDecoderCfg = ldpcDecoderConfig(sparse(logical(S.H)));
 
                 % 普通 TM LDPC: coded frame = ASM + LDPC codeword
                 syncLen = length(obj.pASM)*obj.HasASM;
@@ -568,7 +632,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 if obj.DebugLDPC
                     fprintf(['[LDPC setup] k=%d, txN=%d, fullN=%d, ', ...
                         'punctured=%d, rate=%.6f, syncLen=%d, ', ...
-                        'fullFrame=%d, maxIter=%d, Hnnz=%d\n'], ...
+                        'fullFrame=%d, maxIter=%d, mode=%s, Hnnz=%d\n'], ...
                         obj.pLDPCMessageLength, ...
                         obj.pLDPCCodewordLength, ...
                         obj.pLDPCFullCodewordLength, ...
@@ -576,7 +640,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                         obj.pLDPCMessageLength/obj.pLDPCCodewordLength, ...
                         obj.pFullInputBufferLength - obj.pLDPCCodewordLength, ...
                         obj.pFullInputBufferLength, obj.pLDPCMaxIterations, ...
-                        nnz(S.H));
+                        mode,graphNNZ);
                 end
             end
             if strcmp(obj.ChannelCoding, "TPC")
@@ -606,6 +670,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
 
             randomizerEnabled = obj.RandomizerEnabled;
             obj.pDecodedFrameStartBits = zeros(0,1);
+            obj.pLDPCCapturedLLR = zeros(0,0,'single');
             inputStartBit = obj.pInputBitsSeen - numel(obj.pInputBuffer) + 1;
             nextInputBitsSeen = obj.pInputBitsSeen + numel(llr);
             if strcmpi(obj.DataPathMode, 'dualIQ')
@@ -1105,6 +1170,10 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
 
                             numWords = size(cwSoft, 2);
                             y = zeros(obj.pLDPCMessageLength*numWords, 1, 'int8');
+                            if strcmp(obj.pLDPCDecoderMode,'capture-only')
+                                obj.pLDPCCapturedLLR = zeros( ...
+                                    obj.pLDPCCodewordLength,numWords,'single');
+                            end
 
                             for iWord = 1:numWords
                                 llrIn = double(cwSoft(:,iWord));
@@ -1127,20 +1196,33 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                                     llr(logical(prn)) = -llr(logical(prn));
                                 end
 
-                                % CCSDS AR4JA rate-1/2 transmits only the
-                                % first 4M variables.  The final M variables
-                                % belong to the standard sparse graph but are
-                                % punctured, so their channel LLR is exactly
-                                % zero (unknown) at the decoder input.
-                                if obj.pLDPCPuncturedLength > 0
-                                    llr = [llr; ...
-                                        zeros(obj.pLDPCPuncturedLength, 1)]; %#ok<AGROW>
+                                if strcmp(obj.pLDPCDecoderMode,'capture-only')
+                                    obj.pLDPCCapturedLLR(:,iWord) = single(llr);
+                                    % This output exists only to preserve frame
+                                    % slots/provenance for the offline capture.
+                                    % It is explicitly not an LDPC-decoded BER.
+                                    msg = int8(llr(1:obj.pLDPCMessageLength) < 0);
+                                elseif strcmp(obj.pLDPCDecoderMode, ...
+                                        'standard-sparse-bp')
+                                    msg = HelperTMLDPC78Decode( ...
+                                        llr,obj.pLDPCMaxIterations);
+                                else
+
+                                    % CCSDS AR4JA rate-1/2 transmits only the
+                                    % first 4M variables.  The final M variables
+                                    % belong to the standard sparse graph but are
+                                    % punctured, so their channel LLR is exactly
+                                    % zero (unknown) at the decoder input.
+                                    if obj.pLDPCPuncturedLength > 0
+                                        llr = [llr; ...
+                                            zeros(obj.pLDPCPuncturedLength, 1)]; %#ok<AGROW>
+                                    end
+
+                                    decWhole = ldpcDecode(llr, obj.pLDPCDecoderCfg, ...
+                                        obj.pLDPCMaxIterations, 'OutputFormat','whole');
+
+                                    msg = int8(decWhole(1:obj.pLDPCMessageLength));
                                 end
-
-                                decWhole = ldpcDecode(llr, obj.pLDPCDecoderCfg, ...
-                                    obj.pLDPCMaxIterations, 'OutputFormat','whole');
-
-                                msg = int8(decWhole(1:obj.pLDPCMessageLength));
                                 if randomizerEnabled && strcmpi(obj.RandomizerFECPosition, 'beforeEncoding')
                                     msg = bitxor(msg, obj.pPRNSequence(1:obj.pLDPCMessageLength));
                                 end
@@ -1657,6 +1739,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             obj.pInputBitsSeen = 0;
             obj.pPendingFrameStartBits = zeros(0,1);
             obj.pDecodedFrameStartBits = zeros(0,1);
+            obj.pLDPCCapturedLLR = zeros(0,0,'single');
             obj.pInputBuffer = [];
             obj.pOutputBuffer = [];
             obj.pDifferentialDecoderBit = 0;
@@ -1696,6 +1779,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             s.ConvolutionalG1G2Mode = obj.ConvolutionalG1G2Mode;
             s.DebugLDPC = obj.DebugLDPC;
             s.LDPCMaxIterations = obj.LDPCMaxIterations;
+            s.LDPCDecoderMode = obj.LDPCDecoderMode;
             s.CodedSyncOffset = obj.CodedSyncOffset;
             s.UsePeriodicCodedASMSync = obj.UsePeriodicCodedASMSync;
             s.CodedASMPeriodicFrames = obj.CodedASMPeriodicFrames;
@@ -1721,6 +1805,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 s.pInputBitsSeen = obj.pInputBitsSeen;
                 s.pPendingFrameStartBits = obj.pPendingFrameStartBits;
                 s.pDecodedFrameStartBits = obj.pDecodedFrameStartBits;
+                s.pLDPCDecoderMode = obj.pLDPCDecoderMode;
+                s.pLDPCCapturedLLR = obj.pLDPCCapturedLLR;
                 s.pDifferentialDecoderBit = obj.pDifferentialDecoderBit;
                 s.pFrameSyncLocked = obj.pFrameSyncLocked;
                 s.pFrameSyncGoodCount = obj.pFrameSyncGoodCount;
@@ -1746,6 +1832,9 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             end
             if isfield(s,'LDPCMaxIterations')
                 obj.LDPCMaxIterations = s.LDPCMaxIterations;
+            end
+            if isfield(s,'LDPCDecoderMode')
+                obj.LDPCDecoderMode = s.LDPCDecoderMode;
             end
             if isfield(s,'CodedSyncOffset')
                 obj.CodedSyncOffset = s.CodedSyncOffset;
@@ -1797,6 +1886,12 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                     obj.pPendingFrameStartBits = s.pPendingFrameStartBits;
                     obj.pDecodedFrameStartBits = s.pDecodedFrameStartBits;
                 end
+                if isfield(s,'pLDPCDecoderMode')
+                    obj.pLDPCDecoderMode = s.pLDPCDecoderMode;
+                end
+                if isfield(s,'pLDPCCapturedLLR')
+                    obj.pLDPCCapturedLLR = s.pLDPCCapturedLLR;
+                end
                 obj.pDifferentialDecoderBit = s.pDifferentialDecoderBit;
                 if isfield(s,'pFrameSyncLocked')
                     obj.pFrameSyncLocked = s.pFrameSyncLocked;
@@ -1841,6 +1936,8 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
             elseif strcmp(prop,'DebugLDPC')
                 flag = false;
             elseif strcmp(prop,'LDPCMaxIterations')
+                flag = ~strcmp(obj.ChannelCoding,'LDPC') || isFACM;
+            elseif strcmp(prop,'LDPCDecoderMode')
                 flag = ~strcmp(obj.ChannelCoding,'LDPC') || isFACM;
             elseif strcmp(prop,'DebugTurbo')
                 flag = false;
@@ -1908,6 +2005,7 @@ classdef HelperCCSDSTMDecoder < comm.internal.Helper & satcom.internal.ccsds.tmB
                 'DebugPCMFormat',...
                 'DebugLDPC',...
                 'LDPCMaxIterations',...
+                'LDPCDecoderMode',...
                 'CodedSyncOffset',...
                 'FrameSyncBitSlipTolerance',...
                 'FrameSyncASMErrorThreshold',...

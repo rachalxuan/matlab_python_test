@@ -568,9 +568,8 @@ o.berWarmUpFrames = 8;
 o.berFrames = 40;
 
 o.equalizerMode = 'blind-cma-lms';
-o.enableOQPSKHighRateTracking = true;
+o.enableOQPSKHighRateTracking = true; % Envelope only; official carrier loop follows.
 o.oqpskEnvelopeTauSymbols = 16;
-o.oqpskHighRatePhaseWindowSymbols = 16;
 o.enableUQPSKHighRateTracking = true;
 o.uqpskEnvelopeTauSymbols = 16;
 o.uqpskHighRatePhaseWindowSymbols = 16;

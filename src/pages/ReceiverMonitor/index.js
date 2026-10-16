@@ -212,7 +212,7 @@ export default function ReceiverMonitor() {
     <div className="monitor-chart-grid">
       <section className="monitor-panel"><h2>锁定时间记录</h2><Plot label="载波码元帧同步锁定时间线" option={lockChart} /><p className="monitor-footnote">仿真时间 · 按帧窗口末次证据显示；空白为未观测，不补成锁定。</p></section>
       <section className="monitor-panel"><h2>错误增长记录</h2><Plot label="逐窗口误码与累计误码" option={errorChart} /><p className="monitor-footnote">累计曲线不再上升且比较量继续增长，才说明该区间没有新增可测误码。</p></section>
-      <section className="monitor-panel"><div className="monitor-panel-title"><h2>接收 IQ 散点</h2><span>同步样本 + 理想判决点 · 整段快照</span></div>{constellation ? <Plot square label="实际接收IQ整段快照" option={constellationChart} /> : <div className="monitor-empty">等待接收样本</div>}<p className="monitor-footnote">{constellationExplanation(modulation)} 观察位置：选定整体相位后的 ctx.fineSynced；空心圆仅用于标出该调制的理想判决点，I/Q 等比例坐标。</p></section>
+      <section className="monitor-panel"><div className="monitor-panel-title"><h2>接收 IQ 散点</h2><span>同步样本 + 理想判决点 · 整段快照</span></div>{constellation ? <Plot square label="实际接收IQ整段快照" option={constellationChart} /> : <div className="monitor-empty">等待接收样本</div>}<p className="monitor-footnote">{constellationExplanation(modulation)} 观察位置：{constellation?.phaseScope === "carrier-output" ? "载波恢复输出，未施加整体相位修正；接收结果使用独立的相位接续记录" : "选定整体相位后的 ctx.fineSynced"}；空心圆仅用于标出该调制的理想判决点，I/Q 等比例坐标。</p></section>
       <section className="monitor-panel"><div className="monitor-panel-title"><h2>接收基带频谱</h2><span>首窗快照 · 相对峰值</span></div>{spectrum ? <Plot label="接收基带相对频谱" option={spectrumChart} /> : <div className="monitor-empty">等待接收样本</div>}<p className="monitor-footnote">不是绝对 dBm/Hz，也不是当前回放时刻的频谱。</p></section>
     </div>
 

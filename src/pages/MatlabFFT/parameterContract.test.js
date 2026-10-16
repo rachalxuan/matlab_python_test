@@ -6,8 +6,56 @@ import {
   modulationBitsPerSymbol,
   resolveModulationRates,
   RS_PRESETS,
+  ADAPTIVE_EQ_MODS,
+  adaptiveEqualizerProfile,
 } from './parameterContract';
 const base = { modType: 'QPSK', channelCoding: 'none', sps: 8, hasASM: true, DataPathMode: 'single', NumBytesInTransferFrame: 1151, symbolRate: 10e6 };
+test.each(ADAPTIVE_EQ_MODS)('%s EQ on/off selects an implemented route and clears stale flags', modType => {
+  const p = finalizeTMRequest({...base, modType, enableHChannel:true, enableEqualizer:true,
+    enableKnownHPreEqualizer:true, enableUQPSKPostCarrierAdaptiveEqualizer:true,
+    enableQAMPostBPSAdaptiveEqualizer:true, enablePilotlessAPSKPostFrontEndAdaptiveEqualizer:true});
+  expect(p.adaptiveEqualizerSamplingMode).toBe(adaptiveEqualizerProfile(modType).defaultMode);
+  expect(p.enableKnownHPreEqualizer).toBe(false);
+  expect(p.enableUQPSKPostCarrierAdaptiveEqualizer).toBe(modType==='UQPSK');
+  expect(p.enableQAMPostBPSAdaptiveEqualizer).toBe(['16QAM','32QAM'].includes(modType));
+  expect(p.enablePilotlessAPSKPostFrontEndAdaptiveEqualizer).toBe(['16APSK','32APSK'].includes(modType));
+  const off = finalizeTMRequest({...p,enableEqualizer:false});
+  expect(off).toMatchObject({equalizerMode:'off',adaptiveEqualizerSamplingMode:'off',
+    enableUQPSKPostCarrierAdaptiveEqualizer:false,enableQAMPostBPSAdaptiveEqualizer:false,
+    enablePilotlessAPSKPostFrontEndAdaptiveEqualizer:false});
+});
+test.each(['UQPSK','16QAM','32QAM','16APSK','32APSK'])('%s rejects unsupported FSE instead of reporting an inactive EQ', modType => {
+  expect(() => finalizeTMRequest({...base,modType,enableHChannel:true,enableEqualizer:true,
+    adaptiveEqualizerSamplingMode:'2sps'})).toThrow('不支持均衡结构');
+});
+
+test('export genuine frontend requests for opt-in MATLAB route validation', () => {
+  if (!process.env.TM_EQ_FIXTURE_PATH) return;
+  const requests=[];
+  for (const modType of ADAPTIVE_EQ_MODS) {
+    for (const PulseShapingFilter of ['root raised cosine','none']) {
+      for (const enableEqualizer of [false,true]) {
+        requests.push(finalizeTMRequest({...base,modType,PulseShapingFilter,enableEqualizer,
+          WaveformMode:'ordinaryTM',channelCoding:'convolutional',ConvolutionalCodeRate:'3/4',
+          PCMFormat:'NRZ-L',RandomizerEnabled:false,NumBytesInTransferFrame:258,
+          noiseMode:'off',cfo:0,phaseOffset:0,delay:0,AGCEnabled:false,
+          enableHChannel:true,HMode:'siso_multipath',H:{real:[1,0,0,0,0,0,0,0,.05],imag:[0,0,0,0,0,0,0,0,.03]},
+          normalizeHChannel:true,berWarmUpFrames:8,berFrames:12,randomSeed:917,
+          enableReceiverTimeline:true,enableRuntimeLockTelemetry:true,showFigures:false,
+          RRatio:2,ARatio:2,enableUQPSKFFTCoarseCFO:true,
+          RolloffFactor:.35,FilterSpanInSymbols:10}));
+      }
+    }
+  }
+  require('fs').writeFileSync(process.env.TM_EQ_FIXTURE_PATH,JSON.stringify(requests,null,2));
+  expect(requests).toHaveLength(36);
+});
+test('OQPSK routes adaptive EQ to staggered rails, never ordinary QPSK FSE', () => {
+  const request = {...base,modType:'OQPSK',enableHChannel:true,enableEqualizer:true};
+  expect(finalizeTMRequest(request)).toMatchObject({equalizerMode:'blind-cma-lms',adaptiveEqualizerSamplingMode:'oqpsk-staggered'});
+  expect(() => finalizeTMRequest({...request,adaptiveEqualizerSamplingMode:'2sps'})).toThrow(/OQPSK/);
+  expect(finalizeTMRequest({...request,enableEqualizer:false}).equalizerMode).toBe('off');
+});
 test.each([
   ['QPSK', 2, 300],
   ['OQPSK', 2, 300],

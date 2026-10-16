@@ -257,8 +257,39 @@ debugEnabled = localLogical(options,'debugPilotlessAPSK',false) || ...
     localLogical(options,'debugCarrierRecovery',false);
 carrierOpt.Debug = debugEnabled || localLogical(carrierOpt,'Debug',false);
 
+acquisitionEQ = struct('Applied',false,'Reason','not needed or equalizer disabled');
+% Frequency acquisition success does not establish absence of ISI. When
+% blind equalization is requested, one rotation-invariant FIR owns ISI
+% removal BEFORE acquisition/BPS, including inputs whose coarse CFO passes.
+% No channel profile, noise level, seed, TX reference or BER selects this path.
+carrierInput = x;
+if localLogical(options,'enableEqualizer',false) && ...
+        isfield(options,'equalizerMode') && ...
+        strcmpi(string(options.equalizerMode),'blind-cma-lms')
+    ref=localReference(modulation);
+    if isfield(carrierOpt,'ReferenceConstellation') && ...
+            ~isempty(carrierOpt.ReferenceConstellation)
+        ref=carrierOpt.ReferenceConstellation;
+    end
+    [carrierInput,acquisitionEQ] = ...
+        HelperTMBlindAcquisitionEqualizer(x,ref,carrierOpt);
+    HelperTMObserveDiagnosticStage(options,'AcquisitionEqualizerOutput',carrierInput);
+end
 [carrierOut,carrierState,carrierInfo] = ...
-    HelperTMAPSKCarrierRecovery(x,modulation,carrierOpt);
+    HelperTMAPSKCarrierRecovery(carrierInput,modulation,carrierOpt);
+if acquisitionEQ.Applied
+    acquisitionEQ.CaptureQualified = carrierInfo.AcquisitionQualified;
+    fprintf(['   [APSK acquisition EQ] rotation-invariant RDE, taps=%d ', ...
+        'train=%d, CFO qualified=%d\n'], ...
+        acquisitionEQ.NumTaps,acquisitionEQ.TrainingSymbols, ...
+        carrierInfo.FourthPowerQualified);
+end
+HelperTMObserveDiagnosticStage(options,'APSKAcquisition', ...
+    struct('Options',carrierOpt,'Info',carrierInfo));
+% Read-only laboratory sink; no reference data or corrections return here.
+if isfield(carrierState,'PhaseStages')
+    HelperTMObserveDiagnosticStage(options,'APSKInternalStages',carrierState);
+end
 
 if ~carrierInfo.Applied || ~carrierInfo.AcquisitionQualified
     error('HelperTMAPSKPilotlessFrontEnd:CarrierAcquisitionFailed', ...
@@ -439,6 +470,7 @@ info.SharedReliabilityMaskProvided = sharedHoldProvided;
 info.SharedReliabilityHoldSymbols = nnz(sharedHoldMask);
 info.SharedReliabilityHoldFraction = mean(sharedHoldMask);
 
+info.AcquisitionEqualizer = acquisitionEQ;
 state = struct('Carrier',carrierState,'ComplexGain',gainState);
 
 if debugEnabled

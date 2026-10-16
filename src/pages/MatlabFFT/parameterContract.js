@@ -1,6 +1,27 @@
 // Ordinary-TM web contract. DSP algorithms remain in MATLAB; never silently
 // replace a requested code rate, data path or equalizer with another one.
-export const ADAPTIVE_EQ_MODS = ["BPSK", "QPSK", "8PSK", "16QAM", "32QAM"];
+export const ADAPTIVE_EQ_MODS = ["BPSK", "QPSK", "8PSK", "16QAM", "32QAM", "OQPSK", "UQPSK", "16APSK", "32APSK"];
+export function adaptiveEqualizerProfile(modType) {
+  const mod = String(modType || "").toUpperCase();
+  if (["BPSK", "QPSK", "8PSK"].includes(mod)) return {
+    defaultMode: "2sps",
+    options: [{value:"1sps",label:"1 sps CMA/LMS"}, {value:"2sps",label:"2 sps CMA"}, {value:"2sps-dual",label:"2 sps 同抽头双模（实验）"}],
+    description: "普通 PSK 匹配滤波后的自适应均衡；不使用已知 H。",
+  };
+  if (mod === "OQPSK") return {
+    defaultMode: "oqpsk-staggered",
+    options: [{value:"oqpsk-staggered",label:"OQPSK 半符号错位 CMA"}],
+    description: "保留 I/Q 半符号错位；匹配滤波后自适应更新，不使用已知 H。",
+  };
+  const stage = mod === "UQPSK" ? "UQPSK 载波恢复后" :
+    ["16QAM","32QAM"].includes(mod) ? "QAM 盲相位恢复后" :
+    ["16APSK","32APSK"].includes(mod) ? "APSK pilotless 前端后" : "";
+  return stage ? {
+    defaultMode: "1sps",
+    options: [{value:"1sps",label:`${stage} · 公共 1 sps 均衡`}],
+    description: `${stage}接入公共自适应均衡，保留专用同步；非已知 H 补偿。`,
+  } : {defaultMode:"off",options:[],description:"此调制尚未接入本页面的自适应均衡。"};
+}
 export const PCM_MODS = ["BPSK", "QPSK", "8PSK", "OQPSK", "UQPSK", "16QAM", "32QAM", "16APSK", "32APSK"];
 export const TURBO_BLOCKS = [1784, 3568, 7136, 8920];
 export const FULL_RS_MESSAGE_LENGTHS = [223, 239];
@@ -197,12 +218,26 @@ export function finalizeTMRequest(input) {
     p.HasTMAPSKPilots = false;
   }
   for (const key of ["acmFormat", "ACMFormat", "enableFACMEqualizer", "facmEqualizerMode", "facmEqualizerTaps", "facmEqualizerReg", "TMAPSKPilotInterval", "TMAPSKPilotLength", "TMAPSKPilotPreambleLength"]) delete p[key];
+  // Clear stale dedicated-stage flags when switching modulation or EQ off.
+  p.enableKnownHPreEqualizer = false;
+  p.enableUQPSKPostCarrierAdaptiveEqualizer = false;
+  p.enableQAMPostBPSAdaptiveEqualizer = false;
+  p.enablePilotlessAPSKPostFrontEndAdaptiveEqualizer = false;
+  p.adaptiveFractionalPostMode = "off";
   if (p.enableEqualizer) {
     if (!p.enableHChannel) throw new Error("当前均衡对照请先选择 H 信道；无 H 基线请关闭均衡。");
     if (!ADAPTIVE_EQ_MODS.includes(p.modType)) throw new Error(`${p.modType} 使用专用前端，尚未接入此页面的通用自适应均衡选项，请关闭该选项。`);
     p.equalizerMode = "blind-cma-lms";
-    p.adaptiveEqualizerSamplingMode = p.adaptiveEqualizerSamplingMode || "2sps";
-    p.adaptiveFractionalPostMode = "off";
+    const profile = adaptiveEqualizerProfile(p.modType);
+    const mode = !p.adaptiveEqualizerSamplingMode || p.adaptiveEqualizerSamplingMode === "auto"
+      ? profile.defaultMode : p.adaptiveEqualizerSamplingMode;
+    if (!profile.options.some(option => option.value === mode)) {
+      throw new Error(`${p.modType} 不支持均衡结构 ${mode}；请选择 ${profile.options.map(option => option.value).join(" / ")}。`);
+    }
+    p.adaptiveEqualizerSamplingMode = mode;
+    p.enableUQPSKPostCarrierAdaptiveEqualizer = p.modType === "UQPSK";
+    p.enableQAMPostBPSAdaptiveEqualizer = ["16QAM","32QAM"].includes(p.modType);
+    p.enablePilotlessAPSKPostFrontEndAdaptiveEqualizer = ["16APSK","32APSK"].includes(p.modType);
   } else {
     p.equalizerMode = "off";
     p.adaptiveEqualizerSamplingMode = "off";
